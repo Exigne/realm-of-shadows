@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
+import Raycaster from './Raycaster';
+
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');`;
 
 const CLASSES = {
