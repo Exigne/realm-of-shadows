@@ -1,6 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { worldMap, mapWidth, mapHeight } from './gameMap';
 
+// Define texture sources using direct SVG code (No downloads needed!)
+const textureSources = {
+  // 1: Grey Cobblestone
+  1: "data:image/svg+xml;utf8,<svg width='64' height='64' xmlns='http://www.w3.org/2000/svg'><rect width='64' height='64' fill='%23888'/><path d='M0 32h64M32 0v32M16 32v32M48 32v32M0 16h64M0 48h64' stroke='%23444' stroke-width='2'/></svg>",
+  // 3: Mossy Red Brick
+  3: "data:image/svg+xml;utf8,<svg width='64' height='64' xmlns='http://www.w3.org/2000/svg'><rect width='64' height='64' fill='%23733'/><path d='M0 16h64M0 32h64M0 48h64M16 0v16M48 0v16M32 16v16M16 32v16M48 32v16M32 48v16' stroke='%23aaa' stroke-width='2'/><circle cx='20' cy='20' r='8' fill='%23363'/><circle cx='50' cy='45' r='10' fill='%23363'/></svg>",
+  // 4: Wooden Dungeon Door with Iron Bands
+  4: "data:image/svg+xml;utf8,<svg width='64' height='64' xmlns='http://www.w3.org/2000/svg'><rect width='64' height='64' fill='%23531'/><path d='M16 0v64M32 0v64M48 0v64' stroke='%23310' stroke-width='2'/><rect y='10' width='64' height='8' fill='%23222'/><rect y='46' width='64' height='8' fill='%23222'/><circle cx='12' cy='32' r='4' fill='%23da4'/></svg>"
+};
+
+// 2D Goblin Sprite with glowing red eyes
+const spriteSource = "data:image/svg+xml;utf8,<svg width='64' height='64' xmlns='http://www.w3.org/2000/svg'><rect width='64' height='64' fill='transparent'/><path d='M16 48l16-32 16 32z' fill='%23383'/><circle cx='26' cy='36' r='3' fill='%23f00'/><circle cx='38' cy='36' r='3' fill='%23f00'/><path d='M28 44h8' stroke='%23000' stroke-width='2'/></svg>";
+
 export default function Raycaster({ onEncounter }) {
   const canvasRef = useRef(null);
   const [imagesLoaded, setImagesLoaded] = useState(false);
@@ -8,15 +21,6 @@ export default function Raycaster({ onEncounter }) {
   // Image assets map
   const textures = useRef({});
   const sprite = useRef(null);
-
-  // Define texture sources (make sure filenames in /public match exactly)
-  const textureSources = {
-    1: '/wall_stone.png',
-    3: '/wall_moss.png',
-    4: '/wall_door.png',
-  };
-
-  const spriteSource = '/goblin_sprite.png';
 
   // State management for rendering loop
   const player = useRef({
@@ -26,9 +30,9 @@ export default function Raycaster({ onEncounter }) {
     moveSpeed: 0.05, rotSpeed: 0.04
   });
 
-  // Example Goblin Sprite location (move trigger '2' to here)
+  // Goblin Sprite location in map space
   const goblin = useRef({
-    x: 5.5, y: 5.5, // Location in map space
+    x: 5.5, y: 5.5, 
     loaded: false
   });
 
@@ -65,13 +69,15 @@ export default function Raycaster({ onEncounter }) {
     loadImages();
   }, []);
 
-
-2. GAME INPUT & RENDER LOOP
+  // 2. GAME INPUT & RENDER LOOP
   useEffect(() => {
     if (!imagesLoaded) return; // Wait for assets
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    // Disable image smoothing for that crunchy retro pixel look
+    ctx.imageSmoothingEnabled = false; 
+    
     let animationFrameId;
 
     // Keyboard Listeners
@@ -124,7 +130,6 @@ export default function Raycaster({ onEncounter }) {
       ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
 
       // --- 4. RENDERING: WALL RAYCASTING (Textured) ---
-      // We store Z-Buffer for sprite rendering later
       const zBuffer = new Array(canvas.width);
 
       for (let x = 0; x < canvas.width; x++) {
@@ -149,8 +154,14 @@ export default function Raycaster({ onEncounter }) {
         while (hit === 0) {
           if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; } 
           else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+          
+          // Safety bounds check
+          if (mapX < 0 || mapX >= mapWidth || mapY < 0 || mapY >= mapHeight) {
+             hit = 1; // Treat out of bounds as a normal wall
+             break;
+          }
+          
           const mapTile = worldMap[mapX][mapY];
-          // We hit a textured wall type (1, 3, or 4)
           if (mapTile === 1 || mapTile === 3 || mapTile === 4) hit = mapTile;
         }
 
@@ -161,37 +172,35 @@ export default function Raycaster({ onEncounter }) {
         zBuffer[x] = perpWallDist;
 
         const lineHeight = Math.floor(canvas.height / perpWallDist);
-        const drawStart = -lineHeight / 2 + canvas.height / 2;
+        const drawStart = Math.max(0, -lineHeight / 2 + canvas.height / 2);
+        const drawEnd = Math.min(canvas.height - 1, lineHeight / 2 + canvas.height / 2);
+        const actualDrawHeight = drawEnd - drawStart;
         
         // -- TEXTURE CALCULATION --
-        const wallImg = textures.current[hit];
-        if (wallImg) {
-          // Calculate exactly where the wall was hit (wallX)
+        const wallImg = textures.current[hit] || textures.current[1]; // Fallback to 1 if missing
+        
+        if (wallImg && actualDrawHeight > 0) {
           let wallX; 
           if (side === 0) wallX = p.y + perpWallDist * rayDirY;
           else wallX = p.x + perpWallDist * rayDirX;
-          wallX -= Math.floor(wallX); // Value between 0.0 and 1.0
+          wallX -= Math.floor(wallX);
 
-          // Calculate source x coordinate in the texture image
-          const texWidth = wallImg.width;
+          const texWidth = wallImg.width || 64;
           let texX = Math.floor(wallX * texWidth);
           
-          // Flip texture on certain sides to prevent repeating issues
           if (side === 0 && rayDirX > 0) texX = texWidth - texX - 1;
           if (side === 1 && rayDirY < 0) texX = texWidth - texX - 1;
 
-          // Scale and draw the vertical strip from the texture PNG
           ctx.drawImage(
             wallImg, 
-            texX, 0, 1, wallImg.height, // Source: x, y, width, height (one pixel wide slice)
-            x, drawStart, 1, lineHeight // Destination: x, y, width, height (scaled)
+            texX, 0, 1, wallImg.height || 64, 
+            x, drawStart, 1, actualDrawHeight 
           );
           
-          // Apply basic depth shading (darken vertical walls, and far walls)
+          // Apply basic depth shading
           ctx.fillStyle = `rgba(0,0,0,${Math.min(0.8, perpWallDist / 8)})`;
-          if (side === 1) ctx.fillStyle = `rgba(0,0,0,${Math.min(0.8, perpWallDist / 8 + 0.2)})`; // Darker on y-axis
-          ctx.fillRect(x, drawStart, 1, lineHeight);
-
+          if (side === 1) ctx.fillStyle = `rgba(0,0,0,${Math.min(0.8, perpWallDist / 8 + 0.2)})`;
+          ctx.fillRect(x, drawStart, 1, actualDrawHeight);
         }
       }
 
@@ -200,38 +209,37 @@ export default function Raycaster({ onEncounter }) {
         const g = goblin.current;
         const spriteImg = sprite.current;
 
-        // Translate goblin position to relative camera position
         const spriteX = g.x - p.x;
         const spriteY = g.y - p.y;
 
-        // Required transform matrix division
         const invDet = 1.0 / (p.planeX * p.dirY - p.dirX * p.planeY);
         const transformX = invDet * (p.dirY * spriteX - p.dirX * spriteY);
-        const transformY = invDet * (-p.planeY * spriteX + p.planeX * spriteY); // Depth
+        const transformY = invDet * (-p.planeY * spriteX + p.planeX * spriteY);
 
-        // Don't render if behind the camera
         if (transformY > 0.1) {
           const spriteScreenX = Math.floor((canvas.width / 2) * (1 + transformX / transformY));
-          
-          // Calculate height/width scaling (keep aspect ratio)
           const spriteHeight = Math.abs(Math.floor(canvas.height / transformY));
-          const drawStartY = -spriteHeight / 2 + canvas.height / 2;
-          const spriteWidth = Math.abs(Math.floor(canvas.height / transformY)); // Keep square aspect
+          
+          // Using a slight offset to ground the sprite
+          const drawStartY = Math.max(0, -spriteHeight / 2 + canvas.height / 2 + (spriteHeight / 4));
+          const drawEndY = Math.min(canvas.height - 1, spriteHeight / 2 + canvas.height / 2 + (spriteHeight / 4));
+          const actualSpriteHeight = drawEndY - drawStartY;
+          
+          const spriteWidth = Math.abs(Math.floor(canvas.height / transformY)); 
           const drawStartX = Math.floor(spriteScreenX - spriteWidth / 2);
 
-          // Draw sprite pixel column by pixel column
-          for (let stripe = drawStartX; stripe < drawStartX + spriteWidth; stripe++) {
-            // Calculate source x in sprite PNG
-            const texX = Math.floor((stripe - (spriteScreenX - spriteWidth / 2)) * spriteImg.width / spriteWidth);
-            
-            // Validate: check if in front of walls (zBuffer) and within screen bounds
-            if (transformY < zBuffer[stripe] && stripe > 0 && stripe < canvas.width) {
-              ctx.drawImage(
-                spriteImg,
-                texX, 0, 1, spriteImg.height, // Source slice
-                stripe, drawStartY, 1, spriteHeight // Destination
-              );
-            }
+          if (actualSpriteHeight > 0) {
+              for (let stripe = drawStartX; stripe < drawStartX + spriteWidth; stripe++) {
+                const texX = Math.floor((stripe - (spriteScreenX - spriteWidth / 2)) * (spriteImg.width || 64) / spriteWidth);
+                
+                if (transformY < zBuffer[stripe] && stripe > 0 && stripe < canvas.width) {
+                  ctx.drawImage(
+                    spriteImg,
+                    texX, 0, 1, spriteImg.height || 64, 
+                    stripe, drawStartY, 1, actualSpriteHeight 
+                  );
+                }
+              }
           }
         }
       }
@@ -252,7 +260,7 @@ export default function Raycaster({ onEncounter }) {
   // Loading Screen
   if (!imagesLoaded) {
     return (
-      <div style={{ width: '640px', height: '480px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1208', color: '#ff3300', fontFamily: '"Press Start 2P", monospace' }}>
+      <div style={{ width: '100%', height: 'calc(100vh - 120px)', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1208', color: '#ff3300', fontFamily: '"Press Start 2P", monospace' }}>
         <h2>LOADING ASSETS...</h2>
       </div>
     );
