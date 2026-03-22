@@ -1,30 +1,23 @@
-import { useState, useEffect, useRef } from "react";
-
-import Raycaster from './Raycaster';
+import React, { useState, useEffect, useRef } from "react";
+import Raycaster from './Raycaster'; // <-- Importing your new 3D engine!
 
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');`;
 
 const CLASSES = {
   knight: {
-    name: "Knight",
-    icon: "⚔️",
-    color: "#C8A96E",
+    name: "Knight", icon: "⚔️", color: "#C8A96E",
     stats: { hp: 120, maxHp: 120, mp: 30, maxMp: 30, attack: 18, defense: 14, xp: 0, level: 1, gold: 50 },
     abilities: ["Slash", "Shield Bash", "War Cry"],
     desc: "Stalwart defender, master of steel",
   },
   mage: {
-    name: "Mage",
-    icon: "🔮",
-    color: "#9B7FD4",
+    name: "Mage", icon: "🔮", color: "#9B7FD4",
     stats: { hp: 70, maxHp: 70, mp: 120, maxMp: 120, attack: 22, defense: 6, xp: 0, level: 1, gold: 50 },
     abilities: ["Fireball", "Ice Lance", "Arcane Burst"],
     desc: "Wielder of arcane forces",
   },
   archer: {
-    name: "Archer",
-    icon: "🏹",
-    color: "#6DAF7C",
+    name: "Archer", icon: "🏹", color: "#6DAF7C",
     stats: { hp: 90, maxHp: 90, mp: 60, maxMp: 60, attack: 20, defense: 9, xp: 0, level: 1, gold: 50 },
     abilities: ["Arrow Shot", "Poison Arrow", "Eagle Eye"],
     desc: "Swift and deadly from afar",
@@ -40,11 +33,11 @@ const ENEMIES = [
 ];
 
 const ZONES = [
-  { id: "forest", name: "Whispering Forest", icon: "🌲", x: 18, y: 52, enemies: [0, 1], unlocked: true },
-  { id: "ruins", name: "Ancient Ruins", icon: "🏚️", x: 38, y: 30, enemies: [1, 2], unlocked: true },
-  { id: "mountains", name: "Frostpeak Mountains", icon: "⛰️", x: 62, y: 22, enemies: [2, 3], unlocked: false },
-  { id: "swamp", name: "Cursed Swamp", icon: "🌿", x: 72, y: 58, enemies: [2, 3], unlocked: false },
-  { id: "castle", name: "Shadow Keep", icon: "🏰", x: 48, y: 68, enemies: [3, 4], unlocked: false },
+  { id: "forest", name: "Whispering Forest", icon: "🌲", enemies: [0, 1], unlocked: true },
+  { id: "ruins", name: "Ancient Ruins", icon: "🏚️", enemies: [1, 2], unlocked: true },
+  { id: "mountains", name: "Frostpeak Mountains", icon: "⛰️", enemies: [2, 3], unlocked: false },
+  { id: "swamp", name: "Cursed Swamp", icon: "🌿", enemies: [2, 3], unlocked: false },
+  { id: "castle", name: "Shadow Keep", icon: "🏰", enemies: [3, 4], unlocked: false },
 ];
 
 const INVENTORY_ITEMS = [
@@ -90,13 +83,13 @@ function BattleLog({ logs }) {
 }
 
 export default function MedievalRPG() {
-  const [screen, setScreen] = useState("select"); // select | map | battle | inventory | achievements
+  const [screen, setScreen] = useState("select"); 
   const [heroClass, setHeroClass] = useState(null);
   const [hero, setHero] = useState(null);
   const [zone, setZone] = useState(null);
   const [enemy, setEnemy] = useState(null);
   const [battleLog, setBattleLog] = useState([]);
-  const [battlePhase, setBattlePhase] = useState("player"); // player | enemy | end
+  const [battlePhase, setBattlePhase] = useState("player"); 
   const [inventory, setInventory] = useState(INVENTORY_ITEMS);
   const [achievements, setAchievements] = useState(ACHIEVEMENTS);
   const [visitedZones, setVisitedZones] = useState([]);
@@ -123,9 +116,17 @@ export default function MedievalRPG() {
     setBattleLog([{ text: `⚔ Entering ${z.name}...`, type: "system" }, { text: `A wild ${e.name} ${e.icon} appears!`, type: "system" }]);
     setBattlePhase("player");
     setScreen("battle");
+    
     const nv = visitedZones.includes(z.id) ? visitedZones : [...visitedZones, z.id];
     setVisitedZones(nv);
     if (nv.length >= 3) unlockAchievement("explorer");
+  };
+
+  // --- NEW: Trigger encounter from 3D Map ---
+  const triggerRandomEncounter = () => {
+    const unlockedZones = zones.filter(z => z.unlocked);
+    const randomZone = unlockedZones[Math.floor(Math.random() * unlockedZones.length)];
+    enterZone(randomZone);
   };
 
   const unlockAchievement = (id) => {
@@ -141,7 +142,6 @@ export default function MedievalRPG() {
     if (battlePhase !== "player" || !enemy || !hero) return;
     const dmg = hero.stats.attack + Math.floor(Math.random() * 8) - 3;
     const newEnemyHp = Math.max(0, enemy.hp - dmg);
-    const abilityEmoji = ability === hero.heroClass?.abilities[0] ? "⚔" : ability.includes("Fire") ? "🔥" : ability.includes("Ice") ? "❄" : "✨";
     const log = [{ text: `You use ${ability}! Deals ${dmg} damage.`, type: "hero" }];
     setEnemy(prev => ({ ...prev, hp: newEnemyHp }));
 
@@ -199,23 +199,10 @@ export default function MedievalRPG() {
   };
 
   const s = {
-    root: {
-      fontFamily: "'Cinzel', serif",
-      background: "#080604",
-      minHeight: "100vh",
-      color: "#C8A96E",
-      position: "relative",
-      overflow: "hidden",
-    },
-    overlay: {
-      position: "fixed", inset: 0,
-      background: "radial-gradient(ellipse at 50% 0%, #1A1005 0%, #080604 70%)",
-      pointerEvents: "none", zIndex: 0,
-    },
+    root: { fontFamily: "'Cinzel', serif", background: "#080604", minHeight: "100vh", color: "#C8A96E", position: "relative", overflow: "hidden" },
+    overlay: { position: "fixed", inset: 0, background: "radial-gradient(ellipse at 50% 0%, #1A1005 0%, #080604 70%)", pointerEvents: "none", zIndex: 0 },
     content: { position: "relative", zIndex: 1, minHeight: "100vh" },
   };
-
-  const currentHero = hero || (heroClass ? CLASSES[heroClass] : null);
 
   return (
     <>
@@ -230,8 +217,6 @@ export default function MedievalRPG() {
         @keyframes pulse { 0%,100%{box-shadow:0 0 8px #C8A96E44} 50%{box-shadow:0 0 20px #C8A96E88} }
         @keyframes shimmer { from{background-position:200% center} to{background-position:-200% center} }
         .notif { animation: fadeIn 0.3s ease; }
-        .zone-btn:hover { transform: scale(1.15) !important; filter: brightness(1.3) !important; }
-        .zone-btn { transition: transform 0.2s, filter 0.2s !important; }
         .ability-btn:hover { background: #3A2E1E !important; border-color: #C8A96E !important; }
         .class-card:hover { border-color: #C8A96E !important; transform: translateY(-4px); }
         .class-card { transition: border-color 0.2s, transform 0.2s; }
@@ -286,8 +271,7 @@ export default function MedievalRPG() {
                     <div style={{ textAlign: "left" }}>
                       {[["HP", cls.stats.hp], ["MP", cls.stats.mp], ["ATK", cls.stats.attack], ["DEF", cls.stats.defense]].map(([k, v]) => (
                         <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontFamily: "'Crimson Text', serif", color: "#7A6040", marginBottom: 3 }}>
-                          <span>{k}</span>
-                          <span style={{ color: "#C8A96E" }}>{v}</span>
+                          <span>{k}</span><span style={{ color: "#C8A96E" }}>{v}</span>
                         </div>
                       ))}
                     </div>
@@ -298,13 +282,11 @@ export default function MedievalRPG() {
             </div>
           )}
 
-          {/* ─── SHARED LAYOUT (map / battle / inventory / achievements) ─── */}
+          {/* ─── SHARED LAYOUT ─── */}
           {screen !== "select" && hero && (
             <div style={{ display: "flex", minHeight: "100vh" }}>
-
               {/* Sidebar */}
               <div style={{ width: 220, background: "#0A0806", borderRight: "1px solid #2A1E0E", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-                {/* Hero portrait */}
                 <div style={{ textAlign: "center", paddingBottom: 12, borderBottom: "1px solid #2A1E0E" }}>
                   <div style={{ fontSize: 40, animation: "flicker 4s ease-in-out infinite", marginBottom: 6 }}>{CLASSES[heroClass]?.icon}</div>
                   <div style={{ fontSize: 14, color: CLASSES[heroClass]?.color, letterSpacing: 1, fontWeight: 600 }}>{hero.name}</div>
@@ -313,8 +295,6 @@ export default function MedievalRPG() {
                   <StatBar value={hero.stats.mp} max={hero.stats.maxMp} color="#5B7BD4" label="MP" />
                   <StatBar value={hero.stats.xp} max={hero.stats.level * 100} color="#C8A96E" label="XP" />
                 </div>
-
-                {/* Stats */}
                 <div style={{ fontSize: 11, fontFamily: "'Crimson Text', serif" }}>
                   {[["⚔ Attack", hero.stats.attack], ["🛡 Defense", hero.stats.defense], ["💰 Gold", hero.stats.gold]].map(([k, v]) => (
                     <div key={k} style={{ display: "flex", justifyContent: "space-between", color: "#7A6040", marginBottom: 4 }}>
@@ -322,18 +302,14 @@ export default function MedievalRPG() {
                     </div>
                   ))}
                 </div>
-
-                {/* Abilities */}
                 <div style={{ paddingTop: 8, borderTop: "1px solid #2A1E0E" }}>
                   <div style={{ fontSize: 9, letterSpacing: 4, color: "#4A3820", marginBottom: 8 }}>ABILITIES</div>
                   {CLASSES[heroClass]?.abilities.map(a => (
                     <div key={a} style={{ fontSize: 12, fontFamily: "'Crimson Text', serif", color: "#8A7050", padding: "3px 6px", marginBottom: 2 }}>· {a}</div>
                   ))}
                 </div>
-
-                {/* Nav */}
                 <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-                  {[["🗺 World Map", "map"], ["🎒 Inventory", "inventory"], ["🏆 Achievements", "achievements"]].map(([label, sc]) => (
+                  {[["🗺 3D World", "map"], ["🎒 Inventory", "inventory"], ["🏆 Achievements", "achievements"]].map(([label, sc]) => (
                     <button key={sc} className="nav-btn" onClick={() => setScreen(sc)} style={{
                       background: screen === sc ? "#2A1E0E" : "transparent",
                       border: `1px solid ${screen === sc ? "#C8A96E" : "#2A1E0E"}`,
@@ -347,50 +323,28 @@ export default function MedievalRPG() {
 
               {/* Main area */}
               <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-
-                {/* Header */}
                 <div style={{ padding: "12px 24px", borderBottom: "1px solid #1A1208", display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ fontSize: 9, letterSpacing: 5, color: "#4A3820" }}>
-                    {screen === "map" ? "REALM OF SHADOWS — WORLD MAP" :
-                     screen === "battle" ? `⚔ BATTLE — ${zone?.name?.toUpperCase()}` :
+                  <div style={{ fontSize: 9, letterSpacing: 5, color: "#4A3820", textTransform: "uppercase" }}>
+                    {screen === "map" ? "REALM OF SHADOWS — 3D LABYRINTH" :
+                     screen === "battle" ? `⚔ BATTLE — ${zone?.name}` :
                      screen === "inventory" ? "🎒 INVENTORY" : "🏆 ACHIEVEMENTS"}
                   </div>
                 </div>
 
-                {/* ─── WORLD MAP ─── */}
+                {/* ─── 3D WORLD MAP (INTEGRATED) ─── */}
                 {screen === "map" && (
-                  <div style={{ flex: 1, padding: 24, position: "relative" }}>
-                    <div style={{ position: "relative", width: "100%", paddingBottom: "56%", background: "#0D0A07", border: "1px solid #2A1E0E", borderRadius: 8, overflow: "hidden" }}>
-                      {/* Map texture */}
-                      <div style={{ position: "absolute", inset: 0, opacity: 0.04,
-                        backgroundImage: "repeating-linear-gradient(0deg, #C8A96E 0, #C8A96E 1px, transparent 1px, transparent 40px), repeating-linear-gradient(90deg, #C8A96E 0, #C8A96E 1px, transparent 1px, transparent 40px)" }} />
-                      <div style={{ position: "absolute", inset: 0 }}>
-                        {/* Terrain blobs */}
-                        <div style={{ position: "absolute", left: "10%", top: "40%", width: 120, height: 80, background: "#0F1A0A", borderRadius: "60% 40% 50% 60%", opacity: 0.8 }} />
-                        <div style={{ position: "absolute", left: "30%", top: "15%", width: 100, height: 70, background: "#100F0A", borderRadius: "50%", opacity: 0.8 }} />
-                        <div style={{ position: "absolute", left: "55%", top: "10%", width: 80, height: 90, background: "#111219", borderRadius: "40% 60% 50% 40%", opacity: 0.9 }} />
-                        <div style={{ position: "absolute", left: "65%", top: "48%", width: 100, height: 75, background: "#0A1208", borderRadius: "60%", opacity: 0.8 }} />
-                        <div style={{ position: "absolute", left: "38%", top: "55%", width: 130, height: 90, background: "#130F0A", borderRadius: "50% 60% 40% 50%", opacity: 0.9 }} />
-                      </div>
-                      {zones.map((z) => (
-                        <button key={z.id} className="zone-btn" onClick={() => enterZone(z)} style={{
-                          position: "absolute", left: `${z.x}%`, top: `${z.y}%`,
-                          transform: "translate(-50%,-50%)",
-                          background: "transparent", border: "none", cursor: z.unlocked ? "pointer" : "not-allowed",
-                          textAlign: "center", padding: 4,
-                          opacity: z.unlocked ? 1 : 0.4,
-                          filter: z.unlocked ? "none" : "grayscale(1)",
-                        }}>
-                          <div style={{ fontSize: 26 }}>{z.icon}</div>
-                          <div style={{ fontSize: 10, color: "#C8A96E", fontFamily: "'Cinzel', serif", whiteSpace: "nowrap",
-                            background: "#08060480", padding: "2px 4px", borderRadius: 2 }}>{z.name}</div>
-                          {!z.unlocked && <div style={{ fontSize: 9, color: "#5A4020" }}>🔒 LOCKED</div>}
-                        </button>
-                      ))}
+                  <div style={{ flex: 1, position: "relative", background: "#000" }}>
+                    <Raycaster onEncounter={triggerRandomEncounter} />
+                    
+                    {/* Map Instructions Overlay */}
+                    <div style={{ 
+                      position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", 
+                      background: "rgba(0,0,0,0.6)", padding: "10px 20px", borderRadius: "8px", border: "1px solid #3A2E1E" 
+                    }}>
+                      <p style={{ fontFamily: "'Crimson Text', serif", color: "#C8A96E", fontSize: 14, fontStyle: "italic", textAlign: "center", margin: 0 }}>
+                        Use W, A, S, D or Arrows to explore. Find the hidden enemy to engage!
+                      </p>
                     </div>
-                    <p style={{ marginTop: 16, fontFamily: "'Crimson Text', serif", color: "#5A4020", fontSize: 13, fontStyle: "italic", textAlign: "center" }}>
-                      Click a zone to engage in battle · Defeat enemies to unlock new territories
-                    </p>
                   </div>
                 )}
 
@@ -398,7 +352,6 @@ export default function MedievalRPG() {
                 {screen === "battle" && enemy && (
                   <div style={{ flex: 1, padding: 24, display: "flex", flexDirection: "column", gap: 16, animation: "fadeIn 0.4s ease" }}>
                     <div style={{ display: "flex", gap: 16 }}>
-                      {/* Enemy card */}
                       <div style={{ flex: 1, background: "#0D0A07", border: "1px solid #2A1E0E", borderRadius: 8, padding: 20, textAlign: "center" }}>
                         <div style={{ fontSize: 9, letterSpacing: 4, color: "#4A3820", marginBottom: 12 }}>ENEMY</div>
                         <div style={{ fontSize: 64, animation: enemy.hp > 0 ? "flicker 2s ease-in-out infinite" : "none", opacity: enemy.hp <= 0 ? 0.3 : 1 }}>{enemy.icon}</div>
@@ -406,10 +359,8 @@ export default function MedievalRPG() {
                         <StatBar value={enemy.hp} max={enemy.maxHp} color="#C0392B" label="HP" />
                         <div style={{ fontSize: 11, fontFamily: "'Crimson Text', serif", color: "#5A4020", marginTop: 8 }}>⚔ ATK: {enemy.attack}</div>
                       </div>
-                      {/* Battle log */}
                       <div style={{ flex: 1.2, display: "flex", flexDirection: "column", gap: 12 }}>
                         <BattleLog logs={battleLog} />
-                        {/* Action buttons */}
                         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                           <div style={{ fontSize: 9, letterSpacing: 4, color: "#4A3820", marginBottom: 2 }}>YOUR ABILITIES</div>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -427,14 +378,13 @@ export default function MedievalRPG() {
                           <div style={{ display: "flex", gap: 8 }}>
                             <button className="action-btn" onClick={usePotion} style={{
                               background: "#0D1A0D", border: "1px solid #2A4020", color: "#6DAF7C",
-                              fontFamily: "'Cinzel', serif", fontSize: 11, padding: "8px 14px",
-                              borderRadius: 3, cursor: "pointer", flex: 1,
+                              fontFamily: "'Cinzel', serif", fontSize: 11, padding: "8px 14px", borderRadius: 3, cursor: "pointer", flex: 1,
                             }}>🧪 Use Potion {inventory.find(i => i.id === "potion") ? "" : "(0)"}</button>
+                            
                             <button className="action-btn" onClick={() => setScreen("map")} style={{
                               background: "#1A0D0D", border: "1px solid #3A2020", color: "#D46060",
-                              fontFamily: "'Cinzel', serif", fontSize: 11, padding: "8px 14px",
-                              borderRadius: 3, cursor: "pointer", flex: 1,
-                            }}>🚪 Flee</button>
+                              fontFamily: "'Cinzel', serif", fontSize: 11, padding: "8px 14px", borderRadius: 3, cursor: "pointer", flex: 1,
+                            }}>🚪 Flee to Maze</button>
                           </div>
                         </div>
                         {battlePhase === "end" && enemy.hp <= 0 && (
@@ -442,7 +392,7 @@ export default function MedievalRPG() {
                             background: "#1A1A0A", border: "1px solid #C8A96E", color: "#C8A96E",
                             fontFamily: "'Cinzel', serif", fontSize: 13, padding: "12px",
                             borderRadius: 3, cursor: "pointer", animation: "pulse 2s infinite", letterSpacing: 1,
-                          }}>CONTINUE →</button>
+                          }}>RETURN TO EXPLORATION →</button>
                         )}
                       </div>
                     </div>
@@ -454,20 +404,13 @@ export default function MedievalRPG() {
                   <div style={{ flex: 1, padding: 24, animation: "fadeIn 0.4s ease" }}>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
                       {inventory.map(item => (
-                        <div key={item.id} style={{
-                          background: "#0D0A07", border: "1px solid #2A1E0E", borderRadius: 6, padding: 16, textAlign: "center",
-                        }}>
+                        <div key={item.id} style={{ background: "#0D0A07", border: "1px solid #2A1E0E", borderRadius: 6, padding: 16, textAlign: "center" }}>
                           <div style={{ fontSize: 36, marginBottom: 8 }}>{item.icon}</div>
                           <div style={{ fontSize: 13, color: "#C8A96E", marginBottom: 4, letterSpacing: 0.5 }}>{item.name}</div>
                           <div style={{ fontSize: 11, fontFamily: "'Crimson Text', serif", color: "#5A9060" }}>{item.bonus}</div>
                           <div style={{ fontSize: 10, color: "#4A3820", marginTop: 4, letterSpacing: 2, textTransform: "uppercase", fontFamily: "'Crimson Text', serif" }}>{item.type}</div>
                         </div>
                       ))}
-                      {inventory.length === 0 && (
-                        <div style={{ gridColumn: "1/-1", textAlign: "center", fontFamily: "'Crimson Text', serif", color: "#4A3820", fontStyle: "italic", padding: 40 }}>
-                          Your satchel is empty...
-                        </div>
-                      )}
                     </div>
                   </div>
                 )}
@@ -477,11 +420,7 @@ export default function MedievalRPG() {
                   <div style={{ flex: 1, padding: 24, animation: "fadeIn 0.4s ease" }}>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
                       {achievements.map(a => (
-                        <div key={a.id} style={{
-                          background: "#0D0A07", border: `1px solid ${a.unlocked ? "#C8A96E44" : "#2A1E0E"}`,
-                          borderRadius: 6, padding: 16, display: "flex", gap: 12, alignItems: "center",
-                          opacity: a.unlocked ? 1 : 0.5,
-                        }}>
+                        <div key={a.id} style={{ background: "#0D0A07", border: `1px solid ${a.unlocked ? "#C8A96E44" : "#2A1E0E"}`, borderRadius: 6, padding: 16, display: "flex", gap: 12, alignItems: "center", opacity: a.unlocked ? 1 : 0.5 }}>
                           <div style={{ fontSize: 30, filter: a.unlocked ? "none" : "grayscale(1)" }}>{a.icon}</div>
                           <div>
                             <div style={{ fontSize: 13, color: a.unlocked ? "#C8A96E" : "#5A4020", letterSpacing: 0.5, marginBottom: 4 }}>{a.name}</div>
