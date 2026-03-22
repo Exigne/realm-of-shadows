@@ -1,441 +1,277 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { worldMap, mapWidth, mapHeight } from './gameMap';
 
-// HIGH QUALITY TEXTURES - 256x256 for crisp detail
+// Define texture sources using direct SVG code (No downloads needed!)
 const textureSources = {
-  // 1: STONE WALL - Grey bricks with depth
-  1: `data:image/svg+xml;utf8,<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="stone1" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="%23999"/>
-        <stop offset="100%" stop-color="%23666"/>
-      </linearGradient>
-      <linearGradient id="stone2" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="%23888"/>
-        <stop offset="100%" stop-color="%23555"/>
-      </linearGradient>
-    </defs>
-    <rect width="256" height="256" fill="%23444"/>
-    <!-- Row 1 -->
-    <rect x="4" y="4" width="120" height="60" fill="url(%23stone1)" rx="2"/>
-    <rect x="132" y="4" width="120" height="60" fill="url(%23stone2)" rx="2"/>
-    <!-- Row 2 -->
-    <rect x="4" y="72" width="120" height="60" fill="url(%23stone2)" rx="2"/>
-    <rect x="132" y="72" width="120" height="60" fill="url(%23stone1)" rx="2"/>
-    <!-- Row 3 -->
-    <rect x="4" y="140" width="120" height="60" fill="url(%23stone1)" rx="2"/>
-    <rect x="132" y="140" width="120" height="60" fill="url(%23stone2)" rx="2"/>
-    <!-- Row 4 -->
-    <rect x="4" y="208" width="120" height="44" fill="url(%23stone2)" rx="2"/>
-    <rect x="132" y="208" width="120" height="44" fill="url(%23stone1)" rx="2"/>
-    <!-- Highlights -->
-    <line x1="0" y1="0" x2="256" y2="0" stroke="%23aaa" stroke-width="4"/>
-    <line x1="0" y1="0" x2="0" y2="256" stroke="%23aaa" stroke-width="4"/>
-    <!-- Cracks -->
-    <path d="M50 30 L55 50 L52 70" stroke="%23333" stroke-width="3" fill="none" opacity="0.6"/>
-    <path d="M180 150 L185 170 L182 190" stroke="%23333" stroke-width="2" fill="none" opacity="0.5"/>
-  </svg>`,
-
-  // 2: MAGICAL TILE - Glowing encounter
-  2: `data:image/svg+xml;utf8,<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <radialGradient id="magic" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="%23ffff00"/>
-        <stop offset="20%" stop-color="%23ff8800"/>
-        <stop offset="50%" stop-color="%23cc2200"/>
-        <stop offset="100%" stop-color="%23441100"/>
-      </radialGradient>
-      <filter id="glow">
-        <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
-        <feMerge>
-          <feMergeNode in="coloredBlur"/>
-          <feMergeNode in="SourceGraphic"/>
-        </feMerge>
-      </filter>
-    </defs>
-    <rect width="256" height="256" fill="url(%23magic)"/>
-    <!-- Magic circle -->
-    <circle cx="128" cy="128" r="80" fill="none" stroke="%23ffff00" stroke-width="4" filter="url(%23glow)"/>
-    <circle cx="128" cy="128" r="60" fill="none" stroke="%23ffaa00" stroke-width="2"/>
-    <circle cx="128" cy="128" r="40" fill="%23ffff00" opacity="0.3"/>
-    <!-- Runes -->
-    <path d="M128 48 L132 120 L128 128 L124 120 Z" fill="%23ffff00"/>
-    <path d="M128 208 L132 136 L128 128 L124 136 Z" fill="%23ffff00"/>
-    <path d="M48 128 L120 132 L128 128 L120 124 Z" fill="%23ffff00"/>
-    <path d="M208 128 L136 132 L128 128 L136 124 Z" fill="%23ffff00"/>
-  </svg>`,
-
-  // 3: RED BRICK WITH MOSS - Warm dungeon
-  3: `data:image/svg+xml;utf8,<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="brick1" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="%23994444"/>
-        <stop offset="100%" stop-color="%23662222"/>
-      </linearGradient>
-      <linearGradient id="brick2" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="%23883333"/>
-        <stop offset="100%" stop-color="%23551111"/>
-      </linearGradient>
-    </defs>
-    <rect width="256" height="256" fill="%23442222"/>
-    <!-- Bricks -->
-    <rect x="4" y="4" width="120" height="60" fill="url(%23brick1)" rx="2"/>
-    <rect x="132" y="4" width="120" height="60" fill="url(%23brick2)" rx="2"/>
-    <rect x="4" y="72" width="120" height="60" fill="url(%23brick2)" rx="2"/>
-    <rect x="132" y="72" width="120" height="60" fill="url(%23brick1)" rx="2"/>
-    <rect x="4" y="140" width="120" height="60" fill="url(%23brick1)" rx="2"/>
-    <rect x="132" y="140" width="120" height="60" fill="url(%23brick2)" rx="2"/>
-    <rect x="4" y="208" width="120" height="44" fill="url(%23brick2)" rx="2"/>
-    <rect x="132" y="208" width="120" height="44" fill="url(%23brick1)" rx="2"/>
-    <!-- Moss patches -->
-    <ellipse cx="40" cy="40" rx="25" ry="18" fill="%232d5016" opacity="0.85"/>
-    <ellipse cx="200" cy="80" rx="30" ry="22" fill="%233d6020" opacity="0.75"/>
-    <ellipse cx="60" cy="160" rx="20" ry="15" fill="%23204010" opacity="0.9"/>
-    <ellipse cx="180" cy="200" rx="28" ry="20" fill="%232d5016" opacity="0.7"/>
-    <ellipse cx="120" cy="120" rx="15" ry="12" fill="%233d6020" opacity="0.6"/>
-    <!-- Moss details -->
-    <circle cx="30" cy="35" r="6" fill="%234d8030" opacity="0.6"/>
-    <circle cx="50" cy="45" r="4" fill="%234d8030" opacity="0.5"/>
-    <circle cx="190" cy="75" r="8" fill="%234d8030" opacity="0.5"/>
-    <circle cx="210" cy="85" r="5" fill="%234d8030" opacity="0.4"/>
-  </svg>`,
-
-  // 4: WOODEN DOOR - Detailed
-  4: `data:image/svg+xml;utf8,<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="wood1" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="%235d3d26"/>
-        <stop offset="25%" stop-color="%237a5239"/>
-        <stop offset="50%" stop-color="%235d3d26"/>
-        <stop offset="75%" stop-color="%236b462e"/>
-        <stop offset="100%" stop-color="%235d3d26"/>
-      </linearGradient>
-      <linearGradient id="iron" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="%23666"/>
-        <stop offset="50%" stop-color="%23888"/>
-        <stop offset="100%" stop-color="%23555"/>
-      </linearGradient>
-    </defs>
-    <rect width="256" height="256" fill="url(%23wood1)"/>
-    <!-- Vertical planks -->
-    <line x1="64" y1="0" x2="64" y2="256" stroke="%233d2817" stroke-width="4"/>
-    <line x1="128" y1="0" x2="128" y2="256" stroke="%233d2817" stroke-width="4"/>
-    <line x1="192" y1="0" x2="192" y2="256" stroke="%233d2817" stroke-width="4"/>
-    <!-- Wood grain -->
-    <path d="M20 40 Q30 45 25 55" stroke="%233d2817" stroke-width="2" opacity="0.4" fill="none"/>
-    <path d="M80 100 Q90 105 85 115" stroke="%233d2817" stroke-width="2" opacity="0.4" fill="none"/>
-    <path d="M150 60 Q160 65 155 75" stroke="%233d2817" stroke-width="2" opacity="0.4" fill="none"/>
-    <path d="M220 150 Q230 155 225 165" stroke="%233d2817" stroke-width="2" opacity="0.4" fill="none"/>
-    <!-- Iron bands -->
-    <rect x="0" y="24" width="256" height="32" fill="url(%23iron)"/>
-    <rect x="0" y="200" width="256" height="32" fill="url(%23iron)"/>
-    <!-- Rivets -->
-    <circle cx="24" cy="40" r="8" fill="%23444"/>
-    <circle cx="72" cy="40" r="8" fill="%23444"/>
-    <circle cx="120" cy="40" r="8" fill="%23444"/>
-    <circle cx="168" cy="40" r="8" fill="%23444"/>
-    <circle cx="216" cy="40" r="8" fill="%23444"/>
-    <circle cx="24" cy="216" r="8" fill="%23444"/>
-    <circle cx="72" cy="216" r="8" fill="%23444"/>
-    <circle cx="120" cy="216" r="8" fill="%23444"/>
-    <circle cx="168" cy="216" r="8" fill="%23444"/>
-    <circle cx="216" cy="216" r="8" fill="%23444"/>
-    <!-- Handle -->
-    <circle cx="48" cy="128" r="20" fill="%23444"/>
-    <circle cx="48" cy="128" r="12" fill="%23666"/>
-    <rect x="44" y="128" width="8" height="40" fill="%23444"/>
-  </svg>`,
-
-  // 5: DARK STONE - Alternative
-  5: `data:image/svg+xml;utf8,<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-    <rect width="256" height="256" fill="%23333"/>
-    <rect x="4" y="4" width="120" height="120" fill="%23555" rx="3"/>
-    <rect x="132" y="4" width="120" height="120" fill="%23444" rx="3"/>
-    <rect x="4" y="132" width="120" height="120" fill="%23444" rx="3"/>
-    <rect x="132" y="132" width="120" height="120" fill="%23555" rx="3"/>
-    <path d="M40 40 L50 80 L45 110" stroke="%23222" stroke-width="3" fill="none"/>
-    <path d="M160 160 L170 200 L165 230" stroke="%23222" stroke-width="3" fill="none"/>
-    <line x1="0" y1="0" x2="256" y2="0" stroke="%23666" stroke-width="4"/>
-    <line x1="0" y1="0" x2="0" y2="256" stroke="%23666" stroke-width="4"/>
-  </svg>`
+  // 1: Grey Cobblestone
+  1: "data:image/svg+xml;utf8,<svg width='64' height='64' xmlns='http://www.w3.org/2000/svg'><rect width='64' height='64' fill='%23888'/><path d='M0 32h64M32 0v32M16 32v32M48 32v32M0 16h64M0 48h64' stroke='%23444' stroke-width='2'/></svg>",
+  // 3: Mossy Red Brick
+  3: "data:image/svg+xml;utf8,<svg width='64' height='64' xmlns='http://www.w3.org/2000/svg'><rect width='64' height='64' fill='%23733'/><path d='M0 16h64M0 32h64M0 48h64M16 0v16M48 0v16M32 16v16M16 32v16M48 32v16M32 48v16' stroke='%23aaa' stroke-width='2'/><circle cx='20' cy='20' r='8' fill='%23363'/><circle cx='50' cy='45' r='10' fill='%23363'/></svg>",
+  // 4: Wooden Dungeon Door with Iron Bands
+  4: "data:image/svg+xml;utf8,<svg width='64' height='64' xmlns='http://www.w3.org/2000/svg'><rect width='64' height='64' fill='%23531'/><path d='M16 0v64M32 0v64M48 0v64' stroke='%23310' stroke-width='2'/><rect y='10' width='64' height='8' fill='%23222'/><rect y='46' width='64' height='8' fill='%23222'/><circle cx='12' cy='32' r='4' fill='%23da4'/></svg>"
 };
 
-// ENHANCED GOBLIN
-const spriteSource = `data:image/svg+xml;utf8,<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  <ellipse cx="64" cy="118" rx="35" ry="8" fill="%23000" opacity="0.3"/>
-  <path d="M32 96 L40 44 L64 24 L88 44 L96 96 Z" fill="%232d5a27"/>
-  <path d="M40 56 L20 72" stroke="%232d5a27" stroke-width="10" stroke-linecap="round"/>
-  <path d="M88 56 L108 72" stroke="%232d5a27" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="64" cy="40" r="18" fill="%233d7a37"/>
-  <path d="M48 32 L36 16 L52 28" fill="%232d5a27"/>
-  <path d="M80 32 L92 16 L76 28" fill="%232d5a27"/>
-  <circle cx="56" cy="36" r="6" fill="%23ff0000"/>
-  <circle cx="72" cy="36" r="6" fill="%23ff0000"/>
-  <circle cx="56" cy="34" r="2" fill="%23ffff00"/>
-  <circle cx="72" cy="34" r="2" fill="%23ffff00"/>
-  <path d="M56 52 Q64 56 72 52" stroke="%23000" stroke-width="3" fill="none"/>
-  <path d="M60 52 L62 56 L64 52" fill="%23ffffaa"/>
-  <path d="M68 52 L66 56 L64 52" fill="%23ffffaa"/>
-</svg>`;
+// 2D Goblin Sprite with glowing red eyes
+const spriteSource = "data:image/svg+xml;utf8,<svg width='64' height='64' xmlns='http://www.w3.org/2000/svg'><rect width='64' height='64' fill='transparent'/><path d='M16 48l16-32 16 32z' fill='%23383'/><circle cx='26' cy='36' r='3' fill='%23f00'/><circle cx='38' cy='36' r='3' fill='%23f00'/><path d='M28 44h8' stroke='%23000' stroke-width='2'/></svg>";
 
 export default function Raycaster({ onEncounter }) {
   const canvasRef = useRef(null);
   const [imagesLoaded, setImagesLoaded] = useState(false);
-
+  
+  // Image assets map
   const textures = useRef({});
   const sprite = useRef(null);
 
+  // State management for rendering loop
   const player = useRef({
-    x: 2.5, y: 2.5,
-    dirX: -1, dirY: 0,
-    planeX: 0, planeY: 0.66,
-    moveSpeed: 0.05,
-    rotSpeed: 0.04
+    x: 2.5, y: 2.5, // Start position
+    dirX: -1, dirY: 0, // Initial direction vector
+    planeX: 0, planeY: 0.66, // Camera plane (FOV)
+    moveSpeed: 0.05, rotSpeed: 0.04
   });
 
-  const goblin = useRef({ x: 5.5, y: 5.5, loaded: false });
+  // Goblin Sprite location in map space
+  const goblin = useRef({
+    x: 5.5, y: 5.5, 
+    loaded: false
+  });
+
   const keys = useRef({});
 
-  // Load assets
+  // 1. ASSET PRE-LOADING
   useEffect(() => {
-    let loaded = 0;
-    const total = Object.keys(textureSources).length + 1;
+    const loadImages = async () => {
+      const texturePromises = Object.entries(textureSources).map(([id, src]) => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.src = src;
+          img.onload = () => {
+            textures.current[id] = img;
+            resolve();
+          };
+        });
+      });
 
-    const check = () => {
-      loaded++;
-      if (loaded >= total) setImagesLoaded(true);
+      const spritePromise = new Promise((resolve) => {
+        const img = new Image();
+        img.src = spriteSource;
+        img.onload = () => {
+          sprite.current = img;
+          goblin.current.loaded = true;
+          resolve();
+        };
+      });
+
+      await Promise.all([...texturePromises, spritePromise]);
+      setImagesLoaded(true);
     };
 
-    Object.entries(textureSources).forEach(([id, src]) => {
-      const img = new Image();
-      img.src = src;
-      img.onload = () => { textures.current[id] = img; check(); };
-      img.onerror = check;
-    });
-
-    const sImg = new Image();
-    sImg.src = spriteSource;
-    sImg.onload = () => { sprite.current = sImg; goblin.current.loaded = true; check(); };
-    sImg.onerror = check;
+    loadImages();
   }, []);
 
-  // Game loop
+  // 2. GAME INPUT & RENDER LOOP
   useEffect(() => {
-    if (!imagesLoaded) return;
+    if (!imagesLoaded) return; // Wait for assets
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    ctx.imageSmoothingEnabled = false;
+    // Disable image smoothing for that crunchy retro pixel look
+    ctx.imageSmoothingEnabled = false; 
+    
+    let animationFrameId;
 
-    let animId;
+    // Keyboard Listeners
+    const handleKeyDown = (e) => { keys.current[e.key] = true; };
+    const handleKeyUp = (e) => { keys.current[e.key] = false; };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
 
-    const onKey = (e, d) => { 
-      keys.current[e.key] = d; 
-      if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
-    };
-
-    window.addEventListener('keydown', e => onKey(e, true));
-    window.addEventListener('keyup', e => onKey(e, false));
-
-    const loop = () => {
+    const gameLoop = () => {
       const p = player.current;
 
-      // Movement with collision
-      const ms = p.moveSpeed;
+      // --- MOVEMENT LOGIC (Forward/Back + Strafing + Rotation) ---
       if (keys.current['w'] || keys.current['ArrowUp']) {
-        const nx = p.x + p.dirX * ms;
-        const ny = p.y + p.dirY * ms;
-        if (!worldMap[Math.floor(nx)]?.[Math.floor(p.y)]) p.x = nx;
-        if (!worldMap[Math.floor(p.x)]?.[Math.floor(ny)]) p.y = ny;
+        if (worldMap[Math.floor(p.x + p.dirX * p.moveSpeed)][Math.floor(p.y)] === 0) p.x += p.dirX * p.moveSpeed;
+        if (worldMap[Math.floor(p.x)][Math.floor(p.y + p.dirY * p.moveSpeed)] === 0) p.y += p.dirY * p.moveSpeed;
       }
       if (keys.current['s'] || keys.current['ArrowDown']) {
-        const nx = p.x - p.dirX * ms;
-        const ny = p.y - p.dirY * ms;
-        if (!worldMap[Math.floor(nx)]?.[Math.floor(p.y)]) p.x = nx;
-        if (!worldMap[Math.floor(p.x)]?.[Math.floor(ny)]) p.y = ny;
+        if (worldMap[Math.floor(p.x - p.dirX * p.moveSpeed)][Math.floor(p.y)] === 0) p.x -= p.dirX * p.moveSpeed;
+        if (worldMap[Math.floor(p.x)][Math.floor(p.y - p.dirY * p.moveSpeed)] === 0) p.y -= p.dirY * p.moveSpeed;
       }
-      if (keys.current['d']) {
-        const nx = p.x + p.planeX * ms;
-        const ny = p.y + p.planeY * ms;
-        if (!worldMap[Math.floor(nx)]?.[Math.floor(p.y)]) p.x = nx;
-        if (!worldMap[Math.floor(p.x)]?.[Math.floor(ny)]) p.y = ny;
+      if (keys.current['d']) { // Strafe Right
+        if (worldMap[Math.floor(p.x + p.planeX * p.moveSpeed)][Math.floor(p.y)] === 0) p.x += p.planeX * p.moveSpeed;
+        if (worldMap[Math.floor(p.x)][Math.floor(p.y + p.planeY * p.moveSpeed)] === 0) p.y += p.planeY * p.moveSpeed;
       }
-      if (keys.current['a']) {
-        const nx = p.x - p.planeX * ms;
-        const ny = p.y - p.planeY * ms;
-        if (!worldMap[Math.floor(nx)]?.[Math.floor(p.y)]) p.x = nx;
-        if (!worldMap[Math.floor(p.x)]?.[Math.floor(ny)]) p.y = ny;
+      if (keys.current['a']) { // Strafe Left
+        if (worldMap[Math.floor(p.x - p.planeX * p.moveSpeed)][Math.floor(p.y)] === 0) p.x -= p.planeX * p.moveSpeed;
+        if (worldMap[Math.floor(p.x)][Math.floor(p.y - p.planeY * p.moveSpeed)] === 0) p.y -= p.planeY * p.moveSpeed;
       }
-      if (keys.current['ArrowRight']) {
-        const odx = p.dirX, opx = p.planeX;
-        const c = Math.cos(-p.rotSpeed), s = Math.sin(-p.rotSpeed);
-        p.dirX = p.dirX * c - p.dirY * s;
-        p.dirY = odx * s + p.dirY * c;
-        p.planeX = p.planeX * c - p.planeY * s;
-        p.planeY = opx * s + p.planeY * c;
+      if (keys.current['ArrowRight']) { // Rotate Right
+        const oldDirX = p.dirX; p.dirX = p.dirX * Math.cos(-p.rotSpeed) - p.dirY * Math.sin(-p.rotSpeed); p.dirY = oldDirX * Math.sin(-p.rotSpeed) + p.dirY * Math.cos(-p.rotSpeed);
+        const oldPlaneX = p.planeX; p.planeX = p.planeX * Math.cos(-p.rotSpeed) - p.planeY * Math.sin(-p.rotSpeed); p.planeY = oldPlaneX * Math.sin(-p.rotSpeed) + p.planeY * Math.cos(-p.rotSpeed);
       }
-      if (keys.current['ArrowLeft']) {
-        const odx = p.dirX, opx = p.planeX;
-        const c = Math.cos(p.rotSpeed), s = Math.sin(p.rotSpeed);
-        p.dirX = p.dirX * c - p.dirY * s;
-        p.dirY = odx * s + p.dirY * c;
-        p.planeX = p.planeX * c - p.planeY * s;
-        p.planeY = opx * s + p.planeY * c;
+      if (keys.current['ArrowLeft']) { // Rotate Left
+        const oldDirX = p.dirX; p.dirX = p.dirX * Math.cos(p.rotSpeed) - p.dirY * Math.sin(p.rotSpeed); p.dirY = oldDirX * Math.sin(p.rotSpeed) + p.dirY * Math.cos(p.rotSpeed);
+        const oldPlaneX = p.planeX; p.planeX = p.planeX * Math.cos(p.rotSpeed) - p.planeY * Math.sin(p.rotSpeed); p.planeY = oldPlaneX * Math.sin(p.rotSpeed) + p.planeY * Math.cos(p.rotSpeed);
       }
 
-      // Encounter
-      const tx = Math.floor(p.x), ty = Math.floor(p.y);
-      if (worldMap[tx]?.[ty] === 2) {
-        worldMap[tx][ty] = 0;
-        keys.current = {};
+      // --- ENCOUNTER TRIGGER ---
+      if (worldMap[Math.floor(p.x)][Math.floor(p.y)] === 2) {
+        worldMap[Math.floor(p.x)][Math.floor(p.y)] = 0; // Clear map tile
+        keys.current = {}; // Stop movement
         onEncounter();
-        return;
+        return; // Pause render loop
       }
 
-      // RENDER
-      const w = canvas.width, h = canvas.height;
-      const hh = h / 2;
+      // --- 3. RENDERING: FLOOR & CEILING ---
+      ctx.fillStyle = '#2a1e12'; // Ceiling color
+      ctx.fillRect(0, 0, canvas.width, canvas.height / 2);
+      ctx.fillStyle = '#1a1208'; // Floor color
+      ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
 
-      // Sky/ceiling
-      const grad = ctx.createLinearGradient(0, 0, 0, hh);
-      grad.addColorStop(0, '#1a1510');
-      grad.addColorStop(1, '#2a2520');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, w, hh);
+      // --- 4. RENDERING: WALL RAYCASTING (Textured) ---
+      const zBuffer = new Array(canvas.width);
 
-      // Floor
-      const fgrad = ctx.createLinearGradient(0, hh, 0, h);
-      fgrad.addColorStop(0, '#1a1510');
-      fgrad.addColorStop(1, '#0a0505');
-      ctx.fillStyle = fgrad;
-      ctx.fillRect(0, hh, w, hh);
+      for (let x = 0; x < canvas.width; x++) {
+        const cameraX = 2 * x / canvas.width - 1;
+        const rayDirX = p.dirX + p.planeX * cameraX;
+        const rayDirY = p.dirY + p.planeY * cameraX;
 
-      // Cast rays
-      const zBuffer = new Float32Array(w);
-
-      for (let x = 0; x < w; x += 2) { // Step by 2 for performance
-        const camX = 2 * x / w - 1;
-        const rayX = p.dirX + p.planeX * camX;
-        const rayY = p.dirY + p.planeY * camX;
-
-        let mapX = Math.floor(p.x), mapY = Math.floor(p.y);
+        let mapX = Math.floor(p.x);
+        let mapY = Math.floor(p.y);
         let sideDistX, sideDistY;
-        const deltaX = Math.abs(1 / rayX);
-        const deltaY = Math.abs(1 / rayY);
-        let perpDist, stepX, stepY, side, hit = 0;
+        const deltaDistX = Math.abs(1 / rayDirX);
+        const deltaDistY = Math.abs(1 / rayDirY);
+        let perpWallDist;
+        let stepX, stepY;
+        let hit = 0, side;
 
-        if (rayX < 0) { stepX = -1; sideDistX = (p.x - mapX) * deltaX; }
-        else { stepX = 1; sideDistX = (mapX + 1 - p.x) * deltaX; }
-        if (rayY < 0) { stepY = -1; sideDistY = (p.y - mapY) * deltaY; }
-        else { stepY = 1; sideDistY = (mapY + 1 - p.y) * deltaY; }
+        if (rayDirX < 0) { stepX = -1; sideDistX = (p.x - mapX) * deltaDistX; } 
+        else { stepX = 1; sideDistX = (mapX + 1.0 - p.x) * deltaDistX; }
+        if (rayDirY < 0) { stepY = -1; sideDistY = (p.y - mapY) * deltaDistY; } 
+        else { stepY = 1; sideDistY = (mapY + 1.0 - p.y) * deltaDistY; }
 
-        while (!hit) {
-          if (sideDistX < sideDistY) {
-            sideDistX += deltaX;
-            mapX += stepX;
-            side = 0;
-          } else {
-            sideDistY += deltaY;
-            mapY += stepY;
-            side = 1;
+        while (hit === 0) {
+          if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; } 
+          else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+          
+          // Safety bounds check
+          if (mapX < 0 || mapX >= mapWidth || mapY < 0 || mapY >= mapHeight) {
+             hit = 1; // Treat out of bounds as a normal wall
+             break;
           }
-          if (mapX < 0 || mapX >= mapWidth || mapY < 0 || mapY >= mapHeight) { hit = 1; break; }
-          hit = worldMap[mapX][mapY];
+          
+          const mapTile = worldMap[mapX][mapY];
+          if (mapTile === 1 || mapTile === 3 || mapTile === 4) hit = mapTile;
         }
 
-        perpDist = side === 0 ? (mapX - p.x + (1 - stepX) / 2) / rayX : (mapY - p.y + (1 - stepY) / 2) / rayY;
-        if (perpDist < 0.1) perpDist = 0.1;
+        if (side === 0) perpWallDist = (sideDistX - deltaDistX);
+        else perpWallDist = (sideDistY - deltaDistY);
+        
+        // Store distance for sprites
+        zBuffer[x] = perpWallDist;
 
-        zBuffer[x] = perpDist;
-        zBuffer[x + 1] = perpDist;
-
-        const lineH = Math.min(h, Math.floor(h / perpDist));
-        const drawStart = Math.max(0, -lineH / 2 + hh);
-        const drawEnd = Math.min(h, lineH / 2 + hh);
-
-        const tex = textures.current[hit] || textures.current[1];
-        if (tex) {
-          let wallX = side === 0 ? p.y + perpDist * rayY : p.x + perpDist * rayX;
+        const lineHeight = Math.floor(canvas.height / perpWallDist);
+        const drawStart = Math.max(0, -lineHeight / 2 + canvas.height / 2);
+        const drawEnd = Math.min(canvas.height - 1, lineHeight / 2 + canvas.height / 2);
+        const actualDrawHeight = drawEnd - drawStart;
+        
+        // -- TEXTURE CALCULATION --
+        const wallImg = textures.current[hit] || textures.current[1]; // Fallback to 1 if missing
+        
+        if (wallImg && actualDrawHeight > 0) {
+          let wallX; 
+          if (side === 0) wallX = p.y + perpWallDist * rayDirY;
+          else wallX = p.x + perpWallDist * rayDirX;
           wallX -= Math.floor(wallX);
 
-          let texX = Math.floor(wallX * tex.width);
-          if ((side === 0 && rayX > 0) || (side === 1 && rayY < 0)) texX = tex.width - texX - 1;
+          const texWidth = wallImg.width || 64;
+          let texX = Math.floor(wallX * texWidth);
+          
+          if (side === 0 && rayDirX > 0) texX = texWidth - texX - 1;
+          if (side === 1 && rayDirY < 0) texX = texWidth - texX - 1;
 
-          // Draw 2 pixels at once
-          ctx.drawImage(tex, texX, 0, 1, tex.height, x, drawStart, 2, drawEnd - drawStart);
-
-          // Shading
-          const shade = Math.min(0.7, perpDist / 10);
-          const sideShade = side === 1 ? 0.15 : 0;
-          ctx.fillStyle = `rgba(0,0,0,${shade + sideShade})`;
-          ctx.fillRect(x, drawStart, 2, drawEnd - drawStart);
+          ctx.drawImage(
+            wallImg, 
+            texX, 0, 1, wallImg.height || 64, 
+            x, drawStart, 1, actualDrawHeight 
+          );
+          
+          // Apply basic depth shading
+          ctx.fillStyle = `rgba(0,0,0,${Math.min(0.8, perpWallDist / 8)})`;
+          if (side === 1) ctx.fillStyle = `rgba(0,0,0,${Math.min(0.8, perpWallDist / 8 + 0.2)})`;
+          ctx.fillRect(x, drawStart, 1, actualDrawHeight);
         }
       }
 
-      // Draw sprite
-      if (goblin.current.loaded && sprite.current) {
+      // --- 5. RENDERING: GOBLIN SPRITE (Billboard) ---
+      if (goblin.current.loaded) {
         const g = goblin.current;
-        const relX = g.x - p.x;
-        const relY = g.y - p.y;
+        const spriteImg = sprite.current;
+
+        const spriteX = g.x - p.x;
+        const spriteY = g.y - p.y;
 
         const invDet = 1.0 / (p.planeX * p.dirY - p.dirX * p.planeY);
-        const transX = invDet * (p.dirY * relX - p.dirX * relY);
-        const transY = invDet * (-p.planeY * relX + p.planeX * relY);
+        const transformX = invDet * (p.dirY * spriteX - p.dirX * spriteY);
+        const transformY = invDet * (-p.planeY * spriteX + p.planeX * spriteY);
 
-        if (transY > 0.1) {
-          const screenX = Math.floor((w / 2) * (1 + transX / transY));
-          const spriteH = Math.abs(Math.floor(h / transY));
-          const spriteW = spriteH;
+        if (transformY > 0.1) {
+          const spriteScreenX = Math.floor((canvas.width / 2) * (1 + transformX / transformY));
+          const spriteHeight = Math.abs(Math.floor(canvas.height / transformY));
+          
+          // Using a slight offset to ground the sprite
+          const drawStartY = Math.max(0, -spriteHeight / 2 + canvas.height / 2 + (spriteHeight / 4));
+          const drawEndY = Math.min(canvas.height - 1, spriteHeight / 2 + canvas.height / 2 + (spriteHeight / 4));
+          const actualSpriteHeight = drawEndY - drawStartY;
+          
+          const spriteWidth = Math.abs(Math.floor(canvas.height / transformY)); 
+          const drawStartX = Math.floor(spriteScreenX - spriteWidth / 2);
 
-          const drawStartY = Math.max(0, -spriteH / 2 + hh + spriteH / 4);
-          const drawStartX = Math.max(0, screenX - spriteW / 2);
-          const drawEndX = Math.min(w, screenX + spriteW / 2);
-
-          const sImg = sprite.current;
-          for (let stripe = drawStartX; stripe < drawEndX; stripe++) {
-            const texX = Math.floor((stripe - (screenX - spriteW / 2)) * sImg.width / spriteW);
-            if (texX >= 0 && texX < sImg.width && transY < zBuffer[stripe]) {
-              ctx.drawImage(sImg, texX, 0, 1, sImg.height, stripe, drawStartY, 1, spriteH);
-            }
+          if (actualSpriteHeight > 0) {
+              for (let stripe = drawStartX; stripe < drawStartX + spriteWidth; stripe++) {
+                const texX = Math.floor((stripe - (spriteScreenX - spriteWidth / 2)) * (spriteImg.width || 64) / spriteWidth);
+                
+                if (transformY < zBuffer[stripe] && stripe > 0 && stripe < canvas.width) {
+                  ctx.drawImage(
+                    spriteImg,
+                    texX, 0, 1, spriteImg.height || 64, 
+                    stripe, drawStartY, 1, actualSpriteHeight 
+                  );
+                }
+              }
           }
         }
       }
 
-      animId = requestAnimationFrame(loop);
+      animationFrameId = requestAnimationFrame(gameLoop);
     };
 
-    loop();
+    gameLoop();
 
+    // 6. CLEANUP
     return () => {
-      cancelAnimationFrame(animId);
-      window.removeEventListener('keydown', e => onKey(e, true));
-      window.removeEventListener('keyup', e => onKey(e, false));
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      cancelAnimationFrame(animationFrameId);
     };
   }, [imagesLoaded, onEncounter]);
 
+  // Loading Screen
   if (!imagesLoaded) {
     return (
-      <div style={{ 
-        width: '100%', height: 'calc(100vh - 120px)', 
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#1a1208', color: '#ff6600', fontFamily: 'monospace'
-      }}>
-        <h2>LOADING DUNGEON...</h2>
+      <div style={{ width: '100%', height: 'calc(100vh - 120px)', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1208', color: '#ff3300', fontFamily: '"Press Start 2P", monospace' }}>
+        <h2>LOADING ASSETS...</h2>
       </div>
     );
   }
 
   return (
     <canvas 
-      ref={canvasRef}
-      width={800}
-      height={600}
-      style={{
-        width: '100%',
-        height: 'calc(100vh - 120px)',
-        display: 'block',
-        imageRendering: 'pixelated'
-      }}
+      ref={canvasRef} 
+      width="640" 
+      height="480" 
+      style={{ width: '100%', height: 'calc(100vh - 120px)', display: 'block', imageRendering: 'pixelated' }} 
     />
   );
 }
