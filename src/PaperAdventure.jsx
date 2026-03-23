@@ -31,6 +31,15 @@ import { createNoise2D } from 'simplex-noise';
 const noise2D = createNoise2D();
 const GameContext = createContext();
 
+// Replicate terrain height formula so any system can query ground Y at (x,z)
+function getTerrainY(x, z) {
+  const d = Math.sqrt(x * x + z * z);
+  if (d > 55) return -2.5;
+  let h = noise2D(x * 0.04, z * 0.04) * 3 + noise2D(x * 0.1, z * 0.1) * 0.8;
+  const mask = Math.max(0, 1 - Math.pow(d / 60, 4));
+  return h * mask;
+}
+
 // Module-level camera state — lives outside React to avoid re-renders
 const camState = { yaw: Math.PI, pitch: 0.45, locked: false };
 
@@ -398,23 +407,66 @@ function NPC({ name, color, home, dialogues }) {
 
 // ─── World Assets ─────────────────────────────────────────────────────────────
 
-function WorldAssets() {
-  // FIX: reads playerPosRef (a ref) instead of state.playerPos (caused 60fps re-renders)
-  const { actions, playerPosRef } = useContext(GameContext);
+// Seeded RNG so positions never change between renders
+function seededRand(seed) {
+  let s = seed;
+  return () => { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646; };
+}
 
-  const fruitData = useMemo(() =>
-    Array.from({ length: 20 }, (_, i) => ({
-      id: i,
-      // Store as THREE.Vector3 once, not rebuilt every frame
-      pos: new THREE.Vector3((Math.random() - 0.5) * 80, 0.6, (Math.random() - 0.5) * 80),
-    })),
-  []);
-  const [activeFruit, setActiveFruit] = useState(() => new Set(fruitData.map(f => f.id)));
+// Static world data — computed once at module load, never changes
+const TREE_POSITIONS = (() => {
+  const rng = seededRand(42);
+  const positions = [];
+  // Blocked zones around houses and spawn
+  const blocked = [[-15,-15],[20,5],[0,25],[0,0]];
+  const isClear = (x, z) => blocked.every(([bx, bz]) => Math.hypot(x-bx, z-bz) > 9);
+  let attempts = 0;
+  while (positions.length < 55 && attempts < 500) {
+    attempts++;
+    const angle = rng() * Math.PI * 2;
+    const radius = 10 + rng() * 42; // keep away from centre spawn, keep within island
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const y = getTerrainY(x, z);
+    // Only on grass (height > 0.3), not in water
+    if (y > 0.3 && isClear(x, z)) {
+      positions.push({ x, y, z, scale: 0.7 + rng() * 0.7 });
+    }
+  }
+  return positions;
+})();
+
+const FRUIT_POSITIONS = (() => {
+  const rng = seededRand(99);
+  const positions = [];
+  while (positions.length < 18) {
+    const angle = rng() * Math.PI * 2;
+    const radius = 8 + rng() * 38;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const y = getTerrainY(x, z);
+    if (y > 0.3) positions.push(new THREE.Vector3(x, y + 0.8, z));
+  }
+  return positions;
+})();
+
+// House terrain heights — computed once
+const HOUSE_CONFIGS = [
+  { pos: [-15, getTerrainY(-15, -15), -15], color: CONFIG.COLORS.barnaby },
+  { pos: [ 20, getTerrainY( 20,   5),   5], color: CONFIG.COLORS.luna    },
+  { pos: [  0, getTerrainY(  0,  25),  25], color: CONFIG.COLORS.pip     },
+];
+
+// Fruit collection lives in its OWN component so its state changes never
+// touch StaticWorld (which contains the trees)
+function FruitLayer() {
+  const { actions, playerPosRef } = useContext(GameContext);
+  const [activeFruit, setActiveFruit] = useState(() => new Set(FRUIT_POSITIONS.map((_, i) => i)));
 
   useFrame(() => {
-    fruitData.forEach(f => {
-      if (activeFruit.has(f.id) && playerPosRef.current.distanceTo(f.pos) < 1.5) {
-        setActiveFruit(prev => { const n = new Set(prev); n.delete(f.id); return n; });
+    FRUIT_POSITIONS.forEach((pos, id) => {
+      if (activeFruit.has(id) && playerPosRef.current.distanceTo(pos) < 1.5) {
+        setActiveFruit(prev => { const n = new Set(prev); n.delete(id); return n; });
         actions.addItem('fruit');
         actions.addBells(50);
         audio.sfx('pop');
@@ -423,41 +475,93 @@ function WorldAssets() {
   });
 
   return (
-    <group>
-      <House position={[-15, 0, -15]} color={CONFIG.COLORS.barnaby} />
-      <House position={[ 20, 0,   5]} color={CONFIG.COLORS.luna} />
-      <House position={[  0, 0,  25]} color={CONFIG.COLORS.pip} />
+    <>
+      {FRUIT_POSITIONS.map((pos, id) => activeFruit.has(id) && (
+        <Float key={id} position={[pos.x, pos.y, pos.z]} speed={4} floatIntensity={0.4}>
+          <mesh castShadow>
+            <sphereGeometry args={[0.28, 12, 12]} />
+            <meshStandardMaterial color="#ff3333" emissive="#ff1111" emissiveIntensity={0.4} />
+          </mesh>
+          <Sparkles count={6} scale={0.8} size={1.5} color="#ffdd00" />
+        </Float>
+      ))}
+    </>
+  );
+}
 
-      <Instances limit={80}>
-        <coneGeometry args={[1.5, 4, 8]} />
-        <meshStandardMaterial color="#228B22" />
-        {Array.from({ length: 60 }).map((_, i) => (
-          <Instance key={i} position={[(Math.random() - 0.5) * 100, 2, (Math.random() - 0.5) * 100]} castShadow />
+// Everything here is 100% static — no state, so it NEVER re-renders after mount
+function StaticWorld() {
+  return (
+    <group>
+      {/* Houses */}
+      {HOUSE_CONFIGS.map((h, i) => <House key={i} position={h.pos} color={h.color} />)}
+
+      {/* Tree trunks */}
+      <Instances limit={60} castShadow>
+        <cylinderGeometry args={[0.18, 0.25, 1.4, 7]} />
+        <meshStandardMaterial color="#5C3A1E" roughness={1} />
+        {TREE_POSITIONS.map((t, i) => (
+          <Instance key={i} position={[t.x, t.y + 0.7, t.z]} scale={t.scale} />
         ))}
       </Instances>
 
-      {fruitData.map(f => activeFruit.has(f.id) && (
-        <Float key={f.id} position={[f.pos.x, f.pos.y, f.pos.z]} speed={5}>
-          <mesh>
-            <sphereGeometry args={[0.3, 16, 16]} />
-            <meshStandardMaterial color="red" emissive="red" emissiveIntensity={0.5} />
-          </mesh>
-          <Sparkles count={5} scale={1} size={2} color="yellow" />
-        </Float>
-      ))}
+      {/* Tree canopies — two cone layers per tree for fullness */}
+      <Instances limit={60} castShadow>
+        <coneGeometry args={[1.6, 3.2, 8]} />
+        <meshStandardMaterial color="#2d7a2d" roughness={0.9} />
+        {TREE_POSITIONS.map((t, i) => (
+          <Instance key={i} position={[t.x, t.y + 3.0, t.z]} scale={t.scale} />
+        ))}
+      </Instances>
+      <Instances limit={60} castShadow>
+        <coneGeometry args={[1.1, 2.4, 8]} />
+        <meshStandardMaterial color="#3a9e3a" roughness={0.9} />
+        {TREE_POSITIONS.map((t, i) => (
+          <Instance key={i} position={[t.x, t.y + 4.6, t.z]} scale={t.scale} />
+        ))}
+      </Instances>
     </group>
+  );
+}
+
+function WorldAssets() {
+  return (
+    <>
+      <StaticWorld />
+      <FruitLayer />
+    </>
   );
 }
 
 function House({ position, color }) {
   return (
     <group position={position}>
-      <mesh position={[0, 1.5, 0]} castShadow><boxGeometry args={[4, 3, 4]} /><meshStandardMaterial color="#fff" /></mesh>
-      <mesh position={[0, 4, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
-        <coneGeometry args={[3.5, 2.5, 4]} />
-        <meshStandardMaterial color={color} />
+      {/* Walls */}
+      <mesh position={[0, 1.5, 0]} castShadow receiveShadow>
+        <boxGeometry args={[5, 3, 5]} />
+        <meshStandardMaterial color="#fffaf0" roughness={0.8} />
       </mesh>
-      <pointLight position={[0, 2, 3]} intensity={1} color={color} distance={10} />
+      {/* Roof */}
+      <mesh position={[0, 4.1, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+        <coneGeometry args={[4, 2.8, 4]} />
+        <meshStandardMaterial color={color} roughness={0.7} />
+      </mesh>
+      {/* Door */}
+      <mesh position={[0, 0.7, 2.51]}>
+        <boxGeometry args={[0.9, 1.4, 0.05]} />
+        <meshStandardMaterial color="#8B4513" />
+      </mesh>
+      {/* Window left */}
+      <mesh position={[-1.5, 1.8, 2.51]}>
+        <boxGeometry args={[0.8, 0.8, 0.05]} />
+        <meshStandardMaterial color="#aaddff" emissive="#aaddff" emissiveIntensity={0.3} />
+      </mesh>
+      {/* Window right */}
+      <mesh position={[1.5, 1.8, 2.51]}>
+        <boxGeometry args={[0.8, 0.8, 0.05]} />
+        <meshStandardMaterial color="#aaddff" emissive="#aaddff" emissiveIntensity={0.3} />
+      </mesh>
+      <pointLight position={[0, 2, 3.5]} intensity={1.2} color={color} distance={12} />
     </group>
   );
 }
@@ -580,12 +684,11 @@ export default function CandyIslandUltimate() {
             <PlayerController />
             <CameraRig />
 
-            {/* FIX: home is plain {x,y,z} — no new THREE.Vector3() per render */}
-            <NPC name="Barnaby" color={CONFIG.COLORS.barnaby} home={{ x: -15, y: 0, z: -10 }}
+            <NPC name="Barnaby" color={CONFIG.COLORS.barnaby} home={{ x: -15, y: getTerrainY(-15,-10), z: -10 }}
               dialogues={['Welcome to the island!', 'Have you tried the hoverboard?', 'I love the smell of the sea.']} />
-            <NPC name="Luna"    color={CONFIG.COLORS.luna}    home={{ x:  20, y: 0, z:  10 }}
+            <NPC name="Luna"    color={CONFIG.COLORS.luna}    home={{ x:  20, y: getTerrainY( 20, 10), z:  10 }}
               dialogues={['Meow! The stars are bright.', 'Did you find any fruit today?', 'Bells are easy to earn here!']} />
-            <NPC name="Pip"     color={CONFIG.COLORS.pip}     home={{ x:   0, y: 0, z:  20 }}
+            <NPC name="Pip"     color={CONFIG.COLORS.pip}     home={{ x:   0, y: getTerrainY(  0, 20), z:  20 }}
               dialogues={["I'm the fastest bunny alive!", 'Hold SHIFT to sprint like me!', 'Bells can be used at the shop!']} />
 
             <Environment preset="forest" />
