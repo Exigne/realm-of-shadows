@@ -317,6 +317,20 @@ function Vegetation() {
       <Instances limit={100}>
         <sphereGeometry args={[0.15, 6, 6]} />
         <meshStandardMaterial roughness={0.5} />
+      <Instances limit={200}>
+        <cylinderGeometry args={[0.25, 0.35, 2, 6]} />
+        <meshStandardMaterial color={0x8B4513} roughness={0.9} />
+        {treeData.map((tree, i) => (
+          <Instance 
+            key={i}
+            position={[tree.position[0], tree.position[1] - 0.5, tree.position[2]]}
+            rotation={tree.rotation}
+            scale={tree.scale}
+            castShadow
+          />
+            <Instances limit={100}>
+        <sphereGeometry args={[0.15, 6, 6]} />
+        <meshStandardMaterial roughness={0.5} />
         {flowerData.map((flower, i) => (
           <Instance 
             key={i}
@@ -328,26 +342,22 @@ function Vegetation() {
     </group>
   );
 }
-  <Instances limit={200}>
-    <cylinderGeometry args={[0.25, 0.35, 2, 6]} />
-    <meshStandardMaterial color={0x8B4513} roughness={0.9} />
-    {treeData.map((tree, i) => (
-      <Instance 
-        key={i}
-        position={[tree.position[0], tree.position[1] - 0.5, tree.position[2]]}
-        rotation={tree.rotation}
-        scale={tree.scale}
-        castShadow
-      />
-    ))}
-  </Instances>
+      </Instances>
 
-  <Instances limit={100}>
-    <sphereGeometry args={[0.15, 6, 6]} />
-    <meshStandardMaterial roughness={0.5} />
-    {flowerData.map((flower, i) => (
-      <Instance 
-        key={i}
+      <Instances limit={100}>
+        <sphereGeometry args={[0.15, 6, 6]} />
+        <meshStandardMaterial roughness={0.5} />
+        {flowerData.map((flower, i) => (
+          <Instance 
+            key={i}
+            position={flower.position}
+            color={flower.color}
+          />
+        ))}
+      </Instances>
+    </group>
+  );
+}
         position={flower.position}
         color={flower.color}
       />
