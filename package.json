@@ -1,7 +1,7 @@
 {
-  "name": "medieval-rpg",
-  "private": true,
-  "version": "0.0.0",
+  "name": "candy-island-joyride",
+  "version": "2.0.0",
+  "description": "The Ultimate Island Adventure - A React Three Fiber Experience",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,10 +11,21 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "three": "^0.176.0"
+    "@react-three/fiber": "^8.15.12",
+    "@react-three/drei": "^9.92.7",
+    "@react-three/postprocessing": "^2.15.11",
+    "three": "^0.160.0",
+    "simplex-noise": "^4.0.1",
+    "@react-spring/web": "^9.7.3",
+    "@use-gesture/react": "^10.3.0",
+    "postprocessing": "^6.33.3",
+    "zustand": "^4.4.7"
   },
   "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@types/three": "^0.160.0",
     "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.1.4"
+    "vite": "^5.0.8"
   }
 }
