@@ -2,17 +2,6 @@
  * Raycaster.jsx  ─  TRULY TERRIFYING procedural enemies
  *
  * NO EXTERNAL MODELS - Pure mathematical horror
- * 
- * Features:
- * - Metaball-based organic blob creatures that pulse and merge
- * - Uncanny valley humanoids with WRONG proportions (too-long limbs, no face)
- * - Real-time mesh deformation for breathing/twitching flesh
- * - Asymmetrical, tumor-ridden bodies
- * - Multiple glowing eyes in wrong places
- * - Mandible jaws that unhinge
- * - Shader-based vein mapping and necrotic flesh
- *
- * Install:  npm install three
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -33,7 +22,7 @@ const TEX        = 128;
 const mc = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h || w; return c; };
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  TEXTURE GENERATION (unchanged)
+//  TEXTURE GENERATION
 // ═══════════════════════════════════════════════════════════════════════════
 function genStone() {
   const c = mc(TEX), ctx = c.getContext('2d');
@@ -237,11 +226,9 @@ function createHorrorCreature(type = 'stalker') {
   for (let i = 0; i < limbCount; i++) {
     const angle = (i / limbCount) * Math.PI * 2 + (Math.random() * 0.5);
     const limbLength = 1.8 + Math.random() * 0.8;
-    const isArm = i < 4; // First 4 are arms, rest are... extra
     
     // Segmented limb for insectoid/arachnid horror
     const segments = 3;
-    let currentY = 1.0;
     let lastSegment = body;
     
     for (let s = 0; s < segments; s++) {
@@ -257,18 +244,13 @@ function createHorrorCreature(type = 'stalker') {
       const seg = new THREE.Mesh(segGeom, fleshMat.clone());
       
       if (s === 0) {
-        seg.position.set(Math.cos(angle) * 0.4, currentY, Math.sin(angle) * 0.4);
+        seg.position.set(Math.cos(angle) * 0.4, 0, Math.sin(angle) * 0.4);
         seg.rotation.z = Math.cos(angle) * 0.5;
         seg.rotation.x = Math.sin(angle) * 0.5 + 0.3;
+        group.add(seg);
       } else {
         seg.position.set(0, -segLength + 0.05, 0);
         seg.rotation.x = 0.3; // Joint bend
-      }
-      
-      // Add to parent
-      if (s === 0) {
-        group.add(seg);
-      } else {
         lastSegment.add(seg);
       }
       lastSegment = seg;
@@ -568,7 +550,7 @@ class HorrorEnemyManager {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  SCARY MUSIC (unchanged)
+//  SCARY MUSIC
 // ═══════════════════════════════════════════════════════════════════════════
 class ScaryMusic {
   constructor() { this.ctx=null; this.master=null; this.nodes=[]; this.timers=[]; this.alive=false; }
@@ -907,4 +889,201 @@ export default function Raycaster({ onEncounter, onPickup }) {
     window.addEventListener('keydown', onKD);
     window.addEventListener('keyup', onKU);
 
-    // ─
+    // ── Collision helper ────────────────────────────────────────
+    const canWalk = (x, z) => {
+      if (x < 0 || x >= mapWidth || z < 0 || z >= mapHeight) return false;
+      const t = worldMap[Math.floor(x)]?.[Math.floor(z)];
+      return t === 0;
+    };
+
+    // ── Resize ──────────────────────────────────────────────────
+    const onResize = () => {
+      const w = container.clientWidth, h = container.clientHeight;
+      renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    };
+    window.addEventListener('resize', onResize);
+
+    // ── Minimap draw ────────────────────────────────────────────
+    const drawMinimap = () => {
+      const mc2 = minimapRef.current; if (!mc2) return;
+      const mctx = mc2.getContext('2d'); if (!mctx) return;
+      const ts = 4, mW = mapWidth*ts, mH = mapHeight*ts;
+      mc2.width = mW; mc2.height = mH;
+      mctx.fillStyle='rgba(4,3,2,0.88)'; mctx.fillRect(0,0,mW,mH);
+      for(let x=0;x<mapWidth;x++)for(let z=0;z<mapHeight;z++){const t=worldMap[x][z];mctx.fillStyle=t===1?'#4a3a24':t===3?'#5a2818':t===4?'#3a2210':'#14110d';mctx.fillRect(x*ts,z*ts,ts,ts);}
+      pickups.forEach(p=>{if(p.collected)return;mctx.fillStyle=p.type==='coin'?'#c8a020':'#20c050';mctx.beginPath();mctx.arc(p.x*ts,p.z*ts,2,0,Math.PI*2);mctx.fill();});
+      
+      enemyManager.enemies.forEach(e=>{
+        if(e.hp<=0)return;
+        mctx.fillStyle=e.type==='stalker'?'rgba(220,40,20,0.9)':'rgba(40,220,60,0.9)';
+        mctx.beginPath();mctx.arc(e.x*ts,e.z*ts,3,0,Math.PI*2);mctx.fill();
+      });
+      
+      const ppx=px*ts, ppz=pz*ts;
+      const fw=new THREE.Vector3(); camera.getWorldDirection(fw);
+      mctx.fillStyle='#e8d070'; mctx.beginPath(); mctx.arc(ppx,ppz,3,0,Math.PI*2); mctx.fill();
+      mctx.strokeStyle='#e8d070'; mctx.lineWidth=1.5;
+      mctx.beginPath(); mctx.moveTo(ppx,ppz); mctx.lineTo(ppx+fw.x*10,ppz+fw.z*10); mctx.stroke();
+    };
+
+    // ── Game loop ───────────────────────────────────────────────
+    let rafId;
+    const clock = new THREE.Clock();
+    
+    const loop = () => {
+      rafId = requestAnimationFrame(loop);
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+      frameCount++;
+
+      const playerPos = { x: px, z: pz };
+      const forward = new THREE.Vector3(); camera.getWorldDirection(forward);
+      const playerDir = { x: forward.x, z: forward.z };
+
+      // Movement
+      const sprint = keys['Shift'] ? 1.65 : 1;
+      const ms = MOVE_SPEED * sprint;
+      const fw = new THREE.Vector3(); camera.getWorldDirection(fw); fw.y = 0; fw.normalize();
+      const right = new THREE.Vector3().crossVectors(fw, new THREE.Vector3(0,1,0)).normalize();
+      let moving = false;
+
+      const tryMove = (dx, dz) => {
+        const M = 0.3;
+        if (canWalk(px+dx+Math.sign(dx)*M, pz) && canWalk(px+dx-Math.sign(dx)*M, pz)) { px += dx; moving = true; }
+        if (canWalk(px, pz+dz+Math.sign(dz)*M) && canWalk(px, pz+dz-Math.sign(dz)*M)) { pz += dz; moving = true; }
+      };
+
+      if (keys['w'] || keys['ArrowUp'])    tryMove( fw.x*ms,  fw.z*ms);
+      if (keys['s'] || keys['ArrowDown'])  tryMove(-fw.x*ms, -fw.z*ms);
+      if (keys['a'])                        tryMove(-right.x*ms, -right.z*ms);
+      if (keys['d'])                        tryMove( right.x*ms,  right.z*ms);
+      if (keys['ArrowLeft'])               { yaw += ROT_SPEED; }
+      if (keys['ArrowRight'])              { yaw -= ROT_SPEED; }
+
+      // Check enemy collision
+      enemyManager.enemies.forEach(enemy => {
+        if (enemy.hp <= 0) return;
+        const dx = px - enemy.x;
+        const dz = pz - enemy.z;
+        const dist = Math.sqrt(dx*dx + dz*dz);
+        if (dist < 0.8) {
+          enemyManager.takeDamage(enemy, 999);
+          onEncounterRef.current();
+        }
+      });
+
+      // Pickups
+      pickups.forEach(pu => {
+        if (pu.collected) return;
+        const dx=px-pu.x, dz=pz-pu.z;
+        if (dx*dx+dz*dz < 0.35) {
+          pu.collected = true; pu.mesh.visible = false; pu.light.visible = false;
+          setFlash(0.5); setTimeout(() => setFlash(0), 400);
+          onPickupRef.current?.(pu.type==='coin'?'gold':'health', pu.type==='coin'?15:20);
+        }
+      });
+
+      // Camera
+      camera.position.set(px, EYE_H + (moving ? Math.sin(bobPhase*8)*0.04 : 0), pz);
+      camera.rotation.order = 'YXZ'; camera.rotation.y = yaw; camera.rotation.x = 0;
+      if (moving) bobPhase += sprint > 1 ? 0.1 : 0.065;
+
+      // Player torch
+      torchFlicker += (Math.random()-0.5)*0.035;
+      torchFlicker = Math.max(0.82, Math.min(1.0, torchFlicker));
+      playerLight.position.copy(camera.position).add(new THREE.Vector3(fw.x*0.5, 0.1, fw.z*0.5));
+      playerLight.intensity = 3.0 * torchFlicker;
+
+      // Fixed torches
+      fixedTorches.forEach(t => {
+        t.light.intensity = t.base * (0.88 + Math.random()*0.24);
+        t.flame.material.color.setHSL(0.06+Math.random()*0.04, 1, 0.5+Math.random()*0.2);
+      });
+
+      // Update enemies
+      enemyManager.update(time, playerPos);
+
+      // Pickup float
+      pickups.forEach(pu => {
+        if (pu.collected) return;
+        pu.mesh.position.y = 0.28 + Math.sin(frameCount*0.045 + pu.phase)*0.1;
+        pu.mesh.rotation.y += 0.025;
+      });
+
+      // Fire flash
+      if (fireFlashVal > 0) {
+        fireFlashVal = Math.max(0, fireFlashVal - 0.05);
+        orbMesh.material.emissiveIntensity = 1.4 + fireFlashVal * 5;
+        weaponPointLight.intensity = 1.5 + fireFlashVal * 6;
+        beamMesh.visible = fireFlashVal > 0.1;
+        beamMesh.material.opacity = fireFlashVal * 0.8;
+        rings.forEach((r, i) => { r.visible = fireFlashVal > 0.2; r.scale.setScalar(1 + (1-fireFlashVal)*(i+1)*1.2); r.material.opacity = fireFlashVal*(0.55-i*.14); });
+        if (fireFlashVal > 0.55) setFlash(fireFlashVal * 0.5);
+        else setFlash(0);
+      } else {
+        orbMesh.material.emissiveIntensity = 1.4 + Math.sin(frameCount*0.09)*0.3;
+        weaponPointLight.intensity = 1.5 + Math.sin(frameCount*0.07)*0.4;
+        beamMesh.visible = false; rings.forEach(r => r.visible = false);
+      }
+
+      // Wand sway
+      const sway = Math.sin(frameCount*0.025)*0.04;
+      const walkSway = moving ? Math.sin(bobPhase*8)*0.018 : 0;
+      wGroup.rotation.z = 0.18 + sway;
+      wGroup.rotation.x = walkSway;
+      wGroup.position.y = -0.34 + (moving ? Math.sin(bobPhase*8)*0.025 : 0);
+
+      // Render
+      renderer.autoClear = true;
+      renderer.render(scene, camera);
+      renderer.autoClear = false; renderer.clearDepth();
+      renderer.render(weaponScene, weaponCamera);
+      renderer.autoClear = true;
+
+      // Minimap
+      if (frameCount % 4 === 0) drawMinimap();
+    };
+
+    loop();
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('keydown', onKD);
+      window.removeEventListener('keyup', onKU);
+      window.removeEventListener('resize', onResize);
+      music.stop();
+      enemyManager.dispose();
+      renderer.dispose();
+      if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
+    };
+  }, []);
+
+  return (
+    <div style={{ width:'100%', height:'100%', position:'relative', background:'#050208', overflow:'hidden' }}>
+      <div ref={mountRef} style={{ width:'100%', height:'100%' }} />
+      
+      {flash > 0 && (
+        <div style={{ position:'absolute', inset:0, background:`rgba(80,110,255,${flash})`, pointerEvents:'none', transition:'opacity 0.1s' }} />
+      )}
+      
+      <canvas ref={minimapRef} style={{ position:'absolute', top:12, right:12, border:'1px solid #3a2a14', outline:'1px solid #5a4020', imageRendering:'pixelated', opacity:0.9 }} />
+      
+      <div style={{ position:'absolute', top:12, left:'50%', transform:'translateX(-50%)', fontFamily:"'Cinzel',serif", fontSize:10, color:'#7a5828', letterSpacing:6, background:'rgba(4,3,2,0.7)', padding:'4px 14px', border:'1px solid #2a1e0e', borderRadius:2 }}>
+        SHADOW KEEP
+      </div>
+      
+      {hint === 'click_to_start' && (
+        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(3,2,6,0.55)', pointerEvents:'none' }}>
+          <div style={{ fontFamily:"'Cinzel',serif", color:'#c8a96e', fontSize:13, letterSpacing:4, marginBottom:10, textShadow:'0 0 20px #c8a96e88' }}>CLICK TO ENTER THE DUNGEON</div>
+          <div style={{ fontFamily:"'Crimson Text',serif", color:'#5a4020', fontSize:12, letterSpacing:2 }}>mouse look · music · full controls</div>
+        </div>
+      )}
+      
+      <div style={{ position:'absolute', bottom:14, left:14, fontFamily:"'Crimson Text',serif", fontSize:11, color:'rgba(130,90,40,0.55)', lineHeight:1.9, letterSpacing:0.5, pointerEvents:'none' }}>
+        <div>W A S D · move &amp; strafe</div>
+        <div>← → · turn &nbsp;|&nbsp; Shift · sprint</div>
+        <div>SPACE · cast wand</div>
+      </div>
+    </div>
+  );
+}
