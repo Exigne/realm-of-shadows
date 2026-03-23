@@ -1,6 +1,6 @@
 {
   "name": "candy-island-joyride",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "The Ultimate Island Adventure - A React Three Fiber Experience",
   "type": "module",
   "scripts": {
@@ -11,20 +11,20 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@react-three/fiber": "^8.15.12",
-    "@react-three/drei": "^9.92.7",
-    "@react-three/postprocessing": "^2.15.11",
-    "three": "^0.160.0",
+    "@react-three/fiber": "^8.17.12",
+    "@react-three/drei": "^9.120.0",
+    "@react-three/postprocessing": "^2.16.5",
+    "three": "^0.171.0",
     "simplex-noise": "^4.0.1",
     "@react-spring/web": "^9.7.3",
     "@use-gesture/react": "^10.3.0",
-    "postprocessing": "^6.33.3",
-    "zustand": "^4.4.7"
+    "postprocessing": "^6.36.0",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
-    "@types/three": "^0.160.0",
+    "@types/three": "^0.171.0",
     "@vitejs/plugin-react": "^4.2.1",
     "vite": "^5.0.8"
   }
