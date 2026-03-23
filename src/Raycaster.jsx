@@ -946,7 +946,7 @@ export default function Raycaster({ onEncounter, onPickup }) {
       {hint === 'click_to_start' && (
         <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(3,2,6,0.55)', pointerEvents:'none' }}>
           <div style={{ fontFamily:"'Cinzel',serif", color:'#c8a96e', fontSize:13, letterSpacing:4, marginBottom:10, textShadow:'0 0 20px #c8a96e88' }}>CLICK TO ENTER THE DUNGEON</div>
-          <div style={{ fontFamily:"'Crimson Text',serif', color:'#5a4020', fontSize:12, letterSpacing:2 }}>mouse look · music · full controls</div>
+          <div style={{ fontFamily:"'Crimson Text',serif", color:'#5a4020', fontSize:12, letterSpacing:2 }}>mouse look · music · full controls</div>
         </div>
       )}
       
