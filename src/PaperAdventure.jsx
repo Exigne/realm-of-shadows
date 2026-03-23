@@ -1,7 +1,6 @@
 /**
- * 🏝️ CANDY ISLAND — Animal Crossing Style
- * Third-person exploration with smooth camera follow
- * WASD to move, Mouse to rotate camera, Scroll to zoom
+ * 🏝️ CANDY ISLAND — Point & Click Edition
+ * Animal Crossing style: Click anywhere on the ground to walk there!
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -12,40 +11,37 @@ import * as THREE from 'three';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const CONFIG = {
-  moveSpeed: 8,
-  runSpeed: 14,
-  rotateSpeed: 0.15,
-  cameraDistance: 12,
-  cameraHeight: 8,
-  cameraMinDist: 5,
-  cameraMaxDist: 20,
-  worldSize: 100,
+  walkSpeed: 6,
+  runSpeed: 12,
+  cameraHeight: 15,
+  cameraDistance: 20,
+  worldSize: 80,
 };
 
 const COLORS = {
-  grass: 0x7cfc00,
-  grassDark: 0x32cd32,
-  water: 0x40a4df,
-  sand: 0xf4a460,
-  dirt: 0x8b4513,
-  wood: 0x8b5a2b,
-  leaves: 0x228b22,
-  flowerRed: 0xff6b6b,
-  flowerYellow: 0xffd93d,
-  flowerWhite: 0xffffff,
-  player: 0xffb6c1,
-  sky: 0x87ceeb,
+  grass: 0x90EE90,
+  grassDark: 0x7CFC00,
+  water: 0x40E0D0,
+  sand: 0xF5DEB3,
+  dirt: 0xD2691E,
+  wood: 0x8B4513,
+  leaves: 0x228B22,
+  flowerRed: 0xFF69B4,
+  flowerYellow: 0xFFD700,
+  flowerWhite: 0xFFF8DC,
+  player: 0xFFB6C1,
+  sky: 0x87CEEB,
+  targetMarker: 0xFFD700,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AUDIO ENGINE — Relaxing Island Sounds
+// AUDIO ENGINE
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class IslandAudio {
   constructor() {
     this.ctx = null;
     this.master = null;
-    this.bgmGain = null;
     this.isPlaying = false;
   }
 
@@ -62,7 +58,7 @@ class IslandAudio {
     this.isPlaying = true;
     this.init();
 
-    // Simple ambient chord progression
+    // Relaxing island chords
     const chords = [
       [523.25, 659.25, 783.99], // C major
       [587.33, 739.99, 880.00], // D major
@@ -76,24 +72,24 @@ class IslandAudio {
       if (!this.isPlaying) return;
       
       const chord = chords[chordIndex];
-      chord.forEach((freq, i) => {
+      chord.forEach((freq) => {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         
         osc.type = 'sine';
         osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 2);
+        gain.gain.setValueAtTime(0.02, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.5);
         
         osc.connect(gain);
         gain.connect(this.master);
         
         osc.start();
-        osc.stop(this.ctx.currentTime + 2);
+        osc.stop(this.ctx.currentTime + 1.5);
       });
       
       chordIndex = (chordIndex + 1) % chords.length;
-      setTimeout(playChord, 2000);
+      setTimeout(playChord, 1800);
     };
     
     playChord();
@@ -109,8 +105,8 @@ class IslandAudio {
     switch(name) {
       case 'step':
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(150, this.ctx.currentTime);
-        gain.gain.setValueAtTime(0.02, this.ctx.currentTime);
+        osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.05);
@@ -120,7 +116,7 @@ class IslandAudio {
         osc.type = 'sine';
         osc.frequency.setValueAtTime(880, this.ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(1760, this.ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.15);
@@ -129,8 +125,8 @@ class IslandAudio {
       case 'pop':
         osc.type = 'sine';
         osc.frequency.setValueAtTime(600, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1200, this.ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.1);
@@ -144,14 +140,14 @@ class IslandAudio {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT — Candy Island
+// MAIN COMPONENT — Point & Click Candy Island
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function CandyIsland() {
+export default function CandyIslandPointClick() {
   const mountRef = useRef(null);
   const [gameState, setGameState] = useState('start');
   const [bells, setBells] = useState(0);
-  const [items, setItems] = useState({ flowers: 0, bugs: 0, fish: 0 });
+  const [items, setItems] = useState({ flowers: 0, bugs: 0, fish: 0, fruit: 0 });
   const [time, setTime] = useState(new Date());
   const [message, setMessage] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -161,21 +157,17 @@ export default function CandyIsland() {
     camera: null,
     renderer: null,
     player: null,
-    cameraPivot: null,
-    cameraGoal: null,
+    targetMarker: null,
+    raycaster: new THREE.Raycaster(),
+    mouse: new THREE.Vector2(),
     audio: new IslandAudio(),
-    keys: {},
-    isLocked: false,
-    cameraAngle: Math.PI / 2,
-    cameraPitch: 0.3,
-    cameraDist: CONFIG.cameraDistance,
-    velocity: new THREE.Vector3(),
+    targetPosition: null,
     isMoving: false,
-    stepTimer: 0,
+    velocity: new THREE.Vector3(),
     worldObjects: [],
     collectibles: [],
-    particles: [],
     lastTime: 0,
+    stepTimer: 0,
   });
 
   const showMessage = useCallback((text) => {
@@ -191,10 +183,12 @@ export default function CandyIsland() {
     // ─── 1. Scene Setup ─────────────────────────────────────────────────────
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(COLORS.sky);
-    scene.fog = new THREE.Fog(COLORS.sky, 20, 80);
+    scene.fog = new THREE.Fog(COLORS.sky, 30, 90);
     g.scene = scene;
 
-    const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 200);
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 200);
+    // Isometric-style camera position
+    camera.position.set(20, CONFIG.cameraHeight, 20);
     g.camera = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -209,20 +203,19 @@ export default function CandyIsland() {
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfff5e6, 1);
+    const sunLight = new THREE.DirectionalLight(0xfff5e6, 0.9);
     sunLight.position.set(50, 80, 30);
     sunLight.castShadow = true;
-    sunLight.shadow.camera.left = -50;
-    sunLight.shadow.camera.right = 50;
-    sunLight.shadow.camera.top = 50;
-    sunLight.shadow.camera.bottom = -50;
+    sunLight.shadow.camera.left = -60;
+    sunLight.shadow.camera.right = 60;
+    sunLight.shadow.camera.top = 60;
+    sunLight.shadow.camera.bottom = -60;
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.bias = -0.0005;
     scene.add(sunLight);
 
-    // ─── 3. Ground (Island) ───────────────────────────────────────────────────
-    // Create a circular island
+    // ─── 3. Ground (Clickable Island) ────────────────────────────────────
     const groundGeo = new THREE.CircleGeometry(CONFIG.worldSize, 64);
     const groundMat = new THREE.MeshStandardMaterial({ 
       color: COLORS.grass,
@@ -231,27 +224,29 @@ export default function CandyIsland() {
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
+    ground.name = 'ground'; // For raycasting identification
     scene.add(ground);
 
-    // Add some random elevation (hills)
-    for (let i = 0; i < 8; i++) {
-      const hillGeo = new THREE.SphereGeometry(3 + Math.random() * 4, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    // Hills
+    for (let i = 0; i < 6; i++) {
+      const hillGeo = new THREE.SphereGeometry(4 + Math.random() * 5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
       const hillMat = new THREE.MeshStandardMaterial({ color: COLORS.grassDark });
       const hill = new THREE.Mesh(hillGeo, hillMat);
       const angle = Math.random() * Math.PI * 2;
       const dist = 20 + Math.random() * 30;
-      hill.position.set(Math.cos(angle) * dist, -1, Math.sin(angle) * dist);
+      hill.position.set(Math.cos(angle) * dist, -1.5, Math.sin(angle) * dist);
       hill.receiveShadow = true;
       scene.add(hill);
     }
 
-    // Beach ring
-    const beachGeo = new THREE.RingGeometry(CONFIG.worldSize, CONFIG.worldSize + 8, 64);
+    // Beach
+    const beachGeo = new THREE.RingGeometry(CONFIG.worldSize - 5, CONFIG.worldSize + 10, 64);
     const beachMat = new THREE.MeshStandardMaterial({ color: COLORS.sand, roughness: 1 });
     const beach = new THREE.Mesh(beachGeo, beachMat);
     beach.rotation.x = -Math.PI / 2;
-    beach.position.y = 0.01;
+    beach.position.y = 0.02;
     beach.receiveShadow = true;
+    beach.name = 'ground';
     scene.add(beach);
 
     // Water
@@ -259,76 +254,69 @@ export default function CandyIsland() {
     const waterMat = new THREE.MeshStandardMaterial({ 
       color: COLORS.water, 
       transparent: true, 
-      opacity: 0.8,
+      opacity: 0.7,
       roughness: 0.1,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
     water.rotation.x = -Math.PI / 2;
-    water.position.y = -0.5;
+    water.position.y = -0.8;
     scene.add(water);
 
     // ─── 4. Trees ─────────────────────────────────────────────────────────────
     const createTree = (x, z, scale = 1) => {
       const group = new THREE.Group();
       
-      // Trunk
-      const trunkGeo = new THREE.CylinderGeometry(0.3 * scale, 0.4 * scale, 2 * scale, 8);
+      const trunkGeo = new THREE.CylinderGeometry(0.4 * scale, 0.5 * scale, 2.5 * scale, 8);
       const trunkMat = new THREE.MeshStandardMaterial({ color: COLORS.wood });
       const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-      trunk.position.y = 1 * scale;
+      trunk.position.y = 1.25 * scale;
       trunk.castShadow = true;
       group.add(trunk);
       
-      // Leaves (3 layers)
       const leavesMat = new THREE.MeshStandardMaterial({ color: COLORS.leaves });
       for (let i = 0; i < 3; i++) {
-        const leavesGeo = new THREE.ConeGeometry((1.5 - i * 0.3) * scale, 2 * scale, 8);
+        const leavesGeo = new THREE.ConeGeometry((2 - i * 0.4) * scale, 2.5 * scale, 8);
         const leaves = new THREE.Mesh(leavesGeo, leavesMat);
-        leaves.position.y = (2.5 + i * 1.2) * scale;
+        leaves.position.y = (3 + i * 1.5) * scale;
         leaves.castShadow = true;
         group.add(leaves);
       }
       
       group.position.set(x, 0, z);
-      // Random rotation for variety
       group.rotation.y = Math.random() * Math.PI * 2;
       scene.add(group);
       g.worldObjects.push({ mesh: group, type: 'tree', position: new THREE.Vector3(x, 0, z) });
     };
 
-    // Spawn trees
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 15; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist = 10 + Math.random() * 35;
-      createTree(Math.cos(angle) * dist, Math.sin(angle) * dist, 0.8 + Math.random() * 0.4);
+      const dist = 15 + Math.random() * 35;
+      createTree(Math.cos(angle) * dist, Math.sin(angle) * dist, 0.9 + Math.random() * 0.3);
     }
 
     // ─── 5. Flowers (Collectibles) ──────────────────────────────────────────
     const createFlower = (x, z, color) => {
       const group = new THREE.Group();
       
-      // Stem
-      const stemGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 4);
+      const stemGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.6, 4);
       const stemMat = new THREE.MeshStandardMaterial({ color: COLORS.leaves });
       const stem = new THREE.Mesh(stemGeo, stemMat);
-      stem.position.y = 0.25;
+      stem.position.y = 0.3;
       group.add(stem);
       
-      // Petals
-      const petalGeo = new THREE.SphereGeometry(0.15, 8, 8);
+      const petalGeo = new THREE.SphereGeometry(0.18, 8, 8);
       const petalMat = new THREE.MeshStandardMaterial({ color });
       for (let i = 0; i < 5; i++) {
         const petal = new THREE.Mesh(petalGeo, petalMat);
         const angle = (i / 5) * Math.PI * 2;
-        petal.position.set(Math.cos(angle) * 0.15, 0.5, Math.sin(angle) * 0.15);
+        petal.position.set(Math.cos(angle) * 0.18, 0.6, Math.sin(angle) * 0.18);
         group.add(petal);
       }
       
-      // Center
-      const centerGeo = new THREE.SphereGeometry(0.1, 8, 8);
-      const centerMat = new THREE.MeshStandardMaterial({ color: 0xffd700 });
+      const centerGeo = new THREE.SphereGeometry(0.12, 8, 8);
+      const centerMat = new THREE.MeshStandardMaterial({ color: 0xFFD700 });
       const center = new THREE.Mesh(centerGeo, centerMat);
-      center.position.y = 0.5;
+      center.position.y = 0.6;
       group.add(center);
       
       group.position.set(x, 0, z);
@@ -338,127 +326,138 @@ export default function CandyIsland() {
     };
 
     const flowerColors = [COLORS.flowerRed, COLORS.flowerYellow, COLORS.flowerWhite];
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 25; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist = 5 + Math.random() * 40;
+      const dist = 8 + Math.random() * 35;
       const color = flowerColors[Math.floor(Math.random() * flowerColors.length)];
       g.collectibles.push(createFlower(Math.cos(angle) * dist, Math.sin(angle) * dist, color));
     }
 
-    // ─── 6. Player Character ────────────────────────────────────────────────
+    // ─── 6. Player Character (Cute Bunny) ───────────────────────────────────
     const playerGroup = new THREE.Group();
     playerGroup.position.set(0, 0, 0);
     scene.add(playerGroup);
     g.player = playerGroup;
 
-    // Body (cute round shape)
-    const bodyGeo = new THREE.SphereGeometry(0.5, 16, 16);
+    // Body
+    const bodyGeo = new THREE.SphereGeometry(0.6, 16, 16);
     const bodyMat = new THREE.MeshStandardMaterial({ color: COLORS.player });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.5;
+    body.position.y = 0.6;
     body.castShadow = true;
     playerGroup.add(body);
 
-    // Ears (bunny style)
-    const earGeo = new THREE.CapsuleGeometry(0.12, 0.4, 4, 8);
+    // Ears
+    const earGeo = new THREE.CapsuleGeometry(0.15, 0.6, 4, 8);
     const earMat = new THREE.MeshStandardMaterial({ color: COLORS.player });
     const leftEar = new THREE.Mesh(earGeo, earMat);
-    leftEar.position.set(-0.2, 0.9, 0);
-    leftEar.rotation.z = 0.2;
+    leftEar.position.set(-0.25, 1.1, 0);
+    leftEar.rotation.z = 0.15;
     const rightEar = new THREE.Mesh(earGeo, earMat);
-    rightEar.position.set(0.2, 0.9, 0);
-    rightEar.rotation.z = -0.2;
+    rightEar.position.set(0.25, 1.1, 0);
+    rightEar.rotation.z = -0.15;
     playerGroup.add(leftEar);
     playerGroup.add(rightEar);
 
     // Face
-    const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
+    const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
     const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-    leftEye.position.set(-0.15, 0.6, 0.4);
+    leftEye.position.set(-0.2, 0.7, 0.5);
     const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-    rightEye.position.set(0.15, 0.6, 0.4);
+    rightEye.position.set(0.2, 0.7, 0.5);
     playerGroup.add(leftEye);
     playerGroup.add(rightEye);
 
     // Blush
-    const blushGeo = new THREE.CircleGeometry(0.08, 8);
-    const blushMat = new THREE.MeshBasicMaterial({ color: 0xff69b4, transparent: true, opacity: 0.5 });
+    const blushGeo = new THREE.CircleGeometry(0.1, 8);
+    const blushMat = new THREE.MeshBasicMaterial({ color: 0xFF69B4, transparent: true, opacity: 0.4 });
     const leftBlush = new THREE.Mesh(blushGeo, blushMat);
-    leftBlush.position.set(-0.25, 0.5, 0.42);
+    leftBlush.position.set(-0.3, 0.6, 0.52);
     leftBlush.rotation.y = -0.3;
     const rightBlush = new THREE.Mesh(blushGeo, blushMat);
-    rightBlush.position.set(0.25, 0.5, 0.42);
+    rightBlush.position.set(0.3, 0.6, 0.52);
     rightBlush.rotation.y = 0.3;
     playerGroup.add(leftBlush);
     playerGroup.add(rightBlush);
 
-    // ─── 7. Third-Person Camera System ───────────────────────────────────────
-    // Camera pivot follows player but rotates independently
-    const cameraPivot = new THREE.Object3D();
-    cameraPivot.position.copy(playerGroup.position);
-    scene.add(cameraPivot);
-    g.cameraPivot = cameraPivot;
+    // ─── 7. Target Marker (Shows where you clicked) ─────────────────────────
+    const markerGeo = new THREE.RingGeometry(0.3, 0.5, 16);
+    const markerMat = new THREE.MeshBasicMaterial({ 
+      color: COLORS.targetMarker, 
+      transparent: true, 
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+    });
+    const targetMarker = new THREE.Mesh(markerGeo, markerMat);
+    targetMarker.rotation.x = -Math.PI / 2;
+    targetMarker.position.y = 0.1;
+    targetMarker.visible = false;
+    scene.add(targetMarker);
+    g.targetMarker = targetMarker;
 
-    // The actual camera is offset from the pivot
-    camera.position.set(0, CONFIG.cameraHeight, CONFIG.cameraDistance);
-    cameraPivot.add(camera);
+    // ─── 8. Camera Setup ──────────────────────────────────────────────────────
     camera.lookAt(playerGroup.position);
 
-    // ─── 8. Input Handling ────────────────────────────────────────────────────
-    const keys = {};
-    const handleKeyDown = (e) => {
-      keys[e.code] = true;
-      if (e.code === 'ShiftLeft') setIsRunning(true);
-    };
-    const handleKeyUp = (e) => {
-      keys[e.code] = false;
-      if (e.code === 'ShiftLeft') setIsRunning(false);
-    };
+    // ─── 9. Click Handler (Point & Click Movement!) ────────────────────────
+    const handleClick = (e) => {
+      if (gameState !== 'play') return;
 
-    // Mouse controls for camera
-    let isDragging = false;
-    let previousMousePosition = { x: 0, y: 0 };
+      // Calculate mouse position in normalized device coordinates
+      const rect = renderer.domElement.getBoundingClientRect();
+      g.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      g.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-    const handleMouseDown = (e) => {
-      if (gameState === 'play' && e.button === 0) {
-        isDragging = true;
-        previousMousePosition = { x: e.clientX, y: e.clientY };
+      // Raycast from camera through mouse position
+      g.raycaster.setFromCamera(g.mouse, camera);
+
+      // Intersect with ground
+      const intersects = g.raycaster.intersectObjects(scene.children);
+      const groundHit = intersects.find(hit => hit.object.name === 'ground');
+
+      if (groundHit) {
+        // Set target position
+        g.targetPosition = groundHit.point;
+        g.targetPosition.y = 0; // Keep on ground
+        g.isMoving = true;
+        
+        // Show target marker
+        targetMarker.position.copy(g.targetPosition);
+        targetMarker.position.y = 0.1;
+        targetMarker.visible = true;
+        
+        // Calculate direction to face
+        const direction = new THREE.Vector3().subVectors(g.targetPosition, playerGroup.position);
+        direction.y = 0;
+        if (direction.length() > 0) {
+          const targetRotation = Math.atan2(direction.x, direction.z);
+          // Smooth rotation will happen in animate loop
+          playerGroup.userData.targetRotation = targetRotation;
+        }
+        
+        // Pop sound effect
+        g.audio.sfx('pop');
+        
+        // Hide marker after delay
+        setTimeout(() => {
+          targetMarker.visible = false;
+        }, 1000);
       }
     };
 
-    const handleMouseMove = (e) => {
-      if (!isDragging || gameState !== 'play') return;
-      
-      const deltaMove = {
-        x: e.clientX - previousMousePosition.x,
-        y: e.clientY - previousMousePosition.y
-      };
+    container.addEventListener('click', handleClick);
 
-      // Rotate camera around player
-      g.cameraAngle -= deltaMove.x * 0.005;
-      g.cameraPitch = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, g.cameraPitch - deltaMove.y * 0.005));
-
-      previousMousePosition = { x: e.clientX, y: e.clientY };
+    // Shift to run
+    const handleKeyDown = (e) => {
+      if (e.code === 'ShiftLeft') setIsRunning(true);
     };
-
-    const handleMouseUp = () => {
-      isDragging = false;
+    const handleKeyUp = (e) => {
+      if (e.code === 'ShiftLeft') setIsRunning(false);
     };
-
-    const handleWheel = (e) => {
-      if (gameState !== 'play') return;
-      g.cameraDist = Math.max(CONFIG.cameraMinDist, Math.min(CONFIG.cameraMaxDist, g.cameraDist + e.deltaY * 0.01));
-    };
-
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
-    container.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    container.addEventListener('wheel', handleWheel);
 
-    // ─── 9. Resize Handler ────────────────────────────────────────────────────
+    // ─── 10. Resize Handler ─────────────────────────────────────────────────
     const handleResize = () => {
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
@@ -466,7 +465,7 @@ export default function CandyIsland() {
     };
     window.addEventListener('resize', handleResize);
 
-    // ─── 10. Game Loop ───────────────────────────────────────────────────────
+    // ─── 11. Game Loop ──────────────────────────────────────────────────────
     const clock = new THREE.Clock();
     
     const animate = () => {
@@ -476,75 +475,83 @@ export default function CandyIsland() {
       const time = clock.getElapsedTime();
       
       if (gameState === 'play') {
-        // Movement based on camera angle (Animal Crossing style)
-        const moveSpeed = isRunning ? CONFIG.runSpeed : CONFIG.moveSpeed;
-        const forward = new THREE.Vector3(Math.sin(g.cameraAngle), 0, Math.cos(g.cameraAngle));
-        const right = new THREE.Vector3(Math.cos(g.cameraAngle), 0, -Math.sin(g.cameraAngle));
-        
-        let moveDir = new THREE.Vector3();
-        
-        if (keys['KeyW'] || keys['ArrowUp']) moveDir.add(forward);
-        if (keys['KeyS'] || keys['ArrowDown']) moveDir.sub(forward);
-        if (keys['KeyA'] || keys['ArrowLeft']) moveDir.sub(right);
-        if (keys['KeyD'] || keys['ArrowRight']) moveDir.add(right);
-        
-        // Normalize and apply movement
-        if (moveDir.length() > 0) {
-          moveDir.normalize();
+        // Point & Click Movement
+        if (g.isMoving && g.targetPosition) {
+          const direction = new THREE.Vector3().subVectors(g.targetPosition, playerGroup.position);
+          direction.y = 0;
+          const distance = direction.length();
           
-          // Smooth rotation to face movement direction
-          const targetRotation = Math.atan2(moveDir.x, moveDir.z);
-          let rotDiff = targetRotation - playerGroup.rotation.y;
-          while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-          while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-          playerGroup.rotation.y += rotDiff * CONFIG.rotateSpeed;
-          
-          // Move player
-          const newPos = playerGroup.position.clone().add(moveDir.multiplyScalar(moveSpeed * delta));
-          
-          // Boundary check (keep on island)
-          if (newPos.length() < CONFIG.worldSize - 2) {
-            playerGroup.position.copy(newPos);
-          }
-          
-          // Bobbing animation when walking
-          g.isMoving = true;
-          body.position.y = 0.5 + Math.abs(Math.sin(time * (isRunning ? 15 : 10))) * 0.1;
-          
-          // Step sounds
-          g.stepTimer += delta;
-          if (g.stepTimer > (isRunning ? 0.3 : 0.5)) {
-            g.audio.sfx('step');
-            g.stepTimer = 0;
+          if (distance > 0.1) {
+            direction.normalize();
+            
+            // Smooth rotation to face target
+            if (playerGroup.userData.targetRotation !== undefined) {
+              let currentRot = playerGroup.rotation.y;
+              let targetRot = playerGroup.userData.targetRotation;
+              
+              // Shortest path rotation
+              let diff = targetRot - currentRot;
+              while (diff > Math.PI) diff -= Math.PI * 2;
+              while (diff < -Math.PI) diff += Math.PI * 2;
+              
+              playerGroup.rotation.y += diff * 10 * delta;
+            }
+            
+            // Move towards target
+            const speed = isRunning ? CONFIG.runSpeed : CONFIG.walkSpeed;
+            const moveStep = speed * delta;
+            const actualMove = Math.min(moveStep, distance);
+            
+            playerGroup.position.x += direction.x * actualMove;
+            playerGroup.position.z += direction.z * actualMove;
+            
+            // Walking animation (bobbing)
+            const bobSpeed = isRunning ? 15 : 10;
+            body.position.y = 0.6 + Math.abs(Math.sin(time * bobSpeed)) * 0.15;
+            
+            // Step sounds
+            g.stepTimer += delta;
+            const stepInterval = isRunning ? 0.25 : 0.4;
+            if (g.stepTimer > stepInterval) {
+              g.audio.sfx('step');
+              g.stepTimer = 0;
+            }
+          } else {
+            // Arrived at destination
+            g.isMoving = false;
+            g.targetPosition = null;
+            body.position.y = 0.6;
+            targetMarker.visible = false;
           }
         } else {
-          g.isMoving = false;
-          body.position.y = THREE.MathUtils.lerp(body.position.y, 0.5, delta * 10);
+          // Idle breathing animation
+          body.position.y = 0.6 + Math.sin(time * 2) * 0.02;
+          body.scale.set(
+            1 + Math.sin(time * 2) * 0.01,
+            1 - Math.sin(time * 2) * 0.01,
+            1 + Math.sin(time * 2) * 0.01
+          );
         }
         
-        // Camera follow with smooth interpolation
-        // Update pivot position to follow player
-        cameraPivot.position.lerp(playerGroup.position, delta * 5);
-        
-        // Calculate camera position based on angle, pitch, and distance
-        const camX = Math.sin(g.cameraAngle) * Math.cos(g.cameraPitch) * g.cameraDist;
-        const camY = Math.sin(g.cameraPitch) * g.cameraDist + 2; // +2 for head height
-        const camZ = Math.cos(g.cameraAngle) * Math.cos(g.cameraPitch) * g.cameraDist;
-        
-        camera.position.lerp(new THREE.Vector3(camX, camY, camZ), delta * 3);
-        camera.lookAt(cameraPivot.position.x, cameraPivot.position.y + 1, cameraPivot.position.z);
+        // Camera follow player (smooth)
+        const targetCamPos = new THREE.Vector3(
+          playerGroup.position.x + 20,
+          CONFIG.cameraHeight,
+          playerGroup.position.z + 20
+        );
+        camera.position.lerp(targetCamPos, delta * 2);
+        camera.lookAt(playerGroup.position);
         
         // Animate collectibles
         g.collectibles.forEach(c => {
           if (c.collected) return;
           
-          // Gentle bobbing
           c.mesh.rotation.y += delta;
-          c.mesh.position.y = Math.sin(time * 2 + c.position.x) * 0.1;
+          c.mesh.position.y = Math.sin(time * 3 + c.position.x) * 0.1;
           
           // Collection check
           const dist = playerGroup.position.distanceTo(c.position);
-          if (dist < 1) {
+          if (dist < 1.2) {
             c.collected = true;
             c.mesh.visible = false;
             g.audio.sfx('collect');
@@ -554,13 +561,19 @@ export default function CandyIsland() {
           }
         });
         
-        // Animate trees (gentle sway)
+        // Animate trees
         g.worldObjects.forEach((obj, i) => {
           if (obj.type === 'tree') {
-            const sway = Math.sin(time * 0.5 + i) * 0.02;
-            obj.mesh.rotation.z = sway;
+            obj.mesh.rotation.z = Math.sin(time * 0.5 + i) * 0.02;
           }
         });
+        
+        // Animate target marker
+        if (targetMarker.visible) {
+          targetMarker.rotation.z += delta * 2;
+          const scale = 1 + Math.sin(time * 10) * 0.2;
+          targetMarker.scale.set(scale, scale, scale);
+        }
       }
 
       renderer.render(scene, camera);
@@ -568,17 +581,14 @@ export default function CandyIsland() {
 
     animate();
 
-    // Update time every minute
+    // Update time
     const timeInterval = setInterval(() => setTime(new Date()), 60000);
 
     return () => {
       clearInterval(timeInterval);
+      container.removeEventListener('click', handleClick);
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
-      container.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      container.removeEventListener('wheel', handleWheel);
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
       g.audio.stop();
@@ -592,14 +602,21 @@ export default function CandyIsland() {
   };
 
   return (
-    <div style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden', background: '#87ceeb' }}>
+    <div style={{ 
+      width: '100%', 
+      height: '100vh', 
+      position: 'relative', 
+      overflow: 'hidden', 
+      background: '#87ceeb',
+      cursor: gameState === 'play' ? 'crosshair' : 'default'
+    }}>
       <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
       
       {/* Vignette */}
       <div style={{
         position: 'absolute',
         inset: 0,
-        background: 'radial-gradient(circle at center, transparent 60%, rgba(0,0,0,0.1) 100%)',
+        background: 'radial-gradient(circle at center, transparent 50%, rgba(0,0,0,0.1) 100%)',
         pointerEvents: 'none',
         zIndex: 10,
       }} />
@@ -616,17 +633,17 @@ export default function CandyIsland() {
             zIndex: 20,
           }}>
             <div style={{
-              background: 'rgba(255, 223, 186, 0.9)',
-              padding: '10px 20px',
-              borderRadius: '20px',
-              border: '3px solid #8b4513',
-              boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
+              background: 'rgba(255, 223, 186, 0.95)',
+              padding: '12px 24px',
+              borderRadius: '25px',
+              border: '4px solid #8B4513',
+              boxShadow: '0 6px 12px rgba(0,0,0,0.2)',
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
+              gap: '12px',
             }}>
-              <span style={{ fontSize: '24px' }}>🔔</span>
-              <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#8b4513' }}>
+              <span style={{ fontSize: '28px' }}>🔔</span>
+              <span style={{ fontSize: '24px', fontWeight: 'bold', color: '#8B4513' }}>
                 {bells.toLocaleString()}
               </span>
             </div>
@@ -641,17 +658,17 @@ export default function CandyIsland() {
             zIndex: 20,
           }}>
             <div style={{
-              background: 'rgba(255, 255, 255, 0.9)',
-              padding: '10px 20px',
-              borderRadius: '20px',
-              border: '3px solid #87ceeb',
-              boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
+              background: 'rgba(255, 255, 255, 0.95)',
+              padding: '12px 24px',
+              borderRadius: '25px',
+              border: '4px solid #87CEEB',
+              boxShadow: '0 6px 12px rgba(0,0,0,0.2)',
               textAlign: 'center',
             }}>
-              <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#333' }}>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#333' }}>
                 {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
-              <div style={{ fontSize: '12px', color: '#666' }}>
+              <div style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>
                 {time.toLocaleDateString([], { month: 'short', day: 'numeric' })}
               </div>
             </div>
@@ -663,26 +680,35 @@ export default function CandyIsland() {
             bottom: 20,
             left: 20,
             display: 'flex',
-            gap: '10px',
+            gap: '12px',
             zIndex: 20,
           }}>
             {[
-              { icon: '🌸', count: items.flowers, color: '#ffb6c1' },
-              { icon: '🦋', count: items.bugs, color: '#98fb98' },
-              { icon: '🐟', count: items.fish, color: '#87ceeb' },
+              { icon: '🌸', count: items.flowers, color: '#FFB6C1', label: 'Flowers' },
+              { icon: '🦋', count: items.bugs, color: '#98FB98', label: 'Bugs' },
+              { icon: '🐟', count: items.fish, color: '#87CEEB', label: 'Fish' },
+              { icon: '🍎', count: items.fruit, color: '#FFA07A', label: 'Fruit' },
             ].map((item, i) => (
               <div key={i} style={{
-                background: 'rgba(255, 255, 255, 0.9)',
-                padding: '8px 15px',
-                borderRadius: '15px',
-                border: `3px solid ${item.color}`,
+                background: 'rgba(255, 255, 255, 0.95)',
+                padding: '10px 18px',
+                borderRadius: '20px',
+                border: `4px solid ${item.color}`,
+                boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '5px',
+                gap: '8px',
                 fontFamily: '"Comic Sans MS", sans-serif',
-              }}>
-                <span style={{ fontSize: '20px' }}>{item.icon}</span>
-                <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#333' }}>{item.count}</span>
+                transition: 'transform 0.2s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
+              onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+              >
+                <span style={{ fontSize: '24px' }}>{item.icon}</span>
+                <div>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#333' }}>{item.count}</div>
+                  <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' }}>{item.label}</div>
+                </div>
               </div>
             ))}
           </div>
@@ -692,38 +718,39 @@ export default function CandyIsland() {
             position: 'absolute',
             bottom: 20,
             right: 20,
-            background: 'rgba(0, 0, 0, 0.5)',
+            background: 'rgba(0, 0, 0, 0.7)',
             color: 'white',
-            padding: '10px 15px',
-            borderRadius: '10px',
+            padding: '15px 20px',
+            borderRadius: '15px',
             fontFamily: '"Comic Sans MS", sans-serif',
-            fontSize: '12px',
+            fontSize: '14px',
             zIndex: 20,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
           }}>
-            <div>WASD / Arrows — Move</div>
-            <div>Mouse Drag — Rotate Camera</div>
-            <div>Scroll — Zoom</div>
-            <div>Shift — Run</div>
+            <div style={{ marginBottom: '5px', fontWeight: 'bold', color: '#FFD700' }}>Controls:</div>
+            <div>🖱️ Click ground — Walk there</div>
+            <div>🏃 Shift — Run faster</div>
           </div>
 
-          {/* Message Popup */}
+          {/* Center Message */}
           {message && (
             <div style={{
               position: 'absolute',
-              top: '30%',
+              top: '25%',
               left: '50%',
               transform: 'translate(-50%, -50%)',
-              background: 'rgba(255, 255, 255, 0.95)',
-              padding: '15px 30px',
-              borderRadius: '25px',
-              border: '4px solid #ffd700',
-              boxShadow: '0 8px 16px rgba(0,0,0,0.2)',
+              background: 'rgba(255, 255, 255, 0.98)',
+              padding: '20px 40px',
+              borderRadius: '30px',
+              border: '5px solid #FFD700',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
               fontFamily: '"Comic Sans MS", cursive',
-              fontSize: '24px',
+              fontSize: '28px',
               fontWeight: 'bold',
               color: '#333',
               zIndex: 30,
-              animation: 'pop 0.3s ease-out',
+              animation: 'bounceIn 0.4s ease-out',
+              pointerEvents: 'none',
             }}>
               {message}
             </div>
@@ -738,7 +765,7 @@ export default function CandyIsland() {
           style={{
             position: 'absolute',
             inset: 0,
-            background: 'linear-gradient(135deg, rgba(135, 206, 235, 0.95), rgba(124, 252, 0, 0.8))',
+            background: 'linear-gradient(135deg, rgba(135, 206, 235, 0.98), rgba(144, 238, 144, 0.9))',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -748,45 +775,65 @@ export default function CandyIsland() {
           }}
         >
           <h1 style={{
-            fontFamily: '"Comic Sans MS", cursive',
-            fontSize: '72px',
+            fontFamily: '"Comic Sans MS", "Chalkboard SE", cursive',
+            fontSize: '80px',
             color: 'white',
-            textShadow: '4px 4px 0 #228b22, 8px 8px 0 rgba(0,0,0,0.2)',
-            marginBottom: '20px',
-            animation: 'bounce 2s infinite',
+            textShadow: '5px 5px 0 #228B22, 10px 10px 0 rgba(0,0,0,0.2)',
+            marginBottom: '30px',
+            animation: 'float 3s ease-in-out infinite',
+            textAlign: 'center',
           }}>
-            🏝️ CANDY ISLAND
+            🏝️ CANDY<br/>ISLAND
           </h1>
           <p style={{
             fontFamily: '"Comic Sans MS", cursive',
-            fontSize: '28px',
+            fontSize: '32px',
             color: 'white',
-            textShadow: '2px 2px 4px rgba(0,0,0,0.3)',
-            marginBottom: '40px',
+            textShadow: '3px 3px 6px rgba(0,0,0,0.3)',
+            marginBottom: '50px',
             textAlign: 'center',
+            maxWidth: '600px',
           }}>
-            Your relaxing island getaway awaits!<br/>
-            Click to start exploring 🌸
+            Click anywhere to walk there!<br/>
+            Collect flowers and explore 🌸
           </p>
-          <div style={{ fontSize: '48px', animation: 'float 3s ease-in-out infinite' }}>
+          <div style={{ 
+            fontSize: '56px', 
+            animation: 'wiggle 2s ease-in-out infinite',
+            display: 'flex',
+            gap: '20px'
+          }}>
             🐰 🌺 🦋 🍃 🌳
+          </div>
+          
+          <div style={{
+            marginTop: '40px',
+            padding: '20px 40px',
+            background: 'rgba(255,255,255,0.2)',
+            borderRadius: '20px',
+            border: '3px solid white',
+            fontFamily: '"Comic Sans MS", cursive',
+            color: 'white',
+            fontSize: '18px',
+          }}>
+            🖱️ Point & Click Adventure
           </div>
         </div>
       )}
 
       <style>{`
-        @keyframes bounce {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-20px); }
-        }
         @keyframes float {
           0%, 100% { transform: translateY(0) rotate(0deg); }
-          50% { transform: translateY(-15px) rotate(5deg); }
+          50% { transform: translateY(-25px) rotate(3deg); }
         }
-        @keyframes pop {
-          0% { transform: translate(-50%, -50%) scale(0); }
-          80% { transform: translate(-50%, -50%) scale(1.1); }
-          100% { transform: translate(-50%, -50%) scale(1); }
+        @keyframes wiggle {
+          0%, 100% { transform: rotate(-5deg); }
+          50% { transform: rotate(5deg); }
+        }
+        @keyframes bounceIn {
+          0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+          50% { transform: translate(-50%, -50%) scale(1.1); }
+          100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
         }
       `}</style>
     </div>
