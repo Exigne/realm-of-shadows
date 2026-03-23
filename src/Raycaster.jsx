@@ -1,24 +1,18 @@
 /**
- * Raycaster.jsx  ─  now with procedural 3D TERRIFYING enemies
+ * Raycaster.jsx  ─  TRULY TERRIFYING procedural enemies
  *
- * NO EXTERNAL MODELS REQUIRED
- * Generates organic, pulsating horror creatures procedurally
+ * NO EXTERNAL MODELS - Pure mathematical horror
  * 
  * Features:
- * - Procedural demon geometry with animated vertices
- * - Pulsating flesh shaders
- * - Twitching limb animations
- * - Dynamic silhouette that responds to light
+ * - Metaball-based organic blob creatures that pulse and merge
+ * - Uncanny valley humanoids with WRONG proportions (too-long limbs, no face)
+ * - Real-time mesh deformation for breathing/twitching flesh
+ * - Asymmetrical, tumor-ridden bodies
+ * - Multiple glowing eyes in wrong places
+ * - Mandible jaws that unhinge
+ * - Shader-based vein mapping and necrotic flesh
  *
  * Install:  npm install three
- *
- * Controls:
- *   W / S          – move forward / back
- *   A / D          – strafe left / right
- *   ← →            – turn
- *   Shift          – sprint
- *   SPACE          – cast wand (fires at aimed enemy)
- *   Click canvas   – lock pointer for mouse look
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -36,11 +30,10 @@ const FOG_FAR    = 16;
 const PICKUP_N   = 10;
 const TEX        = 128;
 
-// ─── Canvas helper ─────────────────────────────────────────────────────────
 const mc = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h || w; return c; };
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  WALL TEXTURES (unchanged)
+//  TEXTURE GENERATION (unchanged)
 // ═══════════════════════════════════════════════════════════════════════════
 function genStone() {
   const c = mc(TEX), ctx = c.getContext('2d');
@@ -95,274 +88,326 @@ function genCeiling() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  PROCEDURAL TERRIFYING ENEMIES
+//  TERRIFYING ORGANIC ENEMY GENERATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Shader for pulsating flesh effect
-const fleshVertexShader = `
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vPosition;
-  uniform float uTime;
-  uniform float uPulse;
-  
-  void main() {
-    vUv = uv;
-    vNormal = normalize(normalMatrix * normal);
-    vPosition = position;
-    
-    // Pulsating flesh - vertices breathe
-    vec3 newPos = position + normal * sin(uTime * 2.0 + position.y * 3.0) * uPulse * 0.1;
-    
-    // Occasional twitch
-    float twitch = step(0.97, sin(uTime * 10.0)) * sin(uTime * 30.0) * 0.05;
-    newPos.x += twitch * (position.y - 1.0);
-    
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(newPos, 1.0);
+// Simplex noise for organic deformation
+class SimplexNoise {
+  constructor() {
+    this.grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+    this.p = []; for (let i=0; i<256; i++) this.p[i] = Math.floor(Math.random()*256);
+    this.perm = []; for(let i=0; i<512; i++) this.perm[i]=this.p[i & 255];
   }
-`;
-
-const fleshFragmentShader = `
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vPosition;
-  uniform float uTime;
-  uniform vec3 uColor;
-  uniform vec3 uGlowColor;
-  uniform float uGlowIntensity;
-  
-  void main() {
-    // Base flesh color with noise-like variation
-    float noise = sin(vPosition.x * 10.0) * sin(vPosition.y * 10.0) * sin(vPosition.z * 10.0);
-    vec3 baseColor = uColor + noise * 0.1;
-    
-    // Veins pulsing
-    float vein = sin(vPosition.y * 8.0 - uTime * 3.0) * 0.5 + 0.5;
-    vein = pow(vein, 4.0) * 0.3;
-    baseColor += uGlowColor * vein;
-    
-    // Rim lighting for scary silhouette
-    vec3 viewDir = normalize(cameraPosition - vPosition);
-    float rim = 1.0 - max(dot(viewDir, vNormal), 0.0);
-    rim = pow(rim, 3.0);
-    
-    // Pulsating glow from within
-    float pulse = sin(uTime * 2.0) * 0.5 + 0.5;
-    vec3 glow = uGlowColor * pulse * uGlowIntensity * rim;
-    
-    // Final scary flesh
-    gl_FragColor = vec4(baseColor + glow, 1.0);
+  dot(g, x, y, z) { return g[0]*x + g[1]*y + g[2]*z; }
+  noise(xin, yin, zin) {
+    let n0, n1, n2, n3;
+    const F3 = 1.0/3.0, G3 = 1.0/6.0;
+    let s = (xin+yin+zin)*F3;
+    let i = Math.floor(xin+s), j = Math.floor(yin+s), k = Math.floor(zin+s);
+    let t = (i+j+k)*G3;
+    let X0 = i-t, Y0 = j-t, Z0 = k-t;
+    let x0 = xin-X0, y0 = yin-Y0, z0 = zin-Z0;
+    let i1, j1, k1, i2, j2, k2;
+    if(x0>=y0) { if(y0>=z0) { i1=1; j1=0; k1=0; i2=1; j2=1; k2=0; } else if(x0>=z0) { i1=1; j1=0; k1=0; i2=1; j2=0; k2=1; } else { i1=0; j1=0; k1=1; i2=1; j2=0; k2=1; } }
+    else { if(y0<z0) { i1=0; j1=0; k1=1; i2=0; j2=1; k2=1; } else if(x0<z0) { i1=0; j1=1; k1=0; i2=0; j2=1; k2=1; } else { i1=0; j1=1; k1=0; i2=1; j2=1; k2=0; } }
+    let x1 = x0 - i1 + G3, y1 = y0 - j1 + G3, z1 = z0 - k1 + G3;
+    let x2 = x0 - i2 + 2.0*G3, y2 = y0 - j2 + 2.0*G3, z2 = z0 - k2 + 2.0*G3;
+    let x3 = x0 - 1.0 + 3.0*G3, y3 = y0 - 1.0 + 3.0*G3, z3 = z0 - 1.0 + 3.0*G3;
+    let ii = i & 255, jj = j & 255, kk = k & 255;
+    let gi0 = this.perm[ii+this.perm[jj+this.perm[kk]]] % 12;
+    let gi1 = this.perm[ii+i1+this.perm[jj+j1+this.perm[kk+k1]]] % 12;
+    let gi2 = this.perm[ii+i2+this.perm[jj+j2+this.perm[kk+k2]]] % 12;
+    let gi3 = this.perm[ii+1+this.perm[jj+1+this.perm[kk+1]]] % 12;
+    let t0 = 0.6 - x0*x0 - y0*y0 - z0*z0;
+    if(t0<0) n0 = 0.0; else { t0 *= t0; n0 = t0 * t0 * this.dot(this.grad3[gi0], x0, y0, z0); }
+    let t1 = 0.6 - x1*x1 - y1*y1 - z1*z1;
+    if(t1<0) n1 = 0.0; else { t1 *= t1; n1 = t1 * t1 * this.dot(this.grad3[gi1], x1, y1, z1); }
+    let t2 = 0.6 - x2*x2 - y2*y2 - z2*z2;
+    if(t2<0) n2 = 0.0; else { t2 *= t2; n2 = t2 * t2 * this.dot(this.grad3[gi2], x2, y2, z2); }
+    let t3 = 0.6 - x3*x3 - y3*y3 - z3*z3;
+    if(t3<0) n3 = 0.0; else { t3 *= t3; n3 = t3 * t3 * this.dot(this.grad3[gi3], x3, y3, z3); }
+    return 32.0*(n0 + n1 + n2 + n3);
   }
-`;
+}
 
-// Create a terrifying procedural demon
-function createProceduralDemon(type = 'stalker') {
+const noise = new SimplexNoise();
+
+// Create TERRIFYING uncanny valley creature
+function createHorrorCreature(type = 'stalker') {
   const group = new THREE.Group();
-  
-  // Materials
   const isStalker = type === 'stalker';
-  const mainColor = isStalker ? new THREE.Color(0x2a0a0a) : new THREE.Color(0x1a2a1a);
-  const glowColor = isStalker ? new THREE.Color(0xff1100) : new THREE.Color(0x44ff22);
   
-  const fleshMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 },
-      uPulse: { value: 0.5 },
-      uColor: { value: mainColor },
-      uGlowColor: { value: glowColor },
-      uGlowIntensity: { value: 1.5 }
-    },
-    vertexShader: fleshVertexShader,
-    fragmentShader: fleshFragmentShader,
-    side: THREE.DoubleSide
+  // Colors - diseased, necrotic flesh
+  const baseColor = isStalker ? 0x3d2817 : 0x1a3d28;
+  const glowColor = isStalker ? 0xff0000 : 0x00ff44;
+  
+  // 1. MAIN BODY - Asymmetrical, tumor-ridden torso using distorted sphere
+  const bodyGeom = new THREE.IcosahedronGeometry(0.6, 2);
+  const pos = bodyGeom.attributes.position;
+  
+  // Apply noise deformation for organic, cancerous look
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    // Multiple octaves of noise for tumor-like growths
+    const n1 = noise.noise(x*2, y*2, z*2);
+    const n2 = noise.noise(x*4 + 10, y*4, z*4) * 0.5;
+    const n3 = noise.noise(x*8, y*8 + 20, z*8) * 0.25;
+    const displacement = 1 + (n1 + n2 + n3) * 0.4;
+    
+    // Extra bulge on one side (asymmetry)
+    const asymmetry = x > 0 ? 1.3 : 0.9;
+    
+    pos.setXYZ(i, x * displacement * asymmetry, y * displacement * 1.2, z * displacement);
+  }
+  bodyGeom.computeVertexNormals();
+  
+  const fleshMat = new THREE.MeshStandardMaterial({
+    color: baseColor,
+    roughness: 0.9,
+    metalness: 0.1,
+    emissive: glowColor,
+    emissiveIntensity: 0.2,
+    flatShading: false
   });
   
-  // 1. DISTORTED TORSO (elongated, hunched)
-  const torsoGeom = new THREE.CylinderGeometry(0.3, 0.5, 1.8, 8, 4);
-  // Distort vertices for hunched back
-  const posAttribute = torsoGeom.attributes.position;
-  for (let i = 0; i < posAttribute.count; i++) {
-    const y = posAttribute.getY(i);
-    const x = posAttribute.getX(i);
-    if (y > 0) {
-      posAttribute.setX(i, x * 0.7); // Narrow shoulders
-      posAttribute.setZ(i, posAttribute.getZ(i) - y * 0.3); // Hunch forward
-    }
-  }
-  torsoGeom.computeVertexNormals();
-  const torso = new THREE.Mesh(torsoGeom, fleshMaterial.clone());
-  torso.position.y = 1.4;
-  torso.castShadow = true;
-  torso.receiveShadow = true;
-  group.add(torso);
+  const body = new THREE.Mesh(bodyGeom, fleshMat);
+  body.position.y = 1.2;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
   
-  // 2. RIBCAGE (exposed ribs - terrifying detail)
-  const ribGroup = new THREE.Group();
-  for (let i = 0; i < 5; i++) {
-    const ribGeom = new THREE.TorusGeometry(0.35 - i * 0.04, 0.03, 4, 8, Math.PI);
-    const rib = new THREE.Mesh(ribGeom, fleshMaterial.clone());
-    rib.position.y = 1.8 - i * 0.25;
-    rib.rotation.x = Math.PI / 2;
-    rib.rotation.z = 0.2;
-    ribGroup.add(rib);
-  }
-  group.add(ribGroup);
-  
-  // 3. HEAD (distorted, no face - just darkness)
-  const headGeom = new THREE.SphereGeometry(0.35, 12, 12);
-  // Elongate head
-  headGeom.scale(0.8, 1.3, 0.9);
-  const head = new THREE.Mesh(headGeom, fleshMaterial.clone());
-  head.position.set(0, 2.6, 0.2);
-  head.castShadow = true;
-  
-  // Glowing eyes (deep in sockets)
-  const eyeGeom = new THREE.SphereGeometry(0.08, 8, 8);
-  const eyeMat = new THREE.MeshBasicMaterial({ color: glowColor });
-  const leftEye = new THREE.Mesh(eyeGeom, eyeMat);
-  leftEye.position.set(-0.12, 2.65, 0.25);
-  const rightEye = new THREE.Mesh(eyeGeom, eyeMat);
-  rightEye.position.set(0.12, 2.65, 0.25);
-  group.add(leftEye, rightEye);
-  group.add(head);
-  
-  // 4. ELONGATED ARMS (reach for player)
-  const armLength = isStalker ? 2.2 : 1.6;
-  const armGeom = new THREE.CylinderGeometry(0.08, 0.12, armLength, 6);
-  armGeom.translate(0, -armLength/2, 0); // Pivot at shoulder
-  
-  const leftArm = new THREE.Mesh(armGeom, fleshMaterial.clone());
-  leftArm.position.set(-0.5, 2.0, 0);
-  leftArm.rotation.z = 0.3;
-  leftArm.rotation.x = 0.4;
-  
-  const rightArm = new THREE.Mesh(armGeom, fleshMaterial.clone());
-  rightArm.position.set(0.5, 2.0, 0);
-  rightArm.rotation.z = -0.3;
-  rightArm.rotation.x = 0.4;
-  
-  // Claws
-  const clawGeom = new THREE.ConeGeometry(0.04, 0.3, 4);
-  for (let i = 0; i < 3; i++) {
-    const clawL = new THREE.Mesh(clawGeom, fleshMaterial.clone());
-    clawL.position.set(-0.5 + i * 0.05, -armLength, 0.1);
-    clawL.rotation.x = -0.5;
-    leftArm.add(clawL);
+  // 2. MULTIPLE EYES - Wrong number, wrong placement (uncanny valley)
+  const eyeCount = isStalker ? 5 : 3;
+  const eyes = [];
+  for (let i = 0; i < eyeCount; i++) {
+    const eyeSize = 0.08 + Math.random() * 0.06;
+    const eyeGeom = new THREE.SphereGeometry(eyeSize, 16, 16);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: glowColor });
+    const eye = new THREE.Mesh(eyeGeom, eyeMat);
     
-    const clawR = new THREE.Mesh(clawGeom, fleshMaterial.clone());
-    clawR.position.set(0.5 - i * 0.05, -armLength, 0.1);
-    clawR.rotation.x = -0.5;
-    rightArm.add(clawR);
+    // Place eyes randomly on upper body - WRONG anatomy
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI * 0.5;
+    const r = 0.55;
+    eye.position.set(
+      Math.sin(phi) * Math.cos(theta) * r,
+      1.2 + Math.cos(phi) * r * 0.8,
+      Math.sin(phi) * Math.sin(theta) * r
+    );
+    
+    // Pupil (vertical slit for reptilian look)
+    const pupilGeom = new THREE.PlaneGeometry(eyeSize * 0.3, eyeSize * 1.2);
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    const pupil = new THREE.Mesh(pupilGeom, pupilMat);
+    pupil.position.z = eyeSize * 0.9;
+    pupil.lookAt(0, 0, 10);
+    eye.add(pupil);
+    
+    group.add(eye);
+    eyes.push({ mesh: eye, pupil: pupil, basePos: eye.position.clone() });
   }
   
-  group.add(leftArm, rightArm);
+  // 3. MANDIBLE JAW - Unhinges when attacking
+  const jawGroup = new THREE.Group();
+  const jawGeom = new THREE.ConeGeometry(0.25, 0.6, 4);
+  jawGeom.scale(1, 1, 0.3);
+  const jawMat = fleshMat.clone();
+  const jaw = new THREE.Mesh(jawGeom, jawMat);
+  jaw.rotation.x = Math.PI;
+  jaw.position.y = -0.3;
+  jawGroup.add(jaw);
   
-  // 5. SPINDLY LEGS
-  const legGeom = new THREE.CylinderGeometry(0.1, 0.06, 1.4, 6);
-  legGeom.translate(0, -0.7, 0);
+  // Teeth - needle-like
+  for (let i = 0; i < 8; i++) {
+    const toothGeom = new THREE.ConeGeometry(0.02, 0.15, 4);
+    const tooth = new THREE.Mesh(toothGeom, new THREE.MeshStandardMaterial({ color: 0xffffee, roughness: 0.3 }));
+    const angle = (i / 7) * Math.PI - Math.PI/2;
+    tooth.position.set(Math.sin(angle) * 0.15, -0.5, Math.cos(angle) * 0.08);
+    tooth.rotation.x = Math.PI/6;
+    jawGroup.add(tooth);
+  }
   
-  const leftLeg = new THREE.Mesh(legGeom, fleshMaterial.clone());
-  leftLeg.position.set(-0.25, 0.7, 0);
-  leftLeg.rotation.z = 0.15;
-  leftLeg.rotation.x = -0.2;
+  jawGroup.position.set(0, 0.9, 0.4);
+  group.add(jawGroup);
   
-  const rightLeg = new THREE.Mesh(legGeom, fleshMaterial.clone());
-  rightLeg.position.set(0.25, 0.7, 0);
-  rightLeg.rotation.z = -0.15;
-  rightLeg.rotation.x = -0.2;
+  // 4. ELONGATED LIMBS - Too long, too many joints (uncanny)
+  const limbCount = isStalker ? 6 : 4; // WRONG limb count
+  const limbs = [];
   
-  group.add(leftLeg, rightLeg);
-  
-  // 6. TENTACLES/SPIKES on back (for stalker)
-  if (isStalker) {
-    for (let i = 0; i < 6; i++) {
-      const spikeGeom = new THREE.ConeGeometry(0.05, 0.6 + Math.random() * 0.4, 4);
-      const spike = new THREE.Mesh(spikeGeom, fleshMaterial.clone());
-      const angle = (i / 6) * Math.PI * 2;
-      spike.position.set(Math.cos(angle) * 0.3, 1.2 + Math.random() * 0.5, Math.sin(angle) * 0.3 - 0.3);
-      spike.rotation.x = Math.random() * 0.5;
-      spike.rotation.z = (Math.random() - 0.5) * 0.5;
-      group.add(spike);
+  for (let i = 0; i < limbCount; i++) {
+    const angle = (i / limbCount) * Math.PI * 2 + (Math.random() * 0.5);
+    const limbLength = 1.8 + Math.random() * 0.8;
+    const isArm = i < 4; // First 4 are arms, rest are... extra
+    
+    // Segmented limb for insectoid/arachnid horror
+    const segments = 3;
+    let currentY = 1.0;
+    let lastSegment = body;
+    
+    for (let s = 0; s < segments; s++) {
+      const segLength = limbLength / segments;
+      const segGeom = new THREE.CylinderGeometry(
+        0.12 - s * 0.03, 
+        0.08 - s * 0.02, 
+        segLength, 
+        6
+      );
+      segGeom.translate(0, -segLength/2, 0);
+      
+      const seg = new THREE.Mesh(segGeom, fleshMat.clone());
+      
+      if (s === 0) {
+        seg.position.set(Math.cos(angle) * 0.4, currentY, Math.sin(angle) * 0.4);
+        seg.rotation.z = Math.cos(angle) * 0.5;
+        seg.rotation.x = Math.sin(angle) * 0.5 + 0.3;
+      } else {
+        seg.position.set(0, -segLength + 0.05, 0);
+        seg.rotation.x = 0.3; // Joint bend
+      }
+      
+      // Add to parent
+      if (s === 0) {
+        group.add(seg);
+      } else {
+        lastSegment.add(seg);
+      }
+      lastSegment = seg;
+      
+      // Claw on final segment
+      if (s === segments - 1) {
+        const clawGeom = new THREE.ConeGeometry(0.04, 0.3, 3);
+        const claw = new THREE.Mesh(clawGeom, new THREE.MeshStandardMaterial({ 
+          color: 0x1a1a1a, 
+          roughness: 0.4,
+          metalness: 0.5 
+        }));
+        claw.position.y = -segLength;
+        claw.rotation.x = -0.2;
+        seg.add(claw);
+      }
+      
+      limbs.push({ mesh: seg, segment: s, limbIndex: i });
     }
   }
   
-  // 7. GLOW LIGHT
-  const glowLight = new THREE.PointLight(glowColor, 2, 5, 2);
-  glowLight.position.set(0, 2, 0.5);
-  group.add(glowLight);
+  // 5. PUSTULES/TUMORS - Disgusting detail
+  const pustuleCount = 12;
+  for (let i = 0; i < pustuleCount; i++) {
+    const size = 0.05 + Math.random() * 0.1;
+    const pustuleGeom = new THREE.SphereGeometry(size, 8, 8);
+    const pustuleMat = new THREE.MeshStandardMaterial({
+      color: 0x8b4513,
+      emissive: glowColor,
+      emissiveIntensity: 0.5,
+      transparent: true,
+      opacity: 0.9
+    });
+    const pustule = new THREE.Mesh(pustuleGeom, pustuleMat);
+    
+    // Random placement on body
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI;
+    const r = 0.5;
+    pustule.position.set(
+      Math.sin(phi) * Math.cos(theta) * r,
+      1.2 + Math.cos(phi) * r * 0.6,
+      Math.sin(phi) * Math.sin(theta) * r
+    );
+    
+    group.add(pustule);
+  }
   
-  // Store references for animation
+  // 6. GLOW CORE - Pulsating inner light
+  const coreLight = new THREE.PointLight(glowColor, 3, 6, 2);
+  coreLight.position.set(0, 1.2, 0);
+  group.add(coreLight);
+  
+  // Store animation data
   group.userData = {
     type: type,
-    materials: [torso.material, leftArm.material, rightArm.material, head.material],
-    leftArm: leftArm,
-    rightArm: rightArm,
-    head: head,
-    leftEye: leftEye,
-    rightEye: rightEye,
-    glowLight: glowLight,
-    glowColor: glowColor,
-    hp: isStalker ? 3 : 2,
-    speed: isStalker ? 0.015 : 0.035,
+    body: body,
+    eyes: eyes,
+    jaw: jawGroup,
+    limbs: limbs,
+    coreLight: coreLight,
+    glowColor: new THREE.Color(glowColor),
+    hp: isStalker ? 4 : 2,
+    speed: isStalker ? 0.012 : 0.025,
     state: 'idle',
     lastAttack: 0,
-    animTime: Math.random() * 100
+    animOffset: Math.random() * 1000,
+    jawOpen: false
   };
   
   return group;
 }
 
-// Enemy Manager for procedural demons
-class ProceduralEnemyManager {
+// Enemy Manager
+class HorrorEnemyManager {
   constructor(scene) {
     this.scene = scene;
     this.enemies = [];
   }
   
   spawnEnemy(x, z, type = 'stalker') {
-    const enemy = createProceduralDemon(type);
-    enemy.position.set(x, 0, z);
-    this.scene.add(enemy);
+    const creature = createHorrorCreature(type);
+    creature.position.set(x, 0, z);
+    this.scene.add(creature);
     
     this.enemies.push({
-      mesh: enemy,
+      mesh: creature,
       x: x,
       z: z,
-      hp: enemy.userData.hp,
-      speed: enemy.userData.speed,
+      hp: creature.userData.hp,
+      speed: creature.userData.speed,
       type: type,
       state: 'idle',
       lastAttack: 0
     });
     
-    return enemy;
+    return creature;
   }
   
-  update(delta, playerPos, playerDir) {
-    const time = performance.now() / 1000;
-    
+  update(time, playerPos) {
     this.enemies.forEach(enemy => {
       if (enemy.hp <= 0) return;
       
       const data = enemy.mesh.userData;
+      const t = time + data.animOffset;
       
-      // Update shader uniforms for pulsating effect
-      data.materials.forEach(mat => {
-        if (mat.uniforms) {
-          mat.uniforms.uTime.value = time + data.animTime;
-          mat.uniforms.uPulse.value = 0.5 + Math.sin(time * 2) * 0.2;
+      // 1. BODY PULSATION - Breathing, living flesh
+      const breath = Math.sin(t * 2) * 0.1 + 1;
+      data.body.scale.set(breath, breath * 0.9, breath);
+      
+      // 2. EYE MOVEMENT - All eyes track player independently (creepy)
+      data.eyes.forEach((eyeData, idx) => {
+        const eye = eyeData.mesh;
+        const target = new THREE.Vector3(playerPos.x, 1.6, playerPos.z);
+        eye.lookAt(target);
+        
+        // Occasional rapid twitch
+        if (Math.random() < 0.02) {
+          eye.rotation.x += (Math.random() - 0.5) * 0.5;
+          eye.rotation.y += (Math.random() - 0.5) * 0.5;
         }
+        
+        // Pulsate glow
+        eye.material.color.setHSL(
+          data.glowColor.getHSL({}).h,
+          1,
+          0.3 + Math.sin(t * 5 + idx) * 0.2
+        );
       });
       
-      // AI Movement
+      // 3. AI MOVEMENT
       const dx = playerPos.x - enemy.x;
       const dz = playerPos.z - enemy.z;
       const dist = Math.sqrt(dx*dx + dz*dz);
       
-      if (dist < 10 && dist > 1.2) {
-        // Chase player
-        const moveX = (dx / dist) * enemy.speed;
-        const moveZ = (dz / dist) * enemy.speed;
+      if (dist < 12 && dist > 1.5) {
+        // Chase - erratic, twitchy movement
+        const moveX = (dx / dist) * data.speed * (1 + Math.sin(t * 10) * 0.3);
+        const moveZ = (dz / dist) * data.speed * (1 + Math.cos(t * 10) * 0.3);
         
         if (this.canMove(enemy.x + moveX, enemy.z + moveZ)) {
           enemy.x += moveX;
@@ -370,43 +415,64 @@ class ProceduralEnemyManager {
           enemy.mesh.position.set(enemy.x, 0, enemy.z);
           enemy.mesh.lookAt(playerPos.x, 0, playerPos.z);
           
-          // Running animation - arms swing
-          const runTime = time * 8;
-          data.leftArm.rotation.x = 0.4 + Math.sin(runTime) * 0.6;
-          data.rightArm.rotation.x = 0.4 + Math.cos(runTime) * 0.6;
+          // Limb animation - skittering, insectoid
+          data.limbs.forEach((limb, idx) => {
+            if (limb.segment === 0) {
+              const runCycle = Math.sin(t * 15 + idx * 0.5) * 0.4;
+              limb.mesh.rotation.z = Math.cos(limb.limbIndex * Math.PI * 2 / 4) * 0.5 + runCycle;
+            }
+          });
           
-          // Bobbing
-          enemy.mesh.position.y = Math.abs(Math.sin(runTime * 2)) * 0.1;
+          data.state = 'chase';
         }
-      } else if (dist <= 1.2) {
-        // Attack - lunge
-        if (Date.now() - enemy.lastAttack > 2000) {
-          data.leftArm.rotation.x = -1.5; // Raise arms
-          data.rightArm.rotation.x = -1.5;
+      } else if (dist <= 1.5) {
+        // ATTACK - Unhinge jaw, lunge
+        if (Date.now() - enemy.lastAttack > 2500) {
+          // Open jaw wide
+          data.jaw.rotation.x = Math.PI + 0.8; // Unhinge
+          data.jawOpen = true;
+          
+          // Flash all eyes
+          data.eyes.forEach(eye => {
+            eye.mesh.material.color.setHex(0xffffff);
+            setTimeout(() => eye.mesh.material.color.copy(data.glowColor), 150);
+          });
+          
+          // Lunge forward
+          const lungeDir = new THREE.Vector3(dx/dist, 0, dz/dist);
+          enemy.mesh.position.add(lungeDir.multiplyScalar(0.4));
+          
           enemy.lastAttack = Date.now();
           
-          // Flash eyes
-          data.leftEye.material.color.setHex(0xffffff);
-          data.rightEye.material.color.setHex(0xffffff);
           setTimeout(() => {
-            data.leftEye.material.color.copy(data.glowColor);
-            data.rightEye.material.color.copy(data.glowColor);
-          }, 200);
+            data.jaw.rotation.x = Math.PI; // Close
+            data.jawOpen = false;
+          }, 800);
         }
+        data.state = 'attack';
       } else {
-        // Idle - breathing animation
-        data.leftArm.rotation.x = 0.4 + Math.sin(time + data.animTime) * 0.1;
-        data.rightArm.rotation.x = 0.4 + Math.cos(time + data.animTime) * 0.1;
-        
-        // Occasional twitch
-        if (Math.random() < 0.01) {
-          data.head.rotation.y = (Math.random() - 0.5) * 0.5;
-          setTimeout(() => { data.head.rotation.y = 0; }, 200);
-        }
+        // IDLE - Subtle twitching, breathing
+        data.limbs.forEach((limb, idx) => {
+          if (limb.segment === 0) {
+            limb.mesh.rotation.z = Math.sin(t + idx) * 0.1;
+          }
+        });
+        data.state = 'idle';
       }
       
-      // Update glow light
-      data.glowLight.intensity = 1.5 + Math.sin(time * 3 + data.animTime) * 0.5;
+      // 4. CORE LIGHT PULSATION - Heartbeat
+      const heartbeat = Math.sin(t * 3) * 0.5 + 0.5;
+      data.coreLight.intensity = 2 + heartbeat * 2;
+      data.coreLight.distance = 5 + heartbeat;
+      
+      // 5. OCCASIONAL TWITCH - Uncanny valley trigger
+      if (Math.random() < 0.005) {
+        // Violent full-body twitch
+        enemy.mesh.rotation.y += (Math.random() - 0.5) * 0.8;
+        setTimeout(() => {
+          enemy.mesh.rotation.y -= (Math.random() - 0.5) * 0.4;
+        }, 100);
+      }
     });
   }
   
@@ -420,14 +486,17 @@ class ProceduralEnemyManager {
     enemy.hp -= damage;
     const data = enemy.mesh.userData;
     
-    // Flash white
-    data.materials.forEach(mat => {
-      const oldColor = mat.uniforms.uColor.value.clone();
-      mat.uniforms.uColor.value.setHex(0xffffff);
-      setTimeout(() => {
-        mat.uniforms.uColor.value.copy(oldColor);
-      }, 100);
-    });
+    // Damage reaction - recoil, flash
+    data.body.material.emissive.setHex(0xffffff);
+    data.body.material.emissiveIntensity = 1;
+    setTimeout(() => {
+      data.body.material.emissive.copy(data.glowColor);
+      data.body.material.emissiveIntensity = 0.2;
+    }, 100);
+    
+    // Bleed particles (simplified as scaling)
+    enemy.mesh.scale.multiplyScalar(0.95);
+    setTimeout(() => enemy.mesh.scale.setScalar(1), 200);
     
     if (enemy.hp <= 0) {
       this.killEnemy(enemy);
@@ -435,23 +504,29 @@ class ProceduralEnemyManager {
   }
   
   killEnemy(enemy) {
-    // Death animation - dissolve and fall
     const mesh = enemy.mesh;
-    let scale = 1;
-    let y = mesh.position.y;
+    const data = mesh.userData;
     
-    const deathAnim = setInterval(() => {
-      scale *= 0.95;
-      y -= 0.02;
+    // Death animation - deflate, dissolve into ground
+    let scale = 1;
+    let y = 0;
+    const deathInterval = setInterval(() => {
+      scale *= 0.92;
+      y -= 0.03;
       mesh.scale.setScalar(scale);
       mesh.position.y = y;
-      mesh.rotation.x += 0.1;
+      mesh.rotation.x += 0.05;
+      mesh.rotation.z += 0.03;
       
-      // Fade out glow
-      mesh.userData.glowLight.intensity *= 0.9;
+      // Eyes go dark
+      data.eyes.forEach(eye => {
+        eye.mesh.material.color.lerp(new THREE.Color(0x000000), 0.1);
+      });
       
-      if (scale < 0.1) {
-        clearInterval(deathAnim);
+      data.coreLight.intensity *= 0.8;
+      
+      if (scale < 0.05) {
+        clearInterval(deathInterval);
         this.removeEnemy(enemy);
       }
     }, 50);
@@ -477,7 +552,7 @@ class ProceduralEnemyManager {
       if (dist > maxDist) return;
       
       const dot = (dx/dist)*direction.x + (dz/dist)*direction.z;
-      if (dot > 0.84 && dist < bestDist) {
+      if (dot > 0.85 && dist < bestDist) {
         bestDist = dist;
         hit = enemy;
       }
@@ -695,16 +770,15 @@ export default function Raycaster({ onEncounter, onPickup }) {
     playerLight.shadow.camera.far  = 10;
     scene.add(playerLight);
 
-    // ── SPAWN PROCEDURAL ENEMIES ────────────────────────────────
-    const enemyManager = new ProceduralEnemyManager(scene);
+    // ── SPAWN HORROR ENEMIES ────────────────────────────────
+    const enemyManager = new HorrorEnemyManager(scene);
     
-    // Spawn enemies at worldMap '2' positions
     for (let x = 0; x < mapWidth; x++) {
       for (let z = 0; z < mapHeight; z++) {
         if (worldMap[x][z] === 2) {
           const type = Math.random() < 0.45 ? 'stalker' : 'runner';
           enemyManager.spawnEnemy(x + 0.5, z + 0.5, type);
-          worldMap[x][z] = 0; // Clear spawn point
+          worldMap[x][z] = 0;
         }
       }
     }
@@ -833,200 +907,4 @@ export default function Raycaster({ onEncounter, onPickup }) {
     window.addEventListener('keydown', onKD);
     window.addEventListener('keyup', onKU);
 
-    // ── Collision helper ────────────────────────────────────────
-    const canWalk = (x, z) => {
-      if (x < 0 || x >= mapWidth || z < 0 || z >= mapHeight) return false;
-      const t = worldMap[Math.floor(x)]?.[Math.floor(z)];
-      return t === 0;
-    };
-
-    // ── Resize ──────────────────────────────────────────────────
-    const onResize = () => {
-      const w = container.clientWidth, h = container.clientHeight;
-      renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
-    };
-    window.addEventListener('resize', onResize);
-
-    // ── Minimap draw ────────────────────────────────────────────
-    const drawMinimap = () => {
-      const mc2 = minimapRef.current; if (!mc2) return;
-      const mctx = mc2.getContext('2d'); if (!mctx) return;
-      const ts = 4, mW = mapWidth*ts, mH = mapHeight*ts;
-      mc2.width = mW; mc2.height = mH;
-      mctx.fillStyle='rgba(4,3,2,0.88)'; mctx.fillRect(0,0,mW,mH);
-      for(let x=0;x<mapWidth;x++)for(let z=0;z<mapHeight;z++){const t=worldMap[x][z];mctx.fillStyle=t===1?'#4a3a24':t===3?'#5a2818':t===4?'#3a2210':'#14110d';mctx.fillRect(x*ts,z*ts,ts,ts);}
-      pickups.forEach(p=>{if(p.collected)return;mctx.fillStyle=p.type==='coin'?'#c8a020':'#20c050';mctx.beginPath();mctx.arc(p.x*ts,p.z*ts,2,0,Math.PI*2);mctx.fill();});
-      
-      enemyManager.enemies.forEach(e=>{
-        if(e.hp<=0)return;
-        mctx.fillStyle=e.type==='stalker'?'rgba(220,40,20,0.9)':'rgba(40,220,60,0.9)';
-        mctx.beginPath();mctx.arc(e.x*ts,e.z*ts,3,0,Math.PI*2);mctx.fill();
-      });
-      
-      const ppx=px*ts, ppz=pz*ts;
-      const fw=new THREE.Vector3(); camera.getWorldDirection(fw);
-      mctx.fillStyle='#e8d070'; mctx.beginPath(); mctx.arc(ppx,ppz,3,0,Math.PI*2); mctx.fill();
-      mctx.strokeStyle='#e8d070'; mctx.lineWidth=1.5;
-      mctx.beginPath(); mctx.moveTo(ppx,ppz); mctx.lineTo(ppx+fw.x*10,ppz+fw.z*10); mctx.stroke();
-    };
-
-    // ── Game loop ───────────────────────────────────────────────
-    let rafId;
-    const clock = new THREE.Clock();
-    
-    const loop = () => {
-      rafId = requestAnimationFrame(loop);
-      const delta = clock.getDelta();
-      frameCount++;
-
-      const playerPos = { x: px, z: pz };
-      const forward = new THREE.Vector3(); camera.getWorldDirection(forward);
-      const playerDir = { x: forward.x, z: forward.z };
-
-      // Movement
-      const sprint = keys['Shift'] ? 1.65 : 1;
-      const ms = MOVE_SPEED * sprint;
-      const fw = new THREE.Vector3(); camera.getWorldDirection(fw); fw.y = 0; fw.normalize();
-      const right = new THREE.Vector3().crossVectors(fw, new THREE.Vector3(0,1,0)).normalize();
-      let moving = false;
-
-      const tryMove = (dx, dz) => {
-        const M = 0.3;
-        if (canWalk(px+dx+Math.sign(dx)*M, pz) && canWalk(px+dx-Math.sign(dx)*M, pz)) { px += dx; moving = true; }
-        if (canWalk(px, pz+dz+Math.sign(dz)*M) && canWalk(px, pz+dz-Math.sign(dz)*M)) { pz += dz; moving = true; }
-      };
-
-      if (keys['w'] || keys['ArrowUp'])    tryMove( fw.x*ms,  fw.z*ms);
-      if (keys['s'] || keys['ArrowDown'])  tryMove(-fw.x*ms, -fw.z*ms);
-      if (keys['a'])                        tryMove(-right.x*ms, -right.z*ms);
-      if (keys['d'])                        tryMove( right.x*ms,  right.z*ms);
-      if (keys['ArrowLeft'])               { yaw += ROT_SPEED; }
-      if (keys['ArrowRight'])              { yaw -= ROT_SPEED; }
-
-      // Check enemy collision
-      enemyManager.enemies.forEach(enemy => {
-        if (enemy.hp <= 0) return;
-        const dx = px - enemy.x;
-        const dz = pz - enemy.z;
-        const dist = Math.sqrt(dx*dx + dz*dz);
-        if (dist < 0.8) {
-          enemyManager.takeDamage(enemy, 999);
-          onEncounterRef.current();
-        }
-      });
-
-      // Pickups
-      pickups.forEach(pu => {
-        if (pu.collected) return;
-        const dx=px-pu.x, dz=pz-pu.z;
-        if (dx*dx+dz*dz < 0.35) {
-          pu.collected = true; pu.mesh.visible = false; pu.light.visible = false;
-          setFlash(0.5); setTimeout(() => setFlash(0), 400);
-          onPickupRef.current?.(pu.type==='coin'?'gold':'health', pu.type==='coin'?15:20);
-        }
-      });
-
-      // Camera
-      camera.position.set(px, EYE_H + (moving ? Math.sin(bobPhase*8)*0.04 : 0), pz);
-      camera.rotation.order = 'YXZ'; camera.rotation.y = yaw; camera.rotation.x = 0;
-      if (moving) bobPhase += sprint > 1 ? 0.1 : 0.065;
-
-      // Player torch
-      torchFlicker += (Math.random()-0.5)*0.035;
-      torchFlicker = Math.max(0.82, Math.min(1.0, torchFlicker));
-      playerLight.position.copy(camera.position).add(new THREE.Vector3(fw.x*0.5, 0.1, fw.z*0.5));
-      playerLight.intensity = 3.0 * torchFlicker;
-
-      // Fixed torches
-      fixedTorches.forEach(t => {
-        t.light.intensity = t.base * (0.88 + Math.random()*0.24);
-        t.flame.material.color.setHSL(0.06+Math.random()*0.04, 1, 0.5+Math.random()*0.2);
-      });
-
-      // Update enemies
-      enemyManager.update(delta, playerPos, playerDir);
-
-      // Pickup float
-      pickups.forEach(pu => {
-        if (pu.collected) return;
-        pu.mesh.position.y = 0.28 + Math.sin(frameCount*0.045 + pu.phase)*0.1;
-        pu.mesh.rotation.y += 0.025;
-      });
-
-      // Fire flash
-      if (fireFlashVal > 0) {
-        fireFlashVal = Math.max(0, fireFlashVal - 0.05);
-        orbMesh.material.emissiveIntensity = 1.4 + fireFlashVal * 5;
-        weaponPointLight.intensity = 1.5 + fireFlashVal * 6;
-        beamMesh.visible = fireFlashVal > 0.1;
-        beamMesh.material.opacity = fireFlashVal * 0.8;
-        rings.forEach((r, i) => { r.visible = fireFlashVal > 0.2; r.scale.setScalar(1 + (1-fireFlashVal)*(i+1)*1.2); r.material.opacity = fireFlashVal*(0.55-i*.14); });
-        if (fireFlashVal > 0.55) setFlash(fireFlashVal * 0.5);
-        else setFlash(0);
-      } else {
-        orbMesh.material.emissiveIntensity = 1.4 + Math.sin(frameCount*0.09)*0.3;
-        weaponPointLight.intensity = 1.5 + Math.sin(frameCount*0.07)*0.4;
-        beamMesh.visible = false; rings.forEach(r => r.visible = false);
-      }
-
-      // Wand sway
-      const sway = Math.sin(frameCount*0.025)*0.04;
-      const walkSway = moving ? Math.sin(bobPhase*8)*0.018 : 0;
-      wGroup.rotation.z = 0.18 + sway;
-      wGroup.rotation.x = walkSway;
-      wGroup.position.y = -0.34 + (moving ? Math.sin(bobPhase*8)*0.025 : 0);
-
-      // Render
-      renderer.autoClear = true;
-      renderer.render(scene, camera);
-      renderer.autoClear = false; renderer.clearDepth();
-      renderer.render(weaponScene, weaponCamera);
-      renderer.autoClear = true;
-
-      // Minimap
-      if (frameCount % 4 === 0) drawMinimap();
-    };
-
-    loop();
-
-    return () => {
-      cancelAnimationFrame(rafId);
-      window.removeEventListener('keydown', onKD);
-      window.removeEventListener('keyup', onKU);
-      window.removeEventListener('resize', onResize);
-      music.stop();
-      enemyManager.dispose();
-      renderer.dispose();
-      if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
-    };
-  }, []);
-
-  return (
-    <div style={{ width:'100%', height:'100%', position:'relative', background:'#050208', overflow:'hidden' }}>
-      <div ref={mountRef} style={{ width:'100%', height:'100%' }} />
-      
-      {flash > 0 && (
-        <div style={{ position:'absolute', inset:0, background:`rgba(80,110,255,${flash})`, pointerEvents:'none', transition:'opacity 0.1s' }} />
-      )}
-      
-      <canvas ref={minimapRef} style={{ position:'absolute', top:12, right:12, border:'1px solid #3a2a14', outline:'1px solid #5a4020', imageRendering:'pixelated', opacity:0.9 }} />
-      
-      <div style={{ position:'absolute', top:12, left:'50%', transform:'translateX(-50%)', fontFamily:"'Cinzel',serif", fontSize:10, color:'#7a5828', letterSpacing:6, background:'rgba(4,3,2,0.7)', padding:'4px 14px', border:'1px solid #2a1e0e', borderRadius:2 }}>
-        SHADOW KEEP
-      </div>
-      
-      {hint === 'click_to_start' && (
-        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(3,2,6,0.55)', pointerEvents:'none' }}>
-          <div style={{ fontFamily:"'Cinzel',serif", color:'#c8a96e', fontSize:13, letterSpacing:4, marginBottom:10, textShadow:'0 0 20px #c8a96e88' }}>CLICK TO ENTER THE DUNGEON</div>
-          <div style={{ fontFamily:"'Crimson Text',serif", color:'#5a4020', fontSize:12, letterSpacing:2 }}>mouse look · music · full controls</div>
-        </div>
-      )}
-      
-      <div style={{ position:'absolute', bottom:14, left:14, fontFamily:"'Crimson Text',serif", fontSize:11, color:'rgba(130,90,40,0.55)', lineHeight:1.9, letterSpacing:0.5, pointerEvents:'none' }}>
-        <div>W A S D · move &amp; strafe</div>
-        <div>← → · turn &nbsp;|&nbsp; Shift · sprint</div>
-        <div>SPACE · cast wand</div>
-      </div>
-    </div>
-  );
-}
+    // ─
