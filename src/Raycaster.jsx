@@ -6,7 +6,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { worldMap, mapWidth, mapHeight } from './gameMap';
+import { worldMap, mapWidth, mapHeight, enemySpawns } from './gameMap';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 const WALL_H     = 2.6;
@@ -754,16 +754,29 @@ export default function Raycaster({ onEncounter, onPickup }) {
 
     // ── SPAWN HORROR ENEMIES ────────────────────────────────
     const enemyManager = new HorrorEnemyManager(scene);
-    
-    for (let x = 0; x < mapWidth; x++) {
-      for (let z = 0; z < mapHeight; z++) {
-        if (worldMap[x][z] === 2) {
-          const type = Math.random() < 0.45 ? 'stalker' : 'runner';
-          enemyManager.spawnEnemy(x + 0.5, z + 0.5, type);
-          worldMap[x][z] = 0;
+
+    // Use strategic spawn configuration from gameMap
+    enemySpawns.forEach(spawn => {
+      // Only spawn if position is valid (not wall)
+      if (worldMap[spawn.y][spawn.x] === 0 || worldMap[spawn.y][spawn.x] === 2) {
+        const type = spawn.type === 'runner' ? 'runner' : 'stalker';
+        enemyManager.spawnEnemy(spawn.x + 0.5, spawn.y + 0.5, type);
+        // Mark as clear
+        worldMap[spawn.y][spawn.x] = 0;
+      }
+    });
+
+    // Fill any remaining 2's with random enemies (fallback)
+    for (let y = 0; y < mapHeight; y++) {
+      for (let x = 0; x < mapWidth; x++) {
+        if (worldMap[y][x] === 2) {
+          const type = Math.random() < 0.6 ? 'stalker' : 'runner';
+          enemyManager.spawnEnemy(x + 0.5, y + 0.5, type);
+          worldMap[y][x] = 0;
         }
       }
     }
+
 
     // ── Pickups ─────────────────────────────────────────────────
     const open = [];
