@@ -1,13 +1,12 @@
-import React, { useRef, useMemo, useState, useCallback, Suspense } from 'react'; import { Canvas, useFrame, useThree } from '@react-three/fiber'; import { Sky, Environment, ContactShadows, SoftShadows, useTexture, Text, Float, Trail, Sparkles, Instance, Instances, Detailed, Billboard, OrbitControls, PerspectiveCamera, Stars } from '@react-three/drei'; import { EffectComposer, Bloom, DepthOfField, Vignette } from '@react-three/postprocessing'; import * as THREE from 'three'; import { createNoise2D } from 'simplex-noise'; import { useSpring, animated, config } from '@react-spring/web'; import { useGesture } from '@use-gesture/react';
-// ═══════════════════════════════════════════════════════════════════════════════ // STATE MANAGEMENT (Zustand-style with React Context) // ═══════════════════════════════════════════════════════════════════════════════
-const GameContext = React.createContext();
-const useGameStore = () => { const [state, setState] = useState({ bells: 0, items: { flowers: 0, bugs: 0, fish: 0, fruit: 0 }, isRiding: false, isRunning: false, gameTime: 8.0, playerPos: new THREE.Vector3(0, 0, 0), targetPos: null, isMoving: false, dialogue: null, uiState: 'start', // start, play, inventory, dialogue });
+import React, { useRef, useMemo, useState, useCallback, Suspense, useContext, createContext } from 'react'; import { Canvas, useFrame, useThree } from '@react-three/fiber'; import { Sky, Environment, ContactShadows, SoftShadows, useTexture, Text, Float, Trail, Sparkles, Instance, Instances, Detailed, Billboard, OrbitControls, PerspectiveCamera, Stars } from '@react-three/drei'; import { EffectComposer, Bloom, DepthOfField, Vignette } from '@react-three/postprocessing'; import * as THREE from 'three'; import { createNoise2D } from 'simplex-noise';
+// ═══════════════════════════════════════════════════════════════════════════════ // STATE MANAGEMENT // ═══════════════════════════════════════════════════════════════════════════════
+const GameContext = createContext();
+const useGameStore = () => { const [state, setState] = useState({ bells: 0, items: { flowers: 0, bugs: 0, fish: 0, fruit: 0 }, isRiding: false, isRunning: false, gameTime: 8.0, playerPos: new THREE.Vector3(0, 0, 0), targetPos: null, isMoving: false, dialogue: null, uiState: 'start', });
 const actions = useMemo(() => ({ addBells: (amount) => setState(s => ({ ...s, bells: s.bells + amount })), addItem: (type) => setState(s => ({ ...s, items: { ...s.items, [type]: s.items[type] + 1 } })), setRiding: (val) => setState(s => ({ ...s, isRiding: val })), setRunning: (val) => setState(s => ({ ...s, isRunning: val })), setGameTime: (val) => setState(s => ({ ...s, gameTime: val })), setPlayerPos: (pos) => setState(s => ({ ...s, playerPos: pos })), setTarget: (pos) => setState(s => ({ ...s, targetPos: pos, isMoving: !!pos })), stopMoving: () => setState(s => ({ ...s, isMoving: false, targetPos: null })), setDialogue: (data) => setState(s => ({ ...s, dialogue: data, uiState: data ? 'dialogue' : 'play' })), setUIState: (val) => setState(s => ({ ...s, uiState: val })), }), []);
 return [state, actions]; };
-// ═══════════════════════════════════════════════════════════════════════════════ // AUDIO ENGINE (Web Audio API with Spatial Audio) // ═══════════════════════════════════════════════════════════════════════════════
-class SpatialAudio { constructor() { this.ctx = null; this.master = null; this.sounds = new Map(); this.bgmOscillators = []; this.isPlaying = false; }
+// ═══════════════════════════════════════════════════════════════════════════════ // AUDIO ENGINE // ═══════════════════════════════════════════════════════════════════════════════
+class SpatialAudio { constructor() { this.ctx = null; this.master = null; this.bgmOscillators = []; this.isPlaying = false; }
 init() { if (this.ctx) return; this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.master = this.ctx.createGain(); this.master.gain.value = 0.3;
-// Compressor for better mixing
 const compressor = this.ctx.createDynamicsCompressor();
 compressor.threshold.value = -24;
 compressor.knee.value = 30;
@@ -19,26 +18,23 @@ this.master.connect(compressor);
 compressor.connect(this.ctx.destination);
 }
 startBGM() { if (this.isPlaying || !this.ctx) return; this.isPlaying = true;
-// Pentatonic chord progression
 const chords = [
-  [523.25, 659.25, 783.99, 1046.50], // C major 7
-  [587.33, 739.99, 880.00, 1174.66], // D minor 7
-  [659.25, 783.99, 987.77, 1318.51], // E minor 7
-  [493.88, 622.25, 739.99, 987.77],  // B minor 7b5
+  [523.25, 659.25, 783.99, 1046.50],
+  [587.33, 739.99, 880.00, 1174.66],
+  [659.25, 783.99, 987.77, 1318.51],
+  [493.88, 622.25, 739.99, 987.77],
 ];
 
 let chordIndex = 0;
 const playChord = () => {
   if (!this.isPlaying || !this.ctx) return;
 
-  // Fade out previous
   this.bgmOscillators.forEach(osc => {
     osc.gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
     osc.osc.stop(this.ctx.currentTime + 0.5);
   });
   this.bgmOscillators = [];
 
-  // Play new chord
   chords[chordIndex].forEach((freq, i) => {
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -61,7 +57,7 @@ const playChord = () => {
 
 playChord();
 }
-sfx(name, position = null) { if (!this.ctx) return;
+sfx(name) { if (!this.ctx) return;
 const createSound = () => {
   const osc = this.ctx.createOscillator();
   const gain = this.ctx.createGain();
@@ -89,7 +85,6 @@ const createSound = () => {
       osc.start();
       osc.stop(this.ctx.currentTime + 0.3);
 
-      // Harmony
       const osc2 = this.ctx.createOscillator();
       const gain2 = this.ctx.createGain();
       osc2.type = 'sine';
@@ -141,42 +136,36 @@ createSound();
 }
 stop() { this.isPlaying = false; this.bgmOscillators.forEach(({ osc }) => { try { osc.stop(); } catch(e) {} }); this.bgmOscillators = []; } }
 const audio = new SpatialAudio();
-// ═══════════════════════════════════════════════════════════════════════════════ // PROCEDURAL TERRAIN GENERATION // ═══════════════════════════════════════════════════════════════════════════════
 const noise2D = createNoise2D();
-function Terrain() { const meshRef = useRef(); const colorRef = useRef();
+// ═══════════════════════════════════════════════════════════════════════════════ // TERRAIN // ═══════════════════════════════════════════════════════════════════════════════
+function Terrain() { const meshRef = useRef();
 const { geometry, colors } = useMemo(() => { const size = 120; const segments = 80; const geo = new THREE.PlaneGeometry(size, size, segments, segments); geo.rotateX(-Math.PI / 2);
 const pos = geo.attributes.position;
 const cols = [];
 const colorGrass = new THREE.Color(0x90EE90);
 const colorSand = new THREE.Color(0xF5DEB3);
-const colorDirt = new THREE.Color(0x8B7355);
 
 for (let i = 0; i < pos.count; i++) {
   const x = pos.getX(i);
   const z = pos.getZ(i);
 
-  // Island shape with falloff
   const dist = Math.sqrt(x * x + z * z);
   const islandMask = Math.max(0, 1 - Math.pow(dist / 50, 3));
 
-  // Noise layers
   let height = noise2D(x * 0.02, z * 0.02) * 4;
   height += noise2D(x * 0.05, z * 0.05) * 2;
   height += noise2D(x * 0.1, z * 0.1) * 0.5;
   height *= islandMask;
 
-  // Flatten center for village
   if (dist < 15) height *= 0.3;
 
   pos.setY(i, Math.max(-2, height));
 
-  // Vertex colors based on height and slope
   const c = new THREE.Color();
   if (height < 0.5) {
     c.lerpColors(colorSand, colorGrass, height / 0.5);
   } else {
     c.copy(colorGrass);
-    // Darken based on height for depth
     c.multiplyScalar(1 - height * 0.02);
   }
 
@@ -193,17 +182,8 @@ geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
 return { geometry: geo, colors: cols };
 }, []);
 return (    ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // INSTANCED VEGETATION (High Performance) // ═══════════════════════════════════════════════════════════════════════════════
-function Vegetation() { const treeGeo = useMemo(() => { // Simple low-poly tree geometry const trunk = new THREE.CylinderGeometry(0.3, 0.4, 2, 6); const leaves = new THREE.ConeGeometry(1.5, 3, 6);
-// Merge geometries
-trunk.translate(0, 1, 0);
-leaves.translate(0, 3, 0);
-
-// We'll use instanced mesh for trees
-return { trunk, leaves };
-}, []);
-const treeData = useMemo(() => { const data = []; for (let i = 0; i < 150; i++) { const angle = Math.random() * Math.PI * 2; const dist = 20 + Math.random() * 50; const x = Math.cos(angle) * dist; const z = Math.sin(angle) * dist;
-  // Get height at position
+// ═══════════════════════════════════════════════════════════════════════════════ // VEGETATION // ═══════════════════════════════════════════════════════════════════════════════
+function Vegetation() { const treeData = useMemo(() => { const data = []; for (let i = 0; i < 150; i++) { const angle = Math.random() * Math.PI * 2; const dist = 20 + Math.random() * 50; const x = Math.cos(angle) * dist; const z = Math.sin(angle) * dist;
   const height = noise2D(x * 0.02, z * 0.02) * 4 + noise2D(x * 0.05, z * 0.05) * 2;
 
   if (height > 1 && dist < 55) {
@@ -233,8 +213,7 @@ for (let i = 0; i < 80; i++) {
 }
 return data;
 }, []);
-return (  {/* Trees using Instances for performance */}  <coneGeometry args={[1.2, 3, 6]} />  {treeData.map((tree, i) => (  ))} 
-  {/* Tree trunks */}
+return (   <coneGeometry args={[1.2, 3, 6]} />  {treeData.map((tree, i) => (  ))} 
   <Instances limit={200}>
     <cylinderGeometry args={[0.25, 0.35, 2, 6]} />
     <meshStandardMaterial color={0x8B4513} roughness={0.9} />
@@ -249,7 +228,6 @@ return (  {/* Trees using Instances for performance */}  <coneGeometry args=
     ))}
   </Instances>
 
-  {/* Flowers */}
   <Instances limit={100}>
     <sphereGeometry args={[0.15, 6, 6]} />
     <meshStandardMaterial roughness={0.5} />
@@ -263,10 +241,10 @@ return (  {/* Trees using Instances for performance */}  <coneGeometry args=
   </Instances>
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // WATER & ENVIRONMENT // ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════ // OCEAN // ═══════════════════════════════════════════════════════════════════════════════
 function Ocean() { const meshRef = useRef();
-useFrame((state) => { if (meshRef.current) { meshRef.current.material.uniforms.time.value = state.clock.elapsedTime; } });
 const uniforms = useMemo(() => ({ time: { value: 0 }, color: { value: new THREE.Color(0x40E0D0) } }), []);
+useFrame((state) => { if (meshRef.current) { meshRef.current.material.uniforms.time.value = state.clock.elapsedTime; } });
 return ( <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -1, 0]}> <planeGeometry args={[300, 300, 50, 50]} /> <shaderMaterial uniforms={uniforms} vertexShader={` uniform float time; varying vec2 vUv; varying float vElevation;
       void main() {
         vUv = uv;
@@ -297,9 +275,9 @@ return ( <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -1, 
   />
 </mesh>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // PLAYER CHARACTER WITH HOVERBOARD // ═══════════════════════════════════════════════════════════════════════════════
-function Player({ state, actions }) { const groupRef = useRef(); const boardRef = useRef(); const trailRef = useRef();
-// Smooth movement useFrame((state, delta) => { if (!groupRef.current) return;
+// ═══════════════════════════════════════════════════════════════════════════════ // PLAYER // ═══════════════════════════════════════════════════════════════════════════════
+function Player({ state, actions }) { const groupRef = useRef(); const boardRef = useRef();
+useFrame((frameState, delta) => { if (!groupRef.current) return;
 const currentPos = groupRef.current.position;
 const target = state.targetPos;
 
@@ -313,21 +291,18 @@ if (target && state.isMoving) {
 
     currentPos.add(direction.multiplyScalar(moveDistance));
 
-    // Rotate towards movement
     const targetRotation = Math.atan2(direction.x, direction.z);
     let rotDiff = targetRotation - groupRef.current.rotation.y;
     while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
     while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
     groupRef.current.rotation.y += rotDiff * 10 * delta;
 
-    // Hoverboard tilt
     if (boardRef.current && state.isRiding) {
       boardRef.current.rotation.x = -0.2;
-      boardRef.current.position.y = 0.5 + Math.sin(state.clock.elapsedTime * 8) * 0.1;
+      boardRef.current.position.y = 0.5 + Math.sin(frameState.clock.elapsedTime * 8) * 0.1;
     }
 
-    // Step sound
-    if (!state.isRiding && Math.floor(state.clock.elapsedTime * 4) % 4 === 0) {
+    if (!state.isRiding && Math.floor(frameState.clock.elapsedTime * 4) % 4 === 0) {
       audio.sfx('step');
     }
   } else {
@@ -335,16 +310,14 @@ if (target && state.isMoving) {
     if (boardRef.current) boardRef.current.rotation.x = 0;
   }
 } else {
-  // Idle animation
   if (boardRef.current && state.isRiding) {
-    boardRef.current.position.y = 0.5 + Math.sin(state.clock.elapsedTime * 2) * 0.05;
+    boardRef.current.position.y = 0.5 + Math.sin(frameState.clock.elapsedTime * 2) * 0.05;
   }
 }
 
 actions.setPlayerPos(currentPos.clone());
 });
-return ( <group ref={groupRef} position={[0, 0, 0]} castShadow> {/* Character Body */} <mesh position={[0, 0.6, 0]} castShadow> <sphereGeometry args={[0.5, 16, 16]} />  
-  {/* Bunny Ears */}
+return ( <group ref={groupRef} position={[0, 0, 0]} castShadow> <mesh position={[0, 0.6, 0]} castShadow> <sphereGeometry args={[0.5, 16, 16]} />  
   <mesh position={[-0.2, 1.1, 0]} rotation={[0, 0, 0.2]} castShadow>
     <capsuleGeometry args={[0.12, 0.5, 4, 8]} />
     <meshStandardMaterial color={0xFFB6C1} />
@@ -354,7 +327,6 @@ return ( <group ref={groupRef} position={[0, 0, 0]} castShadow> {/* Character 
     <meshStandardMaterial color={0xFFB6C1} />
   </mesh>
 
-  {/* Eyes */}
   <mesh position={[-0.15, 0.7, 0.4]}>
     <sphereGeometry args={[0.06, 8, 8]} />
     <meshBasicMaterial color={0x000000} />
@@ -364,13 +336,11 @@ return ( <group ref={groupRef} position={[0, 0, 0]} castShadow> {/* Character 
     <meshBasicMaterial color={0x000000} />
   </mesh>
 
-  {/* Hoverboard */}
   <group ref={boardRef} visible={state.isRiding}>
     <mesh position={[0, 0, 0]} castShadow>
       <boxGeometry args={[1.4, 0.1, 0.5]} />
       <meshStandardMaterial color={0x222222} metalness={0.8} roughness={0.2} />
     </mesh>
-    {/* Engines */}
     <mesh position={[-0.5, 0, 0]} rotation={[Math.PI/2, 0, 0]}>
       <cylinderGeometry args={[0.15, 0.15, 0.6, 8]} />
       <meshStandardMaterial color={0xFF1493} emissive={0xFF1493} emissiveIntensity={0.5} />
@@ -379,7 +349,6 @@ return ( <group ref={groupRef} position={[0, 0, 0]} castShadow> {/* Character 
       <cylinderGeometry args={[0.15, 0.15, 0.6, 8]} />
       <meshStandardMaterial color={0xFF1493} emissive={0xFF1493} emissiveIntensity={0.5} />
     </mesh>
-    {/* Trail particles */}
     {state.isRiding && state.isMoving && (
       <Sparkles 
         count={20} 
@@ -392,31 +361,22 @@ return ( <group ref={groupRef} position={[0, 0, 0]} castShadow> {/* Character 
     )}
   </group>
 
-  {/* Shadow */}
-  <ContactShadows 
-    position={[0, 0.01, 0]} 
-    opacity={0.4} 
-    scale={2} 
-    blur={1.5} 
-    far={2}
-  />
+  <ContactShadows position={[0, 0.01, 0]} opacity={0.4} scale={2} blur={1.5} far={2} />
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // NPCs WITH AI // ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════ // NPC // ═══════════════════════════════════════════════════════════════════════════════
 function NPC({ data, onInteract }) { const groupRef = useRef(); const homePos = data.home;
-useFrame((state) => { if (!groupRef.current || data.isTalking) return;
-const time = state.clock.elapsedTime;
+useFrame((frameState) => { if (!groupRef.current || data.isTalking) return;
+const time = frameState.clock.elapsedTime;
 const tOff = time * 0.5 + data.timeOffset;
 
-// Patrol around home
 const nextX = homePos.x + Math.cos(tOff) * 4;
 const nextZ = homePos.z + Math.sin(tOff) * 4;
 
 groupRef.current.position.set(nextX, 0.9, nextZ);
 groupRef.current.lookAt(nextX + Math.cos(tOff + 0.1), 0.9, nextZ + Math.sin(tOff + 0.1));
 });
-return ( <group ref={groupRef} position={[homePos.x, 0.9, homePos.z]} onClick={(e) => { e.stopPropagation(); onInteract(data); }} > {/* Body */}  <sphereGeometry args={[0.5, 16, 16]} />  
-  {/* Ears based on type */}
+return ( <group ref={groupRef} position={[homePos.x, 0.9, homePos.z]} onClick={(e) => { e.stopPropagation(); onInteract(data); }} >  <sphereGeometry args={[0.5, 16, 16]} />  
   {data.earType === 'bear' && (
     <>
       <mesh position={[-0.35, 0.5, 0]} castShadow>
@@ -443,7 +403,6 @@ return ( <group ref={groupRef} position={[homePos.x, 0.9, homePos.z]} onClic
     </>
   )}
 
-  {/* Eyes */}
   <mesh position={[-0.15, 0.1, 0.4]}>
     <sphereGeometry args={[0.05, 8, 8]} />
     <meshBasicMaterial color={0x000000} />
@@ -453,7 +412,6 @@ return ( <group ref={groupRef} position={[homePos.x, 0.9, homePos.z]} onClic
     <meshBasicMaterial color={0x000000} />
   </mesh>
 
-  {/* Hoverboard */}
   <mesh position={[0, -0.4, 0]}>
     <boxGeometry args={[1.2, 0.08, 0.4]} />
     <meshStandardMaterial color={0x333333} />
@@ -467,7 +425,6 @@ return ( <group ref={groupRef} position={[homePos.x, 0.9, homePos.z]} onClic
     <meshStandardMaterial color={data.color} emissive={data.color} emissiveIntensity={0.3} />
   </mesh>
 
-  {/* Interaction indicator */}
   <Float speed={2} rotationIntensity={0} floatIntensity={0.5}>
     <mesh position={[0, 1.2, 0]}>
       <sphereGeometry args={[0.1, 8, 8]} />
@@ -476,9 +433,8 @@ return ( <group ref={groupRef} position={[homePos.x, 0.9, homePos.z]} onClic
   </Float>
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // COLLECTIBLES SYSTEM // ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════ // COLLECTIBLES // ═══════════════════════════════════════════════════════════════════════════════
 function Collectibles({ state, actions }) { const items = useMemo(() => { const data = [];
-// Apples
 for (let i = 0; i < 20; i++) {
   const angle = Math.random() * Math.PI * 2;
   const dist = 10 + Math.random() * 35;
@@ -534,21 +490,18 @@ return (  {items.map(item => { if (collected.has(item.id)) return null;
   })}
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // BUILDINGS & STRUCTURES // ═══════════════════════════════════════════════════════════════════════════════
-function House({ position, roofColor }) { return (  {/* Base */} <mesh position={[0, 1.5, 0]} castShadow receiveShadow> <boxGeometry args={[4, 3, 4]} />  
-  {/* Roof */}
+// ═══════════════════════════════════════════════════════════════════════════════ // HOUSE // ═══════════════════════════════════════════════════════════════════════════════
+function House({ position, roofColor }) { return (  <mesh position={[0, 1.5, 0]} castShadow receiveShadow> <boxGeometry args={[4, 3, 4]} />  
   <mesh position={[0, 4, 0]} rotation={[0, Math.PI/4, 0]} castShadow>
     <coneGeometry args={[3, 2.5, 4]} />
     <meshStandardMaterial color={roofColor} />
   </mesh>
 
-  {/* Door */}
   <mesh position={[0, 0.9, 2.01]}>
     <planeGeometry args={[1, 1.8]} />
     <meshStandardMaterial color={0x8B4513} />
   </mesh>
 
-  {/* Windows */}
   <mesh position={[-1, 1.5, 2.01]}>
     <planeGeometry args={[0.8, 0.8]} />
     <meshStandardMaterial color={0x444444} emissive={0xFFDD88} emissiveIntensity={0.5} />
@@ -558,20 +511,18 @@ function House({ position, roofColor }) { return (  {/* Base */} <mesh posit
     <meshStandardMaterial color={0x444444} emissive={0xFFDD88} emissiveIntensity={0.5} />
   </mesh>
 
-  {/* Porch Light */}
   <pointLight position={[0, 2.5, 2.5]} intensity={0.5} distance={15} color={0xFFAA55} />
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // DAY/NIGHT CYCLE & LIGHTING // ═══════════════════════════════════════════════════════════════════════════════
-function DayNightCycle({ time }) { const sunRef = useRef(); const ambientRef = useRef();
+// ═══════════════════════════════════════════════════════════════════════════════ // DAY/NIGHT CYCLE // ═══════════════════════════════════════════════════════════════════════════════
+function DayNightCycle({ time }) { const sunRef = useRef();
 const sunAngle = ((time - 6) / 12) * Math.PI - Math.PI; const sunX = Math.cos(sunAngle) * 60; const sunY = Math.max(Math.sin(-sunAngle) * 60, -10); const sunZ = Math.cos(sunAngle) * 20;
-// Calculate sky colors const getSkyColor = () => { if (time >= 5 && time < 8) return new THREE.Color(0xFF7E5F); // Sunrise if (time >= 8 && time < 17) return new THREE.Color(0x87CEEB); // Day if (time >= 17 && time < 20) return new THREE.Color(0xFD5E53); // Sunset return new THREE.Color(0x0A0A2A); // Night };
+const getSkyColor = () => { if (time >= 5 && time < 8) return new THREE.Color(0xFF7E5F); if (time >= 8 && time < 17) return new THREE.Color(0x87CEEB); if (time >= 17 && time < 20) return new THREE.Color(0xFD5E53); return new THREE.Color(0x0A0A2A); };
 const intensity = time > 6 && time < 18 ? 1.0 : 0.2;
-return ( <> <ambientLight ref={ambientRef} intensity={0.4 + intensity * 0.3} color={getSkyColor()} /> <directionalLight ref={sunRef} position={[sunX, sunY, sunZ]} intensity={intensity} color={0xFFF5E6} castShadow shadow-mapSize={[2048, 2048]} shadow-camera-left={-60} shadow-camera-right={60} shadow-camera-top={60} shadow-camera-bottom={-60} /> {time < 6 || time > 19 && } </> ); }
+return ( <> <ambientLight intensity={0.4 + intensity * 0.3} color={getSkyColor()} /> <directionalLight ref={sunRef} position={[sunX, sunY, sunZ]} intensity={intensity} color={0xFFF5E6} castShadow shadow-mapSize={[2048, 2048]} shadow-camera-left={-60} shadow-camera-right={60} shadow-camera-top={60} shadow-camera-bottom={-60} /> {(time < 6 || time > 19) && } </> ); }
 // ═══════════════════════════════════════════════════════════════════════════════ // CAMERA CONTROLLER // ═══════════════════════════════════════════════════════════════════════════════
 function CameraController({ state }) { const { camera } = useThree();
-useFrame((state, delta) => { const playerPos = state.playerPos; const isRiding = state.isRiding;
-// Camera follow with smooth lerp
+useFrame((frameState, delta) => { const playerPos = state.playerPos; const isRiding = state.isRiding;
 const offset = new THREE.Vector3(20, isRiding ? 25 : 18, 20);
 if (isRiding && state.isMoving) offset.multiplyScalar(1.3);
 
@@ -580,14 +531,13 @@ camera.position.lerp(targetPos, delta * (isRiding ? 2 : 3));
 camera.lookAt(playerPos.x, 0.5, playerPos.z);
 });
 return null; }
-// ═══════════════════════════════════════════════════════════════════════════════ // MAIN SCENE // ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════ // SCENE // ═══════════════════════════════════════════════════════════════════════════════
 function Scene({ state, actions }) { const handleGroundClick = useCallback((e) => { if (state.uiState !== 'play') return; e.stopPropagation(); actions.setTarget(e.point); audio.sfx('pop'); if (state.isRiding) audio.sfx('hover'); }, [state.uiState, state.isRiding, actions]);
 const handleNPCInteract = useCallback((npcData) => { actions.setDialogue({ name: npcData.name, texts: npcData.dialogues[0], color: npcData.color, current: 0 }); audio.sfx('talk'); }, [actions]);
 return ( <> <Sky sunPosition={[100, 20, 100]} turbidity={8} rayleigh={6} mieCoefficient={0.005} mieDirectionalG={0.8} /> 
   <DayNightCycle time={state.gameTime} />
   <SoftShadows size={25} samples={10} focus={0.5} />
 
-  {/* Ground plane for raycasting */}
   <mesh rotation={[-Math.PI / 2, 0, 0]} onClick={handleGroundClick} visible={false}>
     <planeGeometry args={[200, 200]} />
     <meshBasicMaterial />
@@ -601,7 +551,6 @@ return ( <> <Sky sunPosition={[100, 20, 100]} turbidity={8} rayleigh={6} mieCo
 
   <Collectibles state={state} actions={actions} />
 
-  {/* NPCs */}
   <NPC 
     data={{
       name: "Barnaby",
@@ -639,14 +588,12 @@ return ( <> <Sky sunPosition={[100, 20, 100]} turbidity={8} rayleigh={6} mieCo
     onInteract={handleNPCInteract}
   />
 
-  {/* Houses */}
   <House position={[-12, 0, -13]} roofColor={0x87CEFA} />
   <House position={[15, 0, -8]} roofColor={0xDDA0DD} />
   <House position={[-5, 0, 12]} roofColor={0xFFE4B5} />
 
   <CameraController state={state} />
 
-  {/* Post Processing */}
   <EffectComposer>
     <Bloom intensity={0.5} luminanceThreshold={0.9} luminanceSmoothing={0.9} height={300} />
     <DepthOfField focusDistance={0.02} focalLength={0.05} bokehScale={3} height={480} />
@@ -654,10 +601,10 @@ return ( <> <Sky sunPosition={[100, 20, 100]} turbidity={8} rayleigh={6} mieCo
   </EffectComposer>
 </>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // UI COMPONENTS // ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════ // UI // ═══════════════════════════════════════════════════════════════════════════════
 const UI = ({ state, actions }) => { const [message, setMessage] = useState(null);
 const showMessage = useCallback((text) => { setMessage(text); setTimeout(() => setMessage(null), 2500); }, []);
-// Keyboard controls React.useEffect(() => { const handleKeyDown = (e) => { if (e.code === 'ShiftLeft') actions.setRunning(true); if (e.code === 'Space') { e.preventDefault(); actions.setRiding(!state.isRiding); audio.sfx('hover'); } }; const handleKeyUp = (e) => { if (e.code === 'ShiftLeft') actions.setRunning(false); };
+React.useEffect(() => { const handleKeyDown = (e) => { if (e.code === 'ShiftLeft') actions.setRunning(true); if (e.code === 'Space') { e.preventDefault(); actions.setRiding(!state.isRiding); audio.sfx('hover'); } }; const handleKeyUp = (e) => { if (e.code === 'ShiftLeft') actions.setRunning(false); };
 document.addEventListener('keydown', handleKeyDown);
 document.addEventListener('keyup', handleKeyUp);
 return () => {
@@ -666,7 +613,6 @@ return () => {
 };
 }, [state.isRiding, actions]);
 const formatTime = (time) => { let h = Math.floor(time); let m = Math.floor((time - h) * 60); let ampm = h >= 12 ? 'PM' : 'AM'; h = h % 12; if (h === 0) h = 12; return ${h}:${m.toString().padStart(2, '0')} ${ampm}; };
-const animations = useSpring({ from: { opacity: 0, transform: 'translateY(-20px)' }, to: { opacity: 1, transform: 'translateY(0)' }, config: config.wobbly });
 if (state.uiState === 'start') { return (
 { actions.setUIState('play'); audio.init(); audio.startBGM(); }} style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(135, 206, 235, 0.98), rgba(144, 238, 144, 0.9))', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 150, fontFamily: '"Comic Sans MS", "Nunito", cursive' }} > 
 🏝️ CANDY ISLAND 
@@ -686,9 +632,7 @@ The Ultimate Joyride 🛹✨
 );
 }
 return (
-{/* Top Bar */} 
 🔔 {state.bells.toLocaleString()} 
-    {/* Inventory Button */}
     <button
       onClick={() => actions.setUIState(state.uiState === 'inventory' ? 'play' : 'inventory')}
       style={{
@@ -706,7 +650,6 @@ return (
       🎒
     </button>
 
-    {/* Hoverboard Button */}
     <button
       onClick={() => {
         actions.setRiding(!state.isRiding);
@@ -726,9 +669,8 @@ return (
     >
       🛹
     </button>
-  </animated.div>
+  </div>
 
-  {/* Time Display */}
   <div style={{
     position: 'absolute',
     top: 20,
@@ -746,7 +688,6 @@ return (
     </div>
   </div>
 
-  {/* Controls Help */}
   <div style={{
     position: 'absolute',
     bottom: 20,
@@ -766,7 +707,6 @@ return (
     <div>🏃 Shift — Run</div>
   </div>
 
-  {/* Message Toast */}
   {message && (
     <div style={{
       position: 'absolute',
@@ -790,7 +730,6 @@ return (
     </div>
   )}
 
-  {/* Inventory Modal */}
   {state.uiState === 'inventory' && (
     <div 
       onClick={() => actions.setUIState('play')}
@@ -878,9 +817,7 @@ return (
                 alignItems: 'center',
                 justifyContent: 'center',
                 position: 'relative',
-                boxShadow: slot?.count > 0 ? '0 8px 15px rgba(0,0,0,0.1)' : 'none',
-                transition: 'transform 0.2s',
-                cursor: slot?.count > 0 ? 'pointer' : 'default'
+                boxShadow: slot?.count > 0 ? '0 8px 15px rgba(0,0,0,0.1)' : 'none'
               }}
             >
               {slot?.count > 0 && (
@@ -925,7 +862,6 @@ return (
     </div>
   )}
 
-  {/* Dialogue Modal */}
   {state.uiState === 'dialogue' && state.dialogue && (
     <div 
       onClick={() => {
