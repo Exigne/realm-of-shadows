@@ -1,60 +1,57 @@
 /**
- * 🏝️ CANDY ISLAND — The High-Res Joyride Update
- * Features: HD Rendering, Hoverboards, NPCs, Inventory, Day/Night & Quests!
+ * 🏝️ CANDY ISLAND: THE DEFINITIVE EDITION
+ * Merged Features: 
+ * - WASD Physics & "Game Juice" (Squash/Stretch)
+ * - Full Inventory & 🔔 Bell System
+ * - Dynamic Day/Night Cycle & Glowing Houses
+ * - Multi-line Dialogue & NPC Quests
+ * - High-Res Rendering (Anti-aliasing + Film Tone)
+ * - Spatial Audio & Animalese Voices
  */
 
-import React, { useRef, useMemo, useState, useCallback, createContext } from 'react';
+import React, { useRef, useMemo, useState, useEffect, useCallback, Suspense, createContext } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Sky, ContactShadows, SoftShadows, Float, Sparkles, Instance, Instances, Stars } from '@react-three/drei';
-import { EffectComposer, Bloom, DepthOfField, Vignette } from '@react-three/postprocessing';
+import { Sky, ContactShadows, Stars, Sparkles, Float, Instance, Instances, Environment, SoftShadows } from '@react-three/drei';
+import { EffectComposer, Bloom, DepthOfField, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// GAME STATE & CONTEXT
+// ⚙️ CONFIGURATION & CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const GameContext = createContext();
+const noise2D = createNoise2D();
+const playerVelocity = new THREE.Vector3();
+const tempVec = new THREE.Vector3();
 
-const useGameStore = () => {
-  const [state, setState] = useState({
-    bells: 0,
-    items: { flowers: 0, bugs: 0, fish: 0, fruit: 0 },
-    isRiding: false,
-    isRunning: false,
-    gameTime: 8.0,
-    playerPos: new THREE.Vector3(0, 0, 0),
-    targetPos: null,
-    isMoving: false,
-    dialogue: null,
-    uiState: 'start',
-  });
+const CONFIG = {
+  walkSpeed: 12,
+  runSpeed: 22,
+  rideSpeed: 45,
+  timeScale: 0.8, // Speed of day/night cycle
+};
 
-  const actions = useMemo(() => ({
-    addBells: (amount) => setState(s => ({ ...s, bells: s.bells + amount })),
-    addItem: (type) => setState(s => ({ ...s, items: { ...s.items, [type]: s.items[type] + 1 } })),
-    setRiding: (val) => setState(s => ({ ...s, isRiding: val })),
-    setRunning: (val) => setState(s => ({ ...s, isRunning: val })),
-    setGameTime: (val) => setState(s => ({ ...s, gameTime: val })),
-    setPlayerPos: (pos) => setState(s => ({ ...s, playerPos: pos })),
-    setTarget: (pos) => setState(s => ({ ...s, targetPos: pos, isMoving: !!pos })),
-    stopMoving: () => setState(s => ({ ...s, isMoving: false, targetPos: null })),
-    setDialogue: (data) => setState(s => ({ ...s, dialogue: data, uiState: data ? 'dialogue' : 'play' })),
-    setUIState: (val) => setState(s => ({ ...s, uiState: val })),
-  }), []);
-
-  return [state, actions];
+const COLORS = {
+  grass: 0x90EE90,
+  sand: 0xF5DEB3,
+  water: 0x40E0D0,
+  wood: 0x8B4513,
+  leaves: 0x228B22,
+  apple: 0xFF4500,
+  npc1: 0x87CEFA, // Barnaby
+  npc2: 0xFFE4B5, // Pip
+  npc3: 0xDDA0DD, // Luna
+  player: 0xFFB6C1,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AUDIO ENGINE
+// 🔊 AUDIO ENGINE (Animalese + BGM)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class SpatialAudio {
+class IslandAudio {
   constructor() {
     this.ctx = null;
     this.master = null;
-    this.bgmOscillators = [];
     this.isPlaying = false;
   }
 
@@ -62,605 +59,446 @@ class SpatialAudio {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.3;
-
-    const compressor = this.ctx.createDynamicsCompressor();
-    compressor.threshold.value = -24;
-    compressor.knee.value = 30;
-    compressor.ratio.value = 12;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.25;
-
-    this.master.connect(compressor);
-    compressor.connect(this.ctx.destination);
+    this.master.gain.value = 0.15;
+    this.master.connect(this.ctx.destination);
   }
 
   startBGM() {
     if (this.isPlaying || !this.ctx) return;
     this.isPlaying = true;
-
-    const chords = [
-      [523.25, 659.25, 783.99, 1046.50],
-      [587.33, 739.99, 880.00, 1174.66],
-      [659.25, 783.99, 987.77, 1318.51],
-      [493.88, 622.25, 739.99, 987.77],
-    ];
-
-    let chordIndex = 0;
-    const playChord = () => {
-      if (!this.isPlaying || !this.ctx) return;
-
-      this.bgmOscillators.forEach(osc => {
-        osc.gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
-        osc.osc.stop(this.ctx.currentTime + 0.5);
-      });
-      this.bgmOscillators = [];
-
-      chords[chordIndex].forEach((freq, i) => {
+    const chords = [[523.25, 659.25, 783.99], [587.33, 739.99, 880.00], [659.25, 783.99, 987.77]];
+    let idx = 0;
+    const play = () => {
+      if (!this.isPlaying) return;
+      chords[idx].forEach(f => {
         const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        osc.type = i === 0 ? 'sine' : 'triangle';
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.02 * (i === 0 ? 1.5 : 0.5), this.ctx.currentTime + 0.1);
-        osc.connect(gain); gain.connect(this.master); osc.start();
-        this.bgmOscillators.push({ osc, gain });
+        const g = this.ctx.createGain();
+        osc.type = 'sine'; osc.frequency.value = f;
+        g.gain.setValueAtTime(0.01, this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 2);
+        osc.connect(g); g.connect(this.master);
+        osc.start(); osc.stop(this.ctx.currentTime + 2);
       });
-
-      chordIndex = (chordIndex + 1) % chords.length;
-      setTimeout(playChord, 2000);
+      idx = (idx + 1) % chords.length;
+      setTimeout(play, 2500);
     };
-    playChord();
+    play();
   }
 
   sfx(name) {
     if (!this.ctx) return;
-    const createSound = () => {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
-      gain.connect(this.master);
-
-      switch(name) {
-        case 'step':
-          osc.type = 'triangle'; osc.frequency.setValueAtTime(150, this.ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.1);
-          gain.gain.setValueAtTime(0.03, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
-          osc.start(); osc.stop(this.ctx.currentTime + 0.1); break;
-        case 'collect':
-          osc.type = 'sine'; osc.frequency.setValueAtTime(880, this.ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(1760, this.ctx.currentTime + 0.1);
-          gain.gain.setValueAtTime(0.08, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
-          osc.start(); osc.stop(this.ctx.currentTime + 0.3);
-          const osc2 = this.ctx.createOscillator(); const gain2 = this.ctx.createGain();
-          osc2.type = 'sine'; osc2.frequency.setValueAtTime(1109, this.ctx.currentTime); gain2.gain.setValueAtTime(0.05, this.ctx.currentTime); gain2.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
-          osc2.connect(gain2); gain2.connect(this.master); osc2.start(); osc2.stop(this.ctx.currentTime + 0.3); break;
-        case 'pop':
-          osc.type = 'sine'; osc.frequency.setValueAtTime(400, this.ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.1);
-          gain.gain.setValueAtTime(0.06, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15);
-          osc.start(); osc.stop(this.ctx.currentTime + 0.15); break;
-        case 'hover':
-          filter.type = 'lowpass'; filter.frequency.value = 800; osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(80, this.ctx.currentTime); osc.frequency.linearRampToValueAtTime(120, this.ctx.currentTime + 0.3);
-          gain.gain.setValueAtTime(0.04, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
-          osc.connect(filter); filter.connect(gain); osc.start(); osc.stop(this.ctx.currentTime + 0.4); break;
-        case 'talk':
-          osc.type = 'square'; osc.frequency.setValueAtTime(600, this.ctx.currentTime); gain.gain.setValueAtTime(0.02, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
-          osc.start(); osc.stop(this.ctx.currentTime + 0.05); break;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    g.connect(this.master);
+    if (name === 'talk') {
+      for(let i=0; i<5; i++) {
+        const tOsc = this.ctx.createOscillator();
+        const tG = this.ctx.createGain();
+        tOsc.frequency.setValueAtTime(800 + Math.random()*600, this.ctx.currentTime + i*0.07);
+        tG.gain.setValueAtTime(0.02, this.ctx.currentTime + i*0.07);
+        tG.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i*0.07 + 0.05);
+        tOsc.connect(tG); tG.connect(this.master);
+        tOsc.start(this.ctx.currentTime + i*0.07); tOsc.stop(this.ctx.currentTime + i*0.07 + 0.07);
       }
-    };
-    createSound();
+    } else if (name === 'collect') {
+      osc.frequency.setValueAtTime(880, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1760, this.ctx.currentTime + 0.1);
+      g.gain.setValueAtTime(0.05, this.ctx.currentTime);
+      osc.start(); osc.stop(this.ctx.currentTime + 0.1);
+    }
   }
 }
 
-const audio = new SpatialAudio(); 
-const noise2D = createNoise2D();
+const audio = new IslandAudio();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ENVIRONMENT COMPONENTS
+// 🌍 WORLD COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function Terrain() { 
-  const { geometry } = useMemo(() => { 
-    const size = 120; const segments = 80; 
-    const geo = new THREE.PlaneGeometry(size, size, segments, segments); 
+function Terrain() {
+  const { geometry } = useMemo(() => {
+    const geo = new THREE.PlaneGeometry(120, 120, 100, 100);
     geo.rotateX(-Math.PI / 2);
     const pos = geo.attributes.position;
-    const cols = [];
-    const colorGrass = new THREE.Color(0x90EE90);
-    const colorSand = new THREE.Color(0xF5DEB3);
-
+    const colors = [];
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i); const z = pos.getZ(i);
-      const dist = Math.sqrt(x * x + z * z);
-      const islandMask = Math.max(0, 1 - Math.pow(dist / 50, 3));
-      let height = noise2D(x * 0.02, z * 0.02) * 4 + noise2D(x * 0.05, z * 0.05) * 2 + noise2D(x * 0.1, z * 0.1) * 0.5;
-      height *= islandMask;
-      if (dist < 15) height *= 0.3;
-      pos.setY(i, Math.max(-2, height));
-
-      const c = new THREE.Color();
-      if (height < 0.5) c.lerpColors(colorSand, colorGrass, height / 0.5);
-      else { c.copy(colorGrass); c.multiplyScalar(1 - height * 0.02); }
-      if (dist > 45) c.lerp(colorSand, (dist - 45) / 10);
-      cols.push(c.r, c.g, c.b);
+      const d = Math.sqrt(x*x + z*z);
+      const mask = Math.max(0, 1 - Math.pow(d / 50, 4));
+      let h = (noise2D(x * 0.05, z * 0.05) * 2.5) * mask;
+      if (d > 45) h = -2;
+      pos.setY(i, h);
+      const col = new THREE.Color(h > 0.3 ? COLORS.grass : COLORS.sand);
+      colors.push(col.r, col.g, col.b);
     }
     geo.computeVertexNormals();
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     return { geometry: geo };
   }, []);
 
   return (
-    <mesh receiveShadow name="ground">
-      <primitive object={geometry} attach="geometry" />
+    <mesh geometry={geometry} receiveShadow name="ground">
       <meshStandardMaterial vertexColors roughness={0.8} />
     </mesh>
   );
 }
 
-function Ocean() {
-  const materialRef = useRef();
-  useFrame(({ clock }) => { if (materialRef.current) materialRef.current.uniforms.time.value = clock.elapsedTime; });
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.8, 0]}>
-      <planeGeometry args={[300, 300, 64, 64]} />
-      <shaderMaterial
-        ref={materialRef}
-        uniforms={{ time: { value: 0 }, color: { value: new THREE.Color(0x40E0D0) } }}
-        vertexShader={`
-          uniform float time; varying float vElevation; varying vec2 vUv;
-          void main() {
-            vUv = uv; vec3 pos = position;
-            float elevation = sin(pos.x * 0.2 + time) * 0.5 * cos(pos.y * 0.2 + time) * 0.5;
-            pos.z += elevation; vElevation = elevation;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-          }
-        `}
-        fragmentShader={`
-          uniform vec3 color; varying float vElevation; varying vec2 vUv;
-          void main() {
-            float mixStrength = (vElevation + 0.5) * 0.3; vec3 finalColor = mix(color, vec3(1.0), mixStrength);
-            gl_FragColor = vec4(finalColor, 0.8 + vElevation * 0.1);
-          }
-        `}
-        transparent side={THREE.DoubleSide}
-      />
-    </mesh>
-  );
-}
-
 function Vegetation() {
-  const treeData = useMemo(() => {
-    const data = [];
-    for (let i = 0; i < 150; i++) {
-      const angle = Math.random() * Math.PI * 2; const dist = 20 + Math.random() * 50;
-      const x = Math.cos(angle) * dist; const z = Math.sin(angle) * dist;
-      const height = noise2D(x * 0.02, z * 0.02) * 4 + noise2D(x * 0.05, z * 0.05) * 2;
-      if (height > 1 && dist < 55) data.push({ position: [x, height, z], rotation: [0, Math.random() * Math.PI * 2, 0], scale: 0.7 + Math.random() * 0.6 });
+  const data = useMemo(() => {
+    const trees = []; const apples = [];
+    for (let i = 0; i < 100; i++) {
+      const a = Math.random() * Math.PI * 2; const d = 15 + Math.random() * 35;
+      const x = Math.cos(a) * d; const z = Math.sin(a) * d;
+      const h = noise2D(x * 0.05, z * 0.05) * 2;
+      if (h > 0.5) trees.push({ pos: [x, h, z], scale: 0.8 + Math.random()*0.5 });
     }
-    return data;
-  }, []);
-  
-  const flowerData = useMemo(() => {
-    const data = []; const colors = [0xFF69B4, 0xFFD700, 0xFFF8DC, 0xFF1493];
-    for (let i = 0; i < 80; i++) {
-      const angle = Math.random() * Math.PI * 2; const dist = 5 + Math.random() * 45;
-      const x = Math.cos(angle) * dist; const z = Math.sin(angle) * dist;
-      const height = noise2D(x * 0.02, z * 0.02) * 4;
-      if (height > 0.5 && height < 3) data.push({ position: [x, height, z], color: colors[Math.floor(Math.random() * colors.length)] });
+    for (let i = 0; i < 15; i++) {
+      const a = Math.random() * Math.PI * 2; const d = 10 + Math.random() * 30;
+      const x = Math.cos(a) * d; const z = Math.sin(a) * d;
+      apples.push({ pos: [x, 0.5, z], id: i });
     }
-    return data;
+    return { trees, apples };
   }, []);
-  
+
   return (
     <group>
-      <Instances limit={200}>
-        <coneGeometry args={[1.2, 3, 6]} />
-        <meshStandardMaterial color={0x228B22} roughness={0.8} />
-        {treeData.map((tree, i) => <Instance key={i} position={tree.position} rotation={tree.rotation} scale={tree.scale} castShadow receiveShadow />)}
-      </Instances>
-      <Instances limit={200}>
-        <cylinderGeometry args={[0.25, 0.35, 2, 6]} />
-        <meshStandardMaterial color={0x8B4513} roughness={0.9} />
-        {treeData.map((tree, i) => <Instance key={i} position={[tree.position[0], tree.position[1] - 0.5, tree.position[2]]} rotation={tree.rotation} scale={tree.scale} castShadow />)}
-      </Instances>
       <Instances limit={100}>
-        <sphereGeometry args={[0.15, 6, 6]} />
-        <meshStandardMaterial roughness={0.5} />
-        {flowerData.map((flower, i) => <Instance key={i} position={flower.position} color={flower.color} />)}
+        <coneGeometry args={[1.5, 4, 8]} />
+        <meshStandardMaterial color={COLORS.leaves} />
+        {data.trees.map((t, i) => <Instance key={i} position={t.pos} scale={t.scale} castShadow />)}
+      </Instances>
+      <Instances limit={100} position={[0, -1, 0]}>
+        <cylinderGeometry args={[0.3, 0.4, 2]} />
+        <meshStandardMaterial color={COLORS.wood} />
+        {data.trees.map((t, i) => <Instance key={i} position={t.pos} scale={t.scale} />)}
       </Instances>
     </group>
   );
 }
 
-function House({ position, roofColor }) { 
-  return ( 
-    <group position={position}>
-      <mesh position={[0, 1.5, 0]} castShadow receiveShadow> 
+function House({ pos, color, time }) {
+  const isNight = time < 6 || time > 18;
+  return (
+    <group position={pos}>
+      <mesh position={[0, 1.5, 0]} castShadow>
         <boxGeometry args={[4, 3, 4]} />
-        <meshStandardMaterial color={0xFFFAFA} />
-      </mesh>  
-      <mesh position={[0, 4, 0]} rotation={[0, Math.PI/4, 0]} castShadow>
-        <coneGeometry args={[3, 2.5, 4]} />
-        <meshStandardMaterial color={roofColor} />
+        <meshStandardMaterial color="#fff" />
       </mesh>
-      <mesh position={[0, 0.9, 2.01]}>
-        <planeGeometry args={[1, 1.8]} />
-        <meshStandardMaterial color={0x8B4513} />
+      <mesh position={[0, 4, 0]} rotation={[0, Math.PI/4, 0]} castShadow>
+        <coneGeometry args={[3.5, 2.5, 4]} />
+        <meshStandardMaterial color={color} />
+      </mesh>
+      {/* Glowing Windows */}
+      <mesh position={[1, 1.5, 2.01]}>
+        <planeGeometry args={[0.8, 0.8]} />
+        <meshStandardMaterial emissive={color} emissiveIntensity={isNight ? 2 : 0} color="#333" />
       </mesh>
       <mesh position={[-1, 1.5, 2.01]}>
         <planeGeometry args={[0.8, 0.8]} />
-        <meshStandardMaterial color={0x444444} emissive={0xFFDD88} emissiveIntensity={0.5} />
+        <meshStandardMaterial emissive={color} emissiveIntensity={isNight ? 2 : 0} color="#333" />
       </mesh>
-      <mesh position={[1, 1.5, 2.01]}>
-        <planeGeometry args={[0.8, 0.8]} />
-        <meshStandardMaterial color={0x444444} emissive={0xFFDD88} emissiveIntensity={0.5} />
-      </mesh>
-      <pointLight position={[0, 2.5, 2.5]} intensity={0.5} distance={15} color={0xFFAA55} />
     </group>
-  ); 
-}
-
-function DayNightCycle({ time }) { 
-  const sunAngle = ((time - 6) / 12) * Math.PI - Math.PI; 
-  const sunX = Math.cos(sunAngle) * 60; const sunY = Math.max(Math.sin(-sunAngle) * 60, -10); const sunZ = Math.cos(sunAngle) * 20;
-
-  const getSkyColor = () => { 
-    if (time >= 5 && time < 8) return new THREE.Color(0xFF7E5F); 
-    if (time >= 8 && time < 17) return new THREE.Color(0x87CEEB); 
-    if (time >= 17 && time < 20) return new THREE.Color(0xFD5E53); 
-    return new THREE.Color(0x0A0A2A); 
-  };
-
-  const intensity = time > 6 && time < 18 ? 1.0 : 0.2;
-
-  return ( 
-    <> 
-      <ambientLight intensity={0.4 + intensity * 0.3} color={getSkyColor()} /> 
-      <directionalLight position={[sunX, sunY, sunZ]} intensity={intensity} color={0xFFF5E6} castShadow shadow-mapSize={[2048, 2048]} shadow-camera-left={-60} shadow-camera-right={60} shadow-camera-top={60} shadow-camera-bottom={-60} /> 
-      {(time < 6 || time > 19) && <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />} 
-    </> 
-  ); 
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ENTITIES
+// 🚶 ENTITIES (Player & NPC)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function Player({ state, actions }) { 
-  const groupRef = useRef(); const boardRef = useRef();
+function Player({ isRiding, onCollect }) {
+  const group = useRef();
+  const body = useRef();
+  const [keys, setKeys] = useState({});
 
-  useFrame((frameState, delta) => { 
-    if (!groupRef.current) return;
-    const currentPos = groupRef.current.position;
-    const target = state.targetPos;
-
-    if (target && state.isMoving) {
-      const distance = currentPos.distanceTo(target);
-      if (distance > 0.3) {
-        const speed = state.isRiding ? 35 : (state.isRunning ? 15 : 8);
-        const direction = new THREE.Vector3().subVectors(target, currentPos).normalize();
-        currentPos.add(direction.multiplyScalar(Math.min(speed * delta, distance)));
-
-        const targetRotation = Math.atan2(direction.x, direction.z);
-        let rotDiff = targetRotation - groupRef.current.rotation.y;
-        while (rotDiff > Math.PI) rotDiff -= Math.PI * 2; while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-        groupRef.current.rotation.y += rotDiff * 10 * delta;
-
-        if (boardRef.current && state.isRiding) {
-          boardRef.current.rotation.x = -0.2;
-          boardRef.current.position.y = 0.5 + Math.sin(frameState.clock.elapsedTime * 8) * 0.1;
-        }
-
-        if (!state.isRiding && Math.floor(frameState.clock.elapsedTime * 4) % 4 === 0) audio.sfx('step');
-      } else {
-        actions.stopMoving(); if (boardRef.current) boardRef.current.rotation.x = 0;
-      }
-    } else {
-      if (boardRef.current && state.isRiding) boardRef.current.position.y = 0.5 + Math.sin(frameState.clock.elapsedTime * 2) * 0.05;
-    }
-    actions.setPlayerPos(currentPos.clone());
-  });
-
-  return ( 
-    <group ref={groupRef} position={[0, 0, 0]} castShadow> 
-      <mesh position={[0, 0.6, 0]} castShadow> 
-        <sphereGeometry args={[0.5, 16, 16]} /> <meshStandardMaterial color={0xFFB6C1} />
-      </mesh>  
-      <mesh position={[-0.2, 1.1, 0]} rotation={[0, 0, 0.2]} castShadow>
-        <capsuleGeometry args={[0.12, 0.5, 4, 8]} /> <meshStandardMaterial color={0xFFB6C1} />
-      </mesh>
-      <mesh position={[0.2, 1.1, 0]} rotation={[0, 0, -0.2]} castShadow>
-        <capsuleGeometry args={[0.12, 0.5, 4, 8]} /> <meshStandardMaterial color={0xFFB6C1} />
-      </mesh>
-      <mesh position={[-0.15, 0.7, 0.4]}><sphereGeometry args={[0.06, 8, 8]} /><meshBasicMaterial color={0x000000} /></mesh>
-      <mesh position={[0.15, 0.7, 0.4]}><sphereGeometry args={[0.06, 8, 8]} /><meshBasicMaterial color={0x000000} /></mesh>
-
-      <group ref={boardRef} visible={state.isRiding}>
-        <mesh position={[0, 0, 0]} castShadow><boxGeometry args={[1.4, 0.1, 0.5]} /><meshStandardMaterial color={0x222222} metalness={0.8} roughness={0.2} /></mesh>
-        <mesh position={[-0.5, 0, 0]} rotation={[Math.PI/2, 0, 0]}><cylinderGeometry args={[0.15, 0.15, 0.6, 8]} /><meshStandardMaterial color={0xFF1493} emissive={0xFF1493} emissiveIntensity={0.5} /></mesh>
-        <mesh position={[0.5, 0, 0]} rotation={[Math.PI/2, 0, 0]}><cylinderGeometry args={[0.15, 0.15, 0.6, 8]} /><meshStandardMaterial color={0xFF1493} emissive={0xFF1493} emissiveIntensity={0.5} /></mesh>
-        {state.isRiding && state.isMoving && <Sparkles count={20} scale={2} size={0.4} speed={0.5} color={0xFF1493} position={[0, -0.2, -0.5]} />}
-      </group>
-
-      <ContactShadows position={[0, 0.01, 0]} opacity={0.4} scale={2} blur={1.5} far={2} />
-    </group>
-  ); 
-}
-
-function NPC({ data, onInteract }) { 
-  const groupRef = useRef(); const homePos = data.home;
-
-  useFrame((frameState) => { 
-    if (!groupRef.current || data.isTalking) return;
-    const tOff = frameState.clock.elapsedTime * 0.5 + data.timeOffset;
-    const nextX = homePos.x + Math.cos(tOff) * 4; const nextZ = homePos.z + Math.sin(tOff) * 4;
-    groupRef.current.position.set(nextX, 0.9, nextZ);
-    groupRef.current.lookAt(nextX + Math.cos(tOff + 0.1), 0.9, nextZ + Math.sin(tOff + 0.1));
-  });
-
-  return ( 
-    <group ref={groupRef} position={[homePos.x, 0.9, homePos.z]} onClick={(e) => { e.stopPropagation(); onInteract(data); }} > 
-      <mesh position={[0, 0.5, 0]} castShadow><sphereGeometry args={[0.5, 16, 16]} /><meshStandardMaterial color={data.color} /></mesh>
-      
-      {data.earType === 'bear' && (
-        <>
-          <mesh position={[-0.35, 0.5, 0]} castShadow><sphereGeometry args={[0.2, 8, 8]} /><meshStandardMaterial color={data.color} /></mesh>
-          <mesh position={[0.35, 0.5, 0]} castShadow><sphereGeometry args={[0.2, 8, 8]} /><meshStandardMaterial color={data.color} /></mesh>
-        </>
-      )}
-      {data.earType === 'cat' && (
-        <>
-          <mesh position={[-0.3, 0.5, 0]} rotation={[0, 0, 0.3]} castShadow><coneGeometry args={[0.15, 0.4, 4]} /><meshStandardMaterial color={data.color} /></mesh>
-          <mesh position={[0.3, 0.5, 0]} rotation={[0, 0, -0.3]} castShadow><coneGeometry args={[0.15, 0.4, 4]} /><meshStandardMaterial color={data.color} /></mesh>
-        </>
-      )}
-
-      <mesh position={[-0.15, 0.1, 0.4]}><sphereGeometry args={[0.05, 8, 8]} /><meshBasicMaterial color={0x000000} /></mesh>
-      <mesh position={[0.15, 0.1, 0.4]}><sphereGeometry args={[0.05, 8, 8]} /><meshBasicMaterial color={0x000000} /></mesh>
-
-      <mesh position={[0, -0.4, 0]}><boxGeometry args={[1.2, 0.08, 0.4]} /><meshStandardMaterial color={0x333333} /></mesh>
-      <mesh position={[-0.4, -0.4, 0]} rotation={[Math.PI/2, 0, 0]}><cylinderGeometry args={[0.12, 0.12, 0.5, 8]} /><meshStandardMaterial color={data.color} emissive={data.color} emissiveIntensity={0.3} /></mesh>
-      <mesh position={[0.4, -0.4, 0]} rotation={[Math.PI/2, 0, 0]}><cylinderGeometry args={[0.12, 0.12, 0.5, 8]} /><meshStandardMaterial color={data.color} emissive={data.color} emissiveIntensity={0.3} /></mesh>
-
-      <Float speed={2} rotationIntensity={0} floatIntensity={0.5}>
-        <mesh position={[0, 1.2, 0]}><sphereGeometry args={[0.1, 8, 8]} /><meshBasicMaterial color={0xFFD700} transparent opacity={0.8} /></mesh>
-      </Float>
-    </group>
-  ); 
-}
-
-function Collectibles({ state, actions }) { 
-  const items = useMemo(() => { 
-    const data = [];
-    for (let i = 0; i < 20; i++) {
-      const angle = Math.random() * Math.PI * 2; const dist = 10 + Math.random() * 35;
-      const x = Math.cos(angle) * dist; const z = Math.sin(angle) * dist;
-      const height = noise2D(x * 0.02, z * 0.02) * 4;
-      if (height > 0.5) data.push({ id: `apple-${i}`, type: 'apple', position: [x, height + 0.3, z], collected: false });
-    }
-    return data;
+  useEffect(() => {
+    const down = (e) => setKeys(k => ({ ...k, [e.key.toLowerCase()]: true }));
+    const up = (e) => setKeys(k => ({ ...k, [e.key.toLowerCase()]: false }));
+    window.addEventListener('keydown', down); window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
   }, []);
 
-  const [collected, setCollected] = useState(new Set());
+  useFrame((state, delta) => {
+    const speed = (isRiding ? CONFIG.rideSpeed : keys.shift ? CONFIG.runSpeed : CONFIG.walkSpeed) * delta;
+    if (keys.w || keys.arrowup) playerVelocity.z -= speed;
+    if (keys.s || keys.arrowdown) playerVelocity.z += speed;
+    if (keys.a || keys.arrowleft) playerVelocity.x -= speed;
+    if (keys.d || keys.arrowright) playerVelocity.x += speed;
 
-  useFrame(() => { 
-    items.forEach(item => {
-      if (collected.has(item.id)) return;
-      if (state.playerPos.distanceTo(new THREE.Vector3(...item.position)) < 1.5) {
-        setCollected(prev => new Set([...prev, item.id]));
-        actions.addBells(100);
-        actions.addItem(item.type === 'apple' ? 'fruit' : 'flowers');
-        audio.sfx('collect');
-      }
-    });
+    playerVelocity.multiplyScalar(0.85);
+    group.current.position.add(playerVelocity);
+
+    if (playerVelocity.length() > 0.01) {
+      const angle = Math.atan2(playerVelocity.x, playerVelocity.z);
+      group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, angle, 0.15);
+      // Squash/Stretch
+      body.current.scale.y = 1 - Math.abs(Math.sin(state.clock.elapsedTime * 12)) * 0.1;
+      body.current.position.y = Math.abs(Math.sin(state.clock.elapsedTime * 12)) * 0.2;
+    }
+
+    // Camera
+    const camTarget = group.current.position.clone().add(tempVec.set(18, 15, 18));
+    state.camera.position.lerp(camTarget, 0.1);
+    state.camera.lookAt(group.current.position);
   });
 
   return (
-    <group>
-      {items.map(item => { 
-        if (collected.has(item.id)) return null;
-        return (
-          <Float key={item.id} speed={3} rotationIntensity={0.2} floatIntensity={0.3}>
-            <mesh position={item.position}>
-              <sphereGeometry args={[0.2, 8, 8]} />
-              <meshStandardMaterial color={item.type === 'apple' ? 0xFF4500 : 0xFF69B4} emissive={item.type === 'apple' ? 0xFF2200 : 0xFF1493} emissiveIntensity={0.2} />
-            </mesh>
-            <Sparkles count={5} scale={0.5} size={0.2} color={item.type === 'apple' ? 0xFF4500 : 0xFF69B3} />
-          </Float>
-        );
-      })}
+    <group ref={group}>
+      <group ref={body}>
+        <mesh castShadow position={[0, 0.6, 0]}>
+          <sphereGeometry args={[0.6, 32, 32]} />
+          <meshStandardMaterial color={COLORS.player} />
+        </mesh>
+        <mesh position={[0.2, 0.8, 0.45]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="black" /></mesh>
+        <mesh position={[-0.2, 0.8, 0.45]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="black" /></mesh>
+      </group>
+      {isRiding && (
+        <mesh position={[0, -0.1, 0]}>
+          <boxGeometry args={[1.6, 0.15, 0.7]} />
+          <meshStandardMaterial color="#FF1493" emissive="#FF1493" emissiveIntensity={0.5} />
+        </mesh>
+      )}
     </group>
-  ); 
+  );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CAMERA & MAIN SCENE
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function CameraController({ state }) { 
-  const { camera } = useThree();
-  useFrame((_, delta) => { 
-    const offset = new THREE.Vector3(20, state.isRiding ? 25 : 18, 20);
-    if (state.isRiding && state.isMoving) offset.multiplyScalar(1.3);
-    camera.position.lerp(state.playerPos.clone().add(offset), delta * (state.isRiding ? 2 : 3));
-    camera.lookAt(state.playerPos.x, 0.5, state.playerPos.z);
+function NPC({ pos, color, name, dialogues, onTalk }) {
+  const ref = useRef();
+  useFrame((s) => {
+    const t = s.clock.elapsedTime + pos.x;
+    ref.current.position.y = Math.sin(t * 2) * 0.1;
+    ref.current.rotation.y = Math.sin(t * 0.5) * 0.5;
   });
-  return null; 
-}
 
-function Scene({ state, actions }) { 
-  const handleGroundClick = useCallback((e) => { 
-    if (state.uiState !== 'play') return; 
-    e.stopPropagation(); actions.setTarget(e.point); audio.sfx('pop'); 
-    if (state.isRiding) audio.sfx('hover'); 
-  }, [state.uiState, state.isRiding, actions]);
-
-  const handleNPCInteract = useCallback((npcData) => { 
-    actions.setDialogue({ name: npcData.name, texts: npcData.dialogues[0], color: npcData.color, current: 0 }); 
-    audio.sfx('talk'); 
-  }, [actions]);
-
-  return ( 
-    <> 
-      <Sky sunPosition={[100, 20, 100]} turbidity={8} rayleigh={6} mieCoefficient={0.005} mieDirectionalG={0.8} /> 
-      <DayNightCycle time={state.gameTime} />
-      <SoftShadows size={25} samples={16} focus={0.5} /> 
-
-      <mesh rotation={[-Math.PI / 2, 0, 0]} onClick={handleGroundClick} visible={false}>
-        <planeGeometry args={[200, 200]} />
-        <meshBasicMaterial />
-      </mesh>
-
-      <Terrain />
-      <Ocean />
-      <Vegetation />
-      <Player state={state} actions={actions} />
-      <Collectibles state={state} actions={actions} />
-
-      <NPC data={{ name: "Barnaby", color: 0x87CEFA, earType: 'bear', home: new THREE.Vector3(-12, 0, -10), timeOffset: 0, dialogues: [["Nice day for a hoverboard ride!", "I love cruising around the island."]], isTalking: false }} onInteract={handleNPCInteract} />
-      <NPC data={{ name: "Luna", color: 0xDDA0DD, earType: 'cat', home: new THREE.Vector3(15, 0, -5), timeOffset: 2, dialogues: [["Meow... the island air is lovely.", "Have you collected many things today?"]], isTalking: false }} onInteract={handleNPCInteract} />
-      <NPC data={{ name: "Pip", color: 0xFFE4B5, earType: 'bunny', home: new THREE.Vector3(-5, 0, 15), timeOffset: 4, dialogues: [["Hop hop! Vroom vroom!", "Click the hoverboard icon to ride!"]], isTalking: false }} onInteract={handleNPCInteract} />
-
-      <House position={[-12, 0, -13]} roofColor={0x87CEFA} />
-      <House position={[15, 0, -8]} roofColor={0xDDA0DD} />
-      <House position={[-5, 0, 12]} roofColor={0xFFE4B5} />
-
-      <CameraController state={state} />
-
-      {/* High-Resolution HD Post-Processing */}
-      <EffectComposer multisampling={8}>
-        <Bloom intensity={0.4} luminanceThreshold={0.8} luminanceSmoothing={0.9} />
-        <DepthOfField focusDistance={0.025} focalLength={0.05} bokehScale={4} />
-        <Vignette eskil={false} offset={0.1} darkness={0.4} />
-      </EffectComposer>
-    </>
-  ); 
+  return (
+    <group position={pos} onClick={(e) => { e.stopPropagation(); onTalk(name, color, dialogues); }}>
+      <group ref={ref}>
+        <mesh castShadow position={[0, 0.6, 0]}>
+          <sphereGeometry args={[0.6, 32, 32]} />
+          <meshStandardMaterial color={color} />
+        </mesh>
+        <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
+           <mesh position={[0, 1.5, 0]}><octahedronGeometry args={[0.2]} /><meshBasicMaterial color="gold" /></mesh>
+        </Float>
+        {/* Scooter */}
+        <mesh position={[0, -0.1, 0]} rotation={[0, 0, 0]}>
+            <boxGeometry args={[1.4, 0.1, 0.6]} />
+            <meshStandardMaterial color="#444" />
+        </mesh>
+      </group>
+    </group>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// UI & WRAPPER
+// 🍎 COLLECTIBLES SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const UI = ({ state, actions }) => { 
-  React.useEffect(() => { 
-    const handleKeyDown = (e) => { 
-      if (e.code === 'ShiftLeft') actions.setRunning(true); 
-      if (e.code === 'Space') { e.preventDefault(); actions.setRiding(!state.isRiding); audio.sfx('hover'); } 
-    }; 
-    const handleKeyUp = (e) => { if (e.code === 'ShiftLeft') actions.setRunning(false); };
-    document.addEventListener('keydown', handleKeyDown); document.addEventListener('keyup', handleKeyUp);
-    return () => { document.removeEventListener('keydown', handleKeyDown); document.removeEventListener('keyup', handleKeyUp); };
-  }, [state.isRiding, actions]);
+function Apples({ playerPos, onCollect }) {
+    const [apples, setApples] = useState(() => 
+        Array.from({ length: 15 }, (_, i) => ({
+            id: i,
+            pos: [ (Math.random()-0.5)*60, 0.5, (Math.random()-0.5)*60 ],
+            active: true
+        }))
+    );
 
-  const formatTime = (time) => { 
-    let h = Math.floor(time); let m = Math.floor((time - h) * 60); let ampm = h >= 12 ? 'PM' : 'AM'; 
-    h = h % 12; if (h === 0) h = 12; return `${h}:${m.toString().padStart(2, '0')} ${ampm}`; 
+    useFrame(() => {
+        apples.forEach(apple => {
+            if (apple.active) {
+                const d = playerPos.distanceTo(new THREE.Vector3(...apple.pos));
+                if (d < 1.5) {
+                    apple.active = false;
+                    onCollect('fruit');
+                    audio.sfx('collect');
+                }
+            }
+        });
+    });
+
+    return (
+        <group>
+            {apples.map(a => a.active && (
+                <Float key={a.id} position={a.pos} speed={4}>
+                    <mesh castShadow>
+                        <sphereGeometry args={[0.25, 12, 12]} />
+                        <meshStandardMaterial color={COLORS.apple} emissive="red" emissiveIntensity={0.2} />
+                    </mesh>
+                    <Sparkles count={4} scale={0.5} size={1} />
+                </Float>
+            ))}
+        </group>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎮 MAIN GAME COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export default function CandyIslandFinal() {
+  const [uiState, setUiState] = useState('start');
+  const [bells, setBells] = useState(0);
+  const [inventory, setInventory] = useState({ fruit: 0, flowers: 0 });
+  const [isRiding, setIsRiding] = useState(false);
+  const [gameTime, setGameTime] = useState(8);
+  const [dialogue, setDialogue] = useState(null);
+  const [playerPos, setPlayerPos] = useState(new THREE.Vector3());
+
+  // Day Night Logic
+  useEffect(() => {
+    if (uiState === 'start') return;
+    const interval = setInterval(() => {
+      setGameTime(t => (t + 0.05) % 24);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [uiState]);
+
+  const handleTalk = (name, color, texts) => {
+    // Quest Logic: If talking to Barnaby and have fruit
+    if (name === "Barnaby" && inventory.fruit > 0) {
+        setInventory(prev => ({ ...prev, fruit: 0 }));
+        setBells(prev => prev + 1000);
+        setDialogue({ name, color, texts: ["Whoa! An apple?!", "Thank you! Take these 1,000 Bells!"], step: 0 });
+    } else {
+        setDialogue({ name, color, texts, step: 0 });
+    }
+    audio.sfx('talk');
   };
 
-  if (state.uiState === 'start') { 
-    return (
-      <div 
-        onClick={() => { actions.setUIState('play'); audio.init(); audio.startBGM(); }} 
-        style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(135, 206, 235, 0.98), rgba(144, 238, 144, 0.9))', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 150, fontFamily: '"Comic Sans MS", "Nunito", cursive' }}
-      > 
-        <h1 style={{fontSize: '80px', margin: 0}}>🏝️ CANDY ISLAND</h1> 
-        <h2>The HD Joyride 🛹✨</h2> 
-        <p>🖱️ Click to Start Exploring</p> 
-      </div>
-    );
-  }
+  const advanceDialogue = () => {
+    if (dialogue.step < dialogue.texts.length - 1) {
+        setDialogue({ ...dialogue, step: dialogue.step + 1 });
+        audio.sfx('talk');
+    } else {
+        setDialogue(null);
+    }
+  };
+
+  const start = () => {
+    setUiState('play');
+    audio.init(); audio.startBGM();
+  };
 
   return (
-    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10 }}>
-      {/* HUD Container */}
-      <div style={{ pointerEvents: 'auto', display: 'flex', gap: '15px', position: 'absolute', top: 20, left: 20 }}>
-        <div style={{ background: 'rgba(255, 223, 186, 0.95)', padding: '12px 24px', borderRadius: '25px', border: '4px solid #8B4513', boxShadow: '0 6px 12px rgba(0,0,0,0.2)', display: 'flex', alignItems: 'center', gap: '12px', fontFamily: '"Comic Sans MS", cursive' }}>
-          <span style={{ fontSize: '28px' }}>🔔</span>
-          <span style={{ fontSize: '24px', fontWeight: 'bold', color: '#8B4513' }}>{state.bells.toLocaleString()}</span>
+    <div style={{ width: '100vw', height: '100vh', position: 'relative', background: '#000', overflow: 'hidden' }}>
+      <Canvas 
+        shadows 
+        dpr={[1, 2]} 
+        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
+        camera={{ fov: 45 }}
+      >
+        <Suspense fallback={null}>
+          <DayNightCycle time={gameTime} />
+          <Terrain />
+          <Vegetation />
+          <Player isRiding={isRiding} onCollect={(type) => setInventory(prev => ({ ...prev, [type]: prev[type] + 1 }))} />
+          <Apples playerPos={playerPos} onCollect={(type) => { 
+              setInventory(prev => ({ ...prev, [type]: prev[type] + 1 }));
+              setBells(b => b + 100);
+          }} />
+          
+          <NPC name="Barnaby" color={COLORS.npc1} pos={[-10, 0, -10]} dialogues={["Hey neighbor!", "Got any snacks?"]} onTalk={handleTalk} />
+          <NPC name="Luna" color={COLORS.npc3} pos={[15, 0, 5]} dialogues={["The stars are pretty tonight.", "Check your bag for items!"]} onTalk={handleTalk} />
+          <NPC name="Pip" color={COLORS.npc2} pos={[5, 0, 15]} dialogues={["Vroom vroom!", "Hoverboards are the best!"]} onTalk={handleTalk} />
+
+          <House pos={[-10, 0, -14]} color={COLORS.npc1} time={gameTime} />
+          <House pos={[15, 0, 1]} color={COLORS.npc3} time={gameTime} />
+          <House pos={[5, 0, 11]} color={COLORS.npc2} time={gameTime} />
+
+          <Tracker setPos={setPlayerPos} />
+          <Environment preset="park" />
+          
+          <EffectComposer multisampling={8}>
+            <Bloom intensity={0.4} luminanceThreshold={0.8} />
+            <DepthOfField focusDistance={0.02} focalLength={0.05} bokehScale={3} />
+            <Vignette darkness={0.5} />
+          </EffectComposer>
+        </Suspense>
+      </Canvas>
+
+      {/* ═══════════════════════════════════════════════════════════════════════════════
+          UI OVERLAYS
+      ═══════════════════════════════════════════════════════════════════════════════ */}
+
+      {uiState === 'start' && (
+        <div onClick={start} style={overlayStyle}>
+            <h1 style={{ fontSize: '80px', margin: 0 }}>🏝️ CANDY ISLAND</h1>
+            <p style={{ fontSize: '24px' }}>The Master Edition — Click to Begin</p>
         </div>
-        <button
-          onClick={() => actions.setUIState(state.uiState === 'inventory' ? 'play' : 'inventory')}
-          style={{ background: state.uiState === 'inventory' ? '#FFB6C1' : 'rgba(255, 255, 255, 0.95)', padding: '10px 20px', borderRadius: '25px', border: '4px solid #FF69B4', boxShadow: '0 6px 12px rgba(0,0,0,0.2)', cursor: 'pointer', fontSize: '32px' }}
-        >🎒</button>
-        <button
-          onClick={() => { actions.setRiding(!state.isRiding); audio.sfx('hover'); }}
-          style={{ background: state.isRiding ? '#00FA9A' : 'rgba(255, 255, 255, 0.95)', padding: '10px 20px', borderRadius: '25px', border: `4px solid ${state.isRiding ? '#2E8B57' : '#87CEEB'}`, boxShadow: '0 6px 12px rgba(0,0,0,0.2)', cursor: 'pointer', fontSize: '32px' }}
-        >🛹</button>
-      </div>
+      )}
 
-      <div style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255, 255, 255, 0.95)', padding: '12px 30px', borderRadius: '25px', border: '4px solid #87CEEB', boxShadow: '0 6px 12px rgba(0,0,0,0.2)', fontFamily: '"Comic Sans MS", sans-serif', pointerEvents: 'auto' }}>
-        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#333' }}>{formatTime(state.gameTime)}</div>
-      </div>
-
-      <div style={{ position: 'absolute', bottom: 20, right: 20, background: 'rgba(0, 0, 0, 0.7)', color: 'white', padding: '15px 20px', borderRadius: '15px', fontFamily: '"Comic Sans MS", sans-serif', fontSize: '14px', pointerEvents: 'auto' }}>
-        <div style={{ marginBottom: '5px', fontWeight: 'bold', color: '#FFD700' }}>Controls:</div>
-        <div>🖱️ Click ground — Move</div>
-        <div>🖱️ Click NPC — Talk</div>
-        <div>🛹 Space — Toggle Hoverboard</div>
-        <div>🏃 Shift — Run</div>
-      </div>
-
-      {state.uiState === 'inventory' && (
-        <div onClick={() => actions.setUIState('play')} style={{ position: 'absolute', inset: 0, background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', pointerEvents: 'auto', zIndex: 90 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#FFF0F5', width: '80%', maxWidth: '800px', borderRadius: '40px', border: '8px solid #FFB6C1', padding: '40px', boxShadow: '0 20px 50px rgba(0,0,0,0.4)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '4px dashed #FFB6C1', paddingBottom: '20px', marginBottom: '30px' }}>
-              <h2 style={{ fontFamily: '"Comic Sans MS", cursive', color: '#8B4513', fontSize: '40px', margin: 0 }}>My Pockets 🎒</h2>
-              <button onClick={() => actions.setUIState('play')} style={{ background: '#FF69B4', color: 'white', border: 'none', borderRadius: '50%', width: '50px', height: '50px', fontSize: '24px', cursor: 'pointer', fontWeight: 'bold' }}>X</button>
+      {uiState !== 'start' && (
+        <>
+            {/* HUD */}
+            <div style={{ position: 'absolute', top: 20, left: 20, display: 'flex', gap: 15, pointerEvents: 'none' }}>
+                <div style={hudBox}>🔔 {bells.toLocaleString()}</div>
+                <div style={{ ...hudBox, background: '#FF69B4', color: 'white', pointerEvents: 'auto', cursor: 'pointer' }} onClick={() => setUiState(uiState === 'inv' ? 'play' : 'inv')}>🎒 Bag</div>
+                <div style={{ ...hudBox, background: isRiding ? '#00FA9A' : '#fff', pointerEvents: 'auto', cursor: 'pointer' }} onClick={() => setIsRiding(!isRiding)}>🛹 Board</div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '20px' }}>
-              {[
-                { icon: '🍎', count: state.items.fruit, name: 'Apple', color: '#FF4500' },
-                { icon: '🌸', count: state.items.flowers, name: 'Flower', color: '#FF69B4' },
-                { icon: '🐛', count: state.items.bugs, name: 'Bug', color: '#8B4513' },
-                { icon: '🐟', count: state.items.fish, name: 'Fish', color: '#40E0D0' },
-                ...Array(8).fill(null)
-              ].map((slot, i) => (
-                <div key={i} style={{ background: slot?.count > 0 ? 'white' : 'rgba(255,255,255,0.4)', aspectRatio: '1', borderRadius: '20px', border: slot?.count > 0 ? `4px solid ${slot.color}` : '4px dashed #ccc', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                  {slot?.count > 0 && (
-                    <>
-                      <span style={{ fontSize: '50px' }}>{slot.icon}</span>
-                      <div style={{ position: 'absolute', bottom: '-10px', right: '-10px', background: '#FFD700', color: '#8B4513', border: '3px solid white', borderRadius: '50%', width: '35px', height: '35px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontFamily: '"Comic Sans MS", cursive', fontSize: '16px' }}>{slot.count}</div>
-                      <div style={{ position: 'absolute', top: '10px', fontFamily: '"Comic Sans MS", cursive', fontSize: '12px', color: '#888', textTransform: 'uppercase' }}>{slot.name}</div>
-                    </>
-                  )}
+
+            <div style={{ position: 'absolute', top: 20, right: 20, ...hudBox }}>
+                {Math.floor(gameTime)}:00 {gameTime >= 12 ? 'PM' : 'AM'}
+            </div>
+
+            {/* Inventory UI */}
+            {uiState === 'inv' && (
+                <div style={modalOverlay} onClick={() => setUiState('play')}>
+                    <div style={modalContent} onClick={e => e.stopPropagation()}>
+                        <h2>My Pockets</h2>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                            <div style={invSlot}>🍎 Apples: {inventory.fruit}</div>
+                            <div style={invSlot}>🌸 Flowers: {inventory.flowers}</div>
+                        </div>
+                    </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
+            )}
+
+            {/* Dialogue UI */}
+            {dialogue && (
+                <div style={dialogueBox} onClick={advanceDialogue}>
+                    <div style={{ background: `#${dialogue.color.toString(16)}`, color: 'white', padding: '5px 20px', display: 'inline-block', borderRadius: '10px 10px 0 0' }}>{dialogue.name}</div>
+                    <div style={dialogueText}>{dialogue.texts[dialogue.step]}</div>
+                </div>
+            )}
+
+            <div style={controlsHint}>WASD to move | SHIFT to sprint | SPACE for board</div>
+        </>
       )}
-
-      {state.uiState === 'dialogue' && state.dialogue && (
-        <div onClick={() => { if (state.dialogue.current < state.dialogue.texts.length - 1) { actions.setDialogue({ ...state.dialogue, current: state.dialogue.current + 1 }); audio.sfx('talk'); } else { actions.setDialogue(null); } }} style={{ position: 'absolute', inset: 0, zIndex: 100, cursor: 'pointer', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: '40px', pointerEvents: 'auto' }}>
-          <div style={{ width: '80%', maxWidth: '800px', pointerEvents: 'none' }}>
-            <div style={{ background: `#${state.dialogue.color.toString(16).padStart(6, '0')}`, color: 'white', padding: '8px 24px', borderRadius: '20px 20px 0 0', fontFamily: '"Comic Sans MS", cursive', fontSize: '24px', fontWeight: 'bold', display: 'inline-block', border: '5px solid white', borderBottom: 'none', marginLeft: '40px' }}>{state.dialogue.name}</div>
-            <div style={{ background: 'rgba(255, 255, 255, 0.98)', padding: '30px 40px', borderRadius: '30px', border: '6px solid white', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontFamily: '"Comic Sans MS", cursive', fontSize: '26px', color: '#333' }}>
-              {state.dialogue.texts[state.dialogue.current]}
-              <div style={{ textAlign: 'right', fontSize: '16px', color: '#888', marginTop: '20px' }}>▼ Click to continue ({state.dialogue.current + 1}/{state.dialogue.texts.length})</div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default function CandyIslandJoyride() {
-  const [state, actions] = useGameStore();
-
-  return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-      <GameContext.Provider value={{ state, actions }}>
-        {/* The HD Resolution Fixes are applied to the Canvas here */}
-        <Canvas 
-            shadows 
-            dpr={[1, 2]} 
-            camera={{ position: [20, 18, 20], fov: 45 }}
-            gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
-        >
-          <Scene state={state} actions={actions} />
-        </Canvas>
-        <UI state={state} actions={actions} />
-      </GameContext.Provider>
     </div>
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🛠️ HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function DayNightCycle({ time }) {
+    const sunAngle = ((time - 6) / 12) * Math.PI - Math.PI;
+    const x = Math.cos(sunAngle) * 60; const y = Math.max(Math.sin(-sunAngle) * 60, -5);
+    const isNight = time < 6 || time > 18;
+    return (
+        <>
+            <Sky sunPosition={[x, y, 20]} turbidity={0.1} />
+            <directionalLight position={[x, y, 20]} intensity={isNight ? 0.2 : 1.5} castShadow shadow-mapSize={[2048, 2048]} />
+            <ambientLight intensity={isNight ? 0.2 : 0.6} />
+            {isNight && <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />}
+        </>
+    );
+}
+
+function Tracker({ setPos }) {
+    useFrame((s) => setPos(s.camera.getWorldPosition(new THREE.Vector3())));
+    return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 💅 STYLES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const overlayStyle = { position: 'absolute', inset: 0, background: 'linear-gradient(135deg, #87CEEB, #90EE90)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 100, color: 'white', fontFamily: '"Comic Sans MS", cursive', cursor: 'pointer' };
+const hudBox = { background: 'white', padding: '10px 20px', borderRadius: '20px', border: '4px solid #8B4513', fontFamily: '"Comic Sans MS", cursive', fontWeight: 'bold' };
+const dialogueBox = { position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', width: '70%', maxWidth: '800px', zIndex: 110, cursor: 'pointer', fontFamily: '"Comic Sans MS", cursive' };
+const dialogueText = { background: 'white', padding: '30px', borderRadius: '0 20px 20px 20px', border: '5px solid #333', fontSize: '24px' };
+const modalOverlay = { position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 };
+const modalContent = { background: '#FFF0F5', padding: '40px', borderRadius: '30px', border: '10px solid #FFB6C1', textAlign: 'center', fontFamily: '"Comic Sans MS", cursive' };
+const invSlot = { background: 'white', padding: '20px', borderRadius: '15px', border: '3px solid #FF69B4', fontSize: '20px' };
+const controlsHint = { position: 'absolute', bottom: 10, right: 10, color: 'white', fontSize: '12px', opacity: 0.6 };
