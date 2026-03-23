@@ -1,6 +1,6 @@
 /**
- * 🏝️ CANDY ISLAND — Fixed Point & Click Edition
- * Debugged and working movement system
+ * 🏝️ CANDY ISLAND — NPC Update
+ * Added interactable NPCs, Dialogue UI, and Animalese voices!
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -28,9 +28,17 @@ const COLORS = {
   flowerRed: 0xFF69B4,
   flowerYellow: 0xFFD700,
   flowerWhite: 0xFFF8DC,
+  apple: 0xFF4500,
+  butterfly: 0x9370DB,
+  fish: 0x4169E1,
+  rock: 0x808080,
   player: 0xFFB6C1,
   sky: 0x87CEEB,
   targetMarker: 0xFFD700,
+  particle: 0xFFFFFF,
+  npc1: 0x87CEFA, // Light Sky Blue
+  npc2: 0xFFE4B5, // Moccasin
+  npc3: 0xDDA0DD, // Plum
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -79,7 +87,7 @@ class IslandAudio {
         
         osc.type = 'sine';
         osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.02, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.015, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.5);
         
         osc.connect(gain);
@@ -108,7 +116,7 @@ class IslandAudio {
         case 'step':
           osc.type = 'triangle';
           osc.frequency.setValueAtTime(200, this.ctx.currentTime);
-          gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
+          gain.gain.setValueAtTime(0.02, this.ctx.currentTime);
           gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
           osc.start();
           osc.stop(this.ctx.currentTime + 0.05);
@@ -123,6 +131,16 @@ class IslandAudio {
           osc.start();
           osc.stop(this.ctx.currentTime + 0.15);
           break;
+
+        case 'catch':
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(2400, this.ctx.currentTime + 0.15);
+          gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.2);
+          break;
           
         case 'pop':
           osc.type = 'sine';
@@ -132,6 +150,24 @@ class IslandAudio {
           gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
           osc.start();
           osc.stop(this.ctx.currentTime + 0.1);
+          break;
+
+        case 'talk': // Animalese style chatter
+          let t = this.ctx.currentTime;
+          for(let i=0; i<8; i++) {
+            const tOsc = this.ctx.createOscillator();
+            const tGain = this.ctx.createGain();
+            tOsc.type = 'sine';
+            // Random pitch between 800hz and 1400hz
+            tOsc.frequency.setValueAtTime(800 + Math.random() * 600, t + i * 0.06);
+            tGain.gain.setValueAtTime(0, t + i * 0.06);
+            tGain.gain.linearRampToValueAtTime(0.04, t + i * 0.06 + 0.02);
+            tGain.gain.linearRampToValueAtTime(0, t + i * 0.06 + 0.05);
+            tOsc.connect(tGain);
+            tGain.connect(this.master);
+            tOsc.start(t + i * 0.06);
+            tOsc.stop(t + i * 0.06 + 0.06);
+          }
           break;
       }
     } catch (e) {
@@ -145,21 +181,22 @@ class IslandAudio {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT — Fixed Point & Click
+// MAIN COMPONENT 
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function CandyIslandFixed() {
+export default function CandyIslandEnhanced() {
   const mountRef = useRef(null);
-  const [uiState, setUiState] = useState('start'); // For UI only
+  const [uiState, setUiState] = useState('start'); 
+  const [dialogueData, setDialogueData] = useState(null);
   const [bells, setBells] = useState(0);
   const [items, setItems] = useState({ flowers: 0, bugs: 0, fish: 0, fruit: 0 });
   const [time, setTime] = useState(new Date());
   const [message, setMessage] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   
-  // Game state in ref to avoid closure issues
   const gameRef = useRef({
     isPlaying: false,
+    uiState: 'start', // internal mirror for loop safety
     scene: null,
     camera: null,
     renderer: null,
@@ -171,29 +208,27 @@ export default function CandyIslandFixed() {
     groundPlane: null,
     audio: new IslandAudio(),
     targetPosition: null,
+    targetNPC: null,
+    isTalking: false,
     isMoving: false,
-    velocity: new THREE.Vector3(),
     worldObjects: [],
     collectibles: [],
-    lastTime: 0,
+    npcs: [],
+    particles: [],
     stepTimer: 0,
     cameraOffset: new THREE.Vector3(20, CONFIG.cameraHeight, 20),
   });
 
   const showMessage = useCallback((text) => {
     setMessage(text);
-    setTimeout(() => setMessage(null), 2000);
+    setTimeout(() => setMessage(null), 2500);
   }, []);
 
   useEffect(() => {
     const container = mountRef.current;
-    if (!container) {
-      console.error('No container ref!');
-      return;
-    }
+    if (!container) return;
     
     const g = gameRef.current;
-    console.log('Initializing game...');
 
     // ─── 1. Scene Setup ─────────────────────────────────────────────────────
     const scene = new THREE.Scene();
@@ -213,10 +248,8 @@ export default function CandyIslandFixed() {
     container.appendChild(renderer.domElement);
     g.renderer = renderer;
 
-    console.log('Renderer created');
-
     // ─── 2. Lighting ──────────────────────────────────────────────────────────
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     scene.add(ambientLight);
 
     const sunLight = new THREE.DirectionalLight(0xfff5e6, 0.9);
@@ -231,35 +264,17 @@ export default function CandyIslandFixed() {
     sunLight.shadow.bias = -0.0005;
     scene.add(sunLight);
 
-    // ─── 3. Ground (CLICKABLE) ─────────────────────────────────────────────
+    // ─── 3. Environment ─────────────────────────────────────────────
     const groundGeo = new THREE.CircleGeometry(CONFIG.worldSize, 64);
-    const groundMat = new THREE.MeshStandardMaterial({ 
-      color: COLORS.grass,
-      roughness: 0.8,
-    });
+    const groundMat = new THREE.MeshStandardMaterial({ color: COLORS.grass, roughness: 0.8 });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     ground.name = 'ground';
     scene.add(ground);
-    g.groundPlane = ground;
-    
-    console.log('Ground created at y=0');
 
-    // Hills
-    for (let i = 0; i < 6; i++) {
-      const hillGeo = new THREE.SphereGeometry(4 + Math.random() * 5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-      const hillMat = new THREE.MeshStandardMaterial({ color: COLORS.grassDark });
-      const hill = new THREE.Mesh(hillGeo, hillMat);
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 20 + Math.random() * 30;
-      hill.position.set(Math.cos(angle) * dist, -1.5, Math.sin(angle) * dist);
-      hill.receiveShadow = true;
-      scene.add(hill);
-    }
-
-    // Beach
-    const beachGeo = new THREE.RingGeometry(CONFIG.worldSize - 5, CONFIG.worldSize + 10, 64);
+    // Beach & Water
+    const beachGeo = new THREE.RingGeometry(CONFIG.worldSize - 5, CONFIG.worldSize + 15, 64);
     const beachMat = new THREE.MeshStandardMaterial({ color: COLORS.sand, roughness: 1 });
     const beach = new THREE.Mesh(beachGeo, beachMat);
     beach.rotation.x = -Math.PI / 2;
@@ -268,23 +283,16 @@ export default function CandyIslandFixed() {
     beach.name = 'ground';
     scene.add(beach);
 
-    // Water
     const waterGeo = new THREE.PlaneGeometry(300, 300);
-    const waterMat = new THREE.MeshStandardMaterial({ 
-      color: COLORS.water, 
-      transparent: true, 
-      opacity: 0.7,
-      roughness: 0.1,
-    });
+    const waterMat = new THREE.MeshStandardMaterial({ color: COLORS.water, transparent: true, opacity: 0.75, roughness: 0.1 });
     const water = new THREE.Mesh(waterGeo, waterMat);
     water.rotation.x = -Math.PI / 2;
     water.position.y = -0.8;
     scene.add(water);
 
-    // ─── 4. Trees ─────────────────────────────────────────────────────────────
+    // ─── 4. Entities (Trees & Collectibles) ──────────────────────
     const createTree = (x, z, scale = 1) => {
       const group = new THREE.Group();
-      
       const trunkGeo = new THREE.CylinderGeometry(0.4 * scale, 0.5 * scale, 2.5 * scale, 8);
       const trunkMat = new THREE.MeshStandardMaterial({ color: COLORS.wood });
       const trunk = new THREE.Mesh(trunkGeo, trunkMat);
@@ -300,248 +308,230 @@ export default function CandyIslandFixed() {
         leaves.castShadow = true;
         group.add(leaves);
       }
-      
       group.position.set(x, 0, z);
       group.rotation.y = Math.random() * Math.PI * 2;
       scene.add(group);
-      g.worldObjects.push({ mesh: group, type: 'tree', position: new THREE.Vector3(x, 0, z) });
+      g.worldObjects.push({ mesh: group, type: 'tree' });
     };
 
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 20; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist = 15 + Math.random() * 35;
-      createTree(Math.cos(angle) * dist, Math.sin(angle) * dist, 0.9 + Math.random() * 0.3);
+      const dist = 10 + Math.random() * 45;
+      createTree(Math.cos(angle) * dist, Math.sin(angle) * dist, 0.8 + Math.random() * 0.4);
     }
 
-    // ─── 5. Flowers (Collectibles) ──────────────────────────────────────────
-    const createFlower = (x, z, color) => {
-      const group = new THREE.Group();
-      
-      const stemGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.6, 4);
-      const stemMat = new THREE.MeshStandardMaterial({ color: COLORS.leaves });
-      const stem = new THREE.Mesh(stemGeo, stemMat);
-      stem.position.y = 0.3;
-      group.add(stem);
-      
-      const petalGeo = new THREE.SphereGeometry(0.18, 8, 8);
-      const petalMat = new THREE.MeshStandardMaterial({ color });
-      for (let i = 0; i < 5; i++) {
-        const petal = new THREE.Mesh(petalGeo, petalMat);
-        const angle = (i / 5) * Math.PI * 2;
-        petal.position.set(Math.cos(angle) * 0.18, 0.6, Math.sin(angle) * 0.18);
-        group.add(petal);
-      }
-      
-      const centerGeo = new THREE.SphereGeometry(0.12, 8, 8);
-      const centerMat = new THREE.MeshStandardMaterial({ color: 0xFFD700 });
-      const center = new THREE.Mesh(centerGeo, centerMat);
-      center.position.y = 0.6;
-      group.add(center);
-      
-      group.position.set(x, 0, z);
-      scene.add(group);
-      
-      return { mesh: group, type: 'flower', color, position: new THREE.Vector3(x, 0, z), collected: false };
+    // ─── 5. Player Character ────────────────────────────────────────────────
+    const createCharacter = (color, earType = 'bunny') => {
+        const group = new THREE.Group();
+        const bodyGeo = new THREE.SphereGeometry(0.6, 16, 16);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: color });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.position.y = 0.6;
+        body.castShadow = true;
+        group.add(body);
+        
+        // Ears
+        if (earType === 'bunny') {
+            const earGeo = new THREE.CapsuleGeometry(0.15, 0.6, 4, 8);
+            const leftEar = new THREE.Mesh(earGeo, bodyMat);
+            leftEar.position.set(-0.25, 1.1, 0);
+            leftEar.rotation.z = 0.15;
+            const rightEar = new THREE.Mesh(earGeo, bodyMat);
+            rightEar.position.set(0.25, 1.1, 0);
+            rightEar.rotation.z = -0.15;
+            group.add(leftEar, rightEar);
+        } else if (earType === 'bear') {
+            const earGeo = new THREE.SphereGeometry(0.25, 8, 8);
+            const leftEar = new THREE.Mesh(earGeo, bodyMat);
+            leftEar.position.set(-0.35, 1.0, 0);
+            const rightEar = new THREE.Mesh(earGeo, bodyMat);
+            rightEar.position.set(0.35, 1.0, 0);
+            group.add(leftEar, rightEar);
+        } else if (earType === 'cat') {
+            const earGeo = new THREE.ConeGeometry(0.2, 0.5, 4);
+            const leftEar = new THREE.Mesh(earGeo, bodyMat);
+            leftEar.position.set(-0.3, 1.0, 0);
+            leftEar.rotation.z = 0.2;
+            const rightEar = new THREE.Mesh(earGeo, bodyMat);
+            rightEar.position.set(0.3, 1.0, 0);
+            rightEar.rotation.z = -0.2;
+            group.add(leftEar, rightEar);
+        }
+
+        // Face
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), eyeMat);
+        leftEye.position.set(-0.2, 0.7, 0.5);
+        const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), eyeMat);
+        rightEye.position.set(0.2, 0.7, 0.5);
+        group.add(leftEye, rightEye);
+
+        return { group, body };
     };
 
-    const flowerColors = [COLORS.flowerRed, COLORS.flowerYellow, COLORS.flowerWhite];
-    for (let i = 0; i < 25; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 8 + Math.random() * 35;
-      const color = flowerColors[Math.floor(Math.random() * flowerColors.length)];
-      g.collectibles.push(createFlower(Math.cos(angle) * dist, Math.sin(angle) * dist, color));
-    }
+    // Create Player
+    const playerAssets = createCharacter(COLORS.player, 'bunny');
+    scene.add(playerAssets.group);
+    g.player = playerAssets.group;
+    g.playerBody = playerAssets.body;
 
-    // ─── 6. Player Character ────────────────────────────────────────────────
-    const playerGroup = new THREE.Group();
-    playerGroup.position.set(0, 0, 0);
-    scene.add(playerGroup);
-    g.player = playerGroup;
-    console.log('Player created at:', playerGroup.position);
+    // ─── 6. Create NPCs ─────────────────────────────────────────────────────
+    const spawnNPC = (name, color, earType, pos, dialogues) => {
+        const npcAssets = createCharacter(color, earType);
+        npcAssets.group.position.copy(pos);
+        npcAssets.group.rotation.y = Math.random() * Math.PI * 2;
+        
+        // Add a hidden hitbox for easier raycasting
+        const hitboxGeo = new THREE.CylinderGeometry(1.2, 1.2, 2.5, 8);
+        const hitboxMat = new THREE.MeshBasicMaterial({ visible: false });
+        const hitbox = new THREE.Mesh(hitboxGeo, hitboxMat);
+        hitbox.position.y = 1;
+        hitbox.userData = { isNPC: true, parent: npcAssets.group };
+        npcAssets.group.add(hitbox);
 
-    // Body
-    const bodyGeo = new THREE.SphereGeometry(0.6, 16, 16);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: COLORS.player });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.6;
-    body.castShadow = true;
-    playerGroup.add(body);
-    g.playerBody = body;
+        npcAssets.group.userData = { isNPC: true, name, color, dialogues, dialogIndex: 0, body: npcAssets.body };
+        scene.add(npcAssets.group);
+        g.npcs.push(npcAssets.group);
+    };
 
-    // Ears
-    const earGeo = new THREE.CapsuleGeometry(0.15, 0.6, 4, 8);
-    const earMat = new THREE.MeshStandardMaterial({ color: COLORS.player });
-    const leftEar = new THREE.Mesh(earGeo, earMat);
-    leftEar.position.set(-0.25, 1.1, 0);
-    leftEar.rotation.z = 0.15;
-    const rightEar = new THREE.Mesh(earGeo, earMat);
-    rightEar.position.set(0.25, 1.1, 0);
-    rightEar.rotation.z = -0.15;
-    playerGroup.add(leftEar);
-    playerGroup.add(rightEar);
+    spawnNPC("Barnaby", COLORS.npc1, 'bear', new THREE.Vector3(-10, 0, -15), [
+        "Oh, hello there! Nice day for a stroll, isn't it?",
+        "I dropped my sandwich around here somewhere... oh well.",
+        "Have you been catching many bugs today?"
+    ]);
+    
+    spawnNPC("Luna", COLORS.npc3, 'cat', new THREE.Vector3(15, 0, -5), [
+        "Meow... the flowers smell wonderful today.",
+        "If you run too fast, you might scare the butterflies away!",
+        "I'm just enjoying the ocean breeze."
+    ]);
 
-    // Face
-    const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
-    const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-    leftEye.position.set(-0.2, 0.7, 0.5);
-    const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-    rightEye.position.set(0.2, 0.7, 0.5);
-    playerGroup.add(leftEye);
-    playerGroup.add(rightEye);
-
-    // Blush
-    const blushGeo = new THREE.CircleGeometry(0.1, 8);
-    const blushMat = new THREE.MeshBasicMaterial({ color: 0xFF69B4, transparent: true, opacity: 0.4 });
-    const leftBlush = new THREE.Mesh(blushGeo, blushMat);
-    leftBlush.position.set(-0.3, 0.6, 0.52);
-    leftBlush.rotation.y = -0.3;
-    const rightBlush = new THREE.Mesh(blushGeo, blushMat);
-    rightBlush.position.set(0.3, 0.6, 0.52);
-    rightBlush.rotation.y = 0.3;
-    playerGroup.add(leftBlush);
-    playerGroup.add(rightBlush);
+    spawnNPC("Pip", COLORS.npc2, 'bunny', new THREE.Vector3(-5, 0, 20), [
+        "Hop hop! I'm trying to beat my personal record!",
+        "Did you know you can sell fish for bells?",
+        "Wow, your island is looking fantastic!"
+    ]);
 
     // ─── 7. Target Marker ───────────────────────────────────────────────────
     const markerGeo = new THREE.RingGeometry(0.3, 0.5, 16);
-    const markerMat = new THREE.MeshBasicMaterial({ 
-      color: COLORS.targetMarker, 
-      transparent: true, 
-      opacity: 0.8,
-      side: THREE.DoubleSide,
-    });
+    const markerMat = new THREE.MeshBasicMaterial({ color: COLORS.targetMarker, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
     const targetMarker = new THREE.Mesh(markerGeo, markerMat);
     targetMarker.rotation.x = -Math.PI / 2;
-    targetMarker.position.y = 0.1;
     targetMarker.visible = false;
     scene.add(targetMarker);
     g.targetMarker = targetMarker;
 
-    // ─── 8. CLICK HANDLER (The important part!) ─────────────────────────────
+    // ─── 8. Input Handling ──────────────────────────────────────────────────
     const handleClick = (e) => {
-      console.log('Click detected! Game playing:', g.isPlaying);
-      
-      if (!g.isPlaying) {
-        console.log('Game not playing yet, ignoring click');
-        return;
+      if (!g.isPlaying) return;
+
+      // If we are currently in a dialogue, a click dismisses it
+      if (g.uiState === 'dialogue') {
+          g.uiState = 'play';
+          setUiState('play');
+          g.isTalking = false;
+          g.targetNPC = null;
+          setDialogueData(null);
+          return;
       }
 
-      // Get click position relative to canvas
       const rect = renderer.domElement.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      
-      g.mouse.set(x, y);
-      console.log('Mouse NDC:', x, y);
+      g.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      g.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-      // Raycast
       g.raycaster.setFromCamera(g.mouse, camera);
       const intersects = g.raycaster.intersectObjects(scene.children, true);
-      console.log('Intersects found:', intersects.length);
+      
+      // Check for NPC hits first
+      const npcHit = intersects.find(hit => hit.object.userData?.isNPC);
+      
+      if (npcHit) {
+          const npc = npcHit.object.userData.parent;
+          
+          // Calculate destination slightly in front of the NPC
+          const direction = new THREE.Vector3().subVectors(g.player.position, npc.position).normalize();
+          g.targetPosition = npc.position.clone().add(direction.multiplyScalar(1.5));
+          g.targetPosition.y = 0;
+          g.isMoving = true;
+          g.targetNPC = npc; // Lock target
+          
+          targetMarker.position.copy(g.targetPosition);
+          targetMarker.position.y = 0.1;
+          targetMarker.visible = true;
+          
+          g.player.userData.targetRotation = Math.atan2(direction.x, direction.z);
+          g.audio.sfx('pop');
+          setTimeout(() => { targetMarker.visible = false; }, 1500);
+          return;
+      }
 
-      // Find ground hit
-      const groundHit = intersects.find(hit => {
-        // Check if we hit the ground plane or beach
-        return hit.object.name === 'ground' || hit.object.parent?.name === 'ground';
-      });
+      // Otherwise, check for ground hit
+      const groundHit = intersects.find(hit => hit.object.name === 'ground');
 
       if (groundHit) {
-        console.log('Ground hit at:', groundHit.point);
-        
-        // Set target
+        g.targetNPC = null; // Clear NPC target if we just clicked the ground
         g.targetPosition = groundHit.point.clone();
         g.targetPosition.y = 0;
         g.isMoving = true;
         
-        // Show marker
         targetMarker.position.copy(g.targetPosition);
-        targetMarker.position.y = 0.1;
+        targetMarker.position.y = groundHit.point.y > 0 ? 0.1 : -0.5; 
         targetMarker.visible = true;
         
-        // Calculate rotation to face target
-        const direction = new THREE.Vector3().subVectors(g.targetPosition, playerGroup.position);
+        const direction = new THREE.Vector3().subVectors(g.targetPosition, g.player.position);
         direction.y = 0;
         if (direction.length() > 0.1) {
-          const targetRotation = Math.atan2(direction.x, direction.z);
-          playerGroup.userData.targetRotation = targetRotation;
-          console.log('Will rotate to:', targetRotation);
+          g.player.userData.targetRotation = Math.atan2(direction.x, direction.z);
         }
         
         g.audio.sfx('pop');
-        
-        // Hide marker after delay
-        setTimeout(() => {
-          targetMarker.visible = false;
-        }, 1500);
-      } else {
-        console.log('No ground hit found');
+        setTimeout(() => { targetMarker.visible = false; }, 1500);
       }
     };
 
     container.addEventListener('click', handleClick);
-    console.log('Click listener attached');
 
-    // Keyboard for running
-    const handleKeyDown = (e) => {
-      if (e.code === 'ShiftLeft') setIsRunning(true);
-    };
-    const handleKeyUp = (e) => {
-      if (e.code === 'ShiftLeft') setIsRunning(false);
-    };
+    const handleKeyDown = (e) => { if (e.code === 'ShiftLeft') setIsRunning(true); };
+    const handleKeyUp = (e) => { if (e.code === 'ShiftLeft') setIsRunning(false); };
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
 
-    // ─── 9. Resize ───────────────────────────────────────────────────────────
-    const handleResize = () => {
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
-    };
-    window.addEventListener('resize', handleResize);
-
-    // ─── 10. GAME LOOP ───────────────────────────────────────────────────────
+    // ─── 9. GAME LOOP ───────────────────────────────────────────────────────
     const clock = new THREE.Clock();
     
     const animate = () => {
       requestAnimationFrame(animate);
-      
       const delta = Math.min(clock.getDelta(), 0.1);
-      const time = clock.getElapsedTime();
+      const gameTime = clock.getElapsedTime();
       
-      // Use ref for game state, not React state!
       if (g.isPlaying) {
         
-        // MOVEMENT LOGIC
+        // NPC Idle Animations
+        g.npcs.forEach(npc => {
+            npc.userData.body.position.y = 0.6 + Math.sin(gameTime * 2 + npc.position.x) * 0.02;
+        });
+
+        // MOVEMENT
         if (g.isMoving && g.targetPosition) {
-          const currentPos = playerGroup.position;
+          const currentPos = g.player.position;
           const targetPos = g.targetPosition;
           
-          // Calculate distance
           const dx = targetPos.x - currentPos.x;
           const dz = targetPos.z - currentPos.z;
           const distance = Math.sqrt(dx * dx + dz * dz);
           
-          console.log('Moving... Distance:', distance.toFixed(2));
-          
           if (distance > 0.2) {
-            // Normalize direction
             const dirX = dx / distance;
             const dirZ = dz / distance;
             
-            // Smooth rotation
-            if (playerGroup.userData.targetRotation !== undefined) {
-              let currentRot = playerGroup.rotation.y;
-              let targetRot = playerGroup.userData.targetRotation;
-              
-              // Shortest path
-              let diff = targetRot - currentRot;
+            // Rotation
+            if (g.player.userData.targetRotation !== undefined) {
+              let diff = g.player.userData.targetRotation - g.player.rotation.y;
               while (diff > Math.PI) diff -= Math.PI * 2;
               while (diff < -Math.PI) diff += Math.PI * 2;
-              
-              playerGroup.rotation.y += diff * 8 * delta;
+              g.player.rotation.y += diff * 8 * delta;
             }
             
-            // Move
             const speed = isRunning ? CONFIG.runSpeed : CONFIG.walkSpeed;
             const moveStep = speed * delta;
             const actualMove = Math.min(moveStep, distance);
@@ -549,69 +539,58 @@ export default function CandyIslandFixed() {
             currentPos.x += dirX * actualMove;
             currentPos.z += dirZ * actualMove;
             
-            // Bobbing animation
-            const bobSpeed = isRunning ? 15 : 10;
-            body.position.y = 0.6 + Math.abs(Math.sin(time * bobSpeed)) * 0.15;
+            g.playerBody.position.y = 0.6 + Math.abs(Math.sin(gameTime * (isRunning ? 15 : 10))) * 0.15;
             
-            // Step sounds
             g.stepTimer += delta;
-            const stepInterval = isRunning ? 0.25 : 0.4;
-            if (g.stepTimer > stepInterval) {
+            if (g.stepTimer > (isRunning ? 0.25 : 0.4)) {
               g.audio.sfx('step');
               g.stepTimer = 0;
             }
           } else {
-            // Arrived!
-            console.log('Arrived at destination!');
+            // Arrived
             g.isMoving = false;
             g.targetPosition = null;
-            body.position.y = 0.6;
+            g.playerBody.position.y = 0.6;
             targetMarker.visible = false;
+
+            // Check if we arrived at an NPC to talk to
+            if (g.targetNPC && !g.isTalking) {
+                g.isTalking = true;
+                const npc = g.targetNPC;
+                
+                // Face each other
+                g.player.lookAt(npc.position.x, g.player.position.y, npc.position.z);
+                npc.lookAt(g.player.position.x, npc.position.y, g.player.position.z);
+
+                const text = npc.userData.dialogues[npc.userData.dialogIndex % npc.userData.dialogues.length];
+                npc.userData.dialogIndex++;
+                g.audio.sfx('talk');
+                
+                // Trigger UI Update safely outside render cycle
+                requestAnimationFrame(() => {
+                    setDialogueData({ name: npc.userData.name, text, color: npc.userData.color });
+                    g.uiState = 'dialogue';
+                    setUiState('dialogue');
+                });
+            }
           }
         } else {
-          // Idle animation
-          body.position.y = 0.6 + Math.sin(time * 2) * 0.02;
+          g.playerBody.position.y = 0.6 + Math.sin(gameTime * 2) * 0.02; // Idle breathe
         }
         
-        // Camera follow (smooth)
+        // CAMERA
         const targetCamPos = new THREE.Vector3(
-          playerGroup.position.x + g.cameraOffset.x,
+          g.player.position.x + g.cameraOffset.x,
           g.cameraOffset.y,
-          playerGroup.position.z + g.cameraOffset.z
+          g.player.position.z + g.cameraOffset.z
         );
-        camera.position.lerp(targetCamPos, delta * 2);
-        camera.lookAt(playerGroup.position.x, 0.5, playerGroup.position.z);
+        camera.position.lerp(targetCamPos, delta * 3);
+        camera.lookAt(g.player.position.x, 0.5, g.player.position.z);
         
-        // Animate collectibles
-        g.collectibles.forEach(c => {
-          if (c.collected) return;
-          
-          c.mesh.rotation.y += delta;
-          c.mesh.position.y = Math.sin(time * 3 + c.position.x) * 0.1;
-          
-          // Collection check
-          const dist = playerGroup.position.distanceTo(c.position);
-          if (dist < 1.2) {
-            c.collected = true;
-            c.mesh.visible = false;
-            g.audio.sfx('collect');
-            setItems(prev => ({ ...prev, flowers: prev.flowers + 1 }));
-            setBells(prev => prev + 100);
-            showMessage(`+100 Bells 🌸`);
-          }
-        });
-        
-        // Animate trees
-        g.worldObjects.forEach((obj, i) => {
-          if (obj.type === 'tree') {
-            obj.mesh.rotation.z = Math.sin(time * 0.5 + i) * 0.02;
-          }
-        });
-        
-        // Animate marker
+        // Marker animation
         if (targetMarker.visible) {
           targetMarker.rotation.z += delta * 3;
-          const scale = 1 + Math.sin(time * 8) * 0.2;
+          const scale = 1 + Math.sin(gameTime * 8) * 0.2;
           targetMarker.scale.set(scale, scale, scale);
         }
       }
@@ -620,236 +599,98 @@ export default function CandyIslandFixed() {
     };
 
     animate();
-    console.log('Animation loop started');
-
-    // Update time
-    const timeInterval = setInterval(() => setTime(new Date()), 60000);
 
     return () => {
-      console.log('Cleaning up...');
-      clearInterval(timeInterval);
       container.removeEventListener('click', handleClick);
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('resize', handleResize);
       renderer.dispose();
       g.audio.stop();
     };
-  }, [isRunning, showMessage]); // Only depend on things that change during gameplay
+  }, [isRunning, showMessage]);
 
-  // Start game
   const startGame = () => {
-    console.log('Starting game!');
     setUiState('play');
+    gameRef.current.uiState = 'play';
     gameRef.current.isPlaying = true;
     gameRef.current.audio.init();
     gameRef.current.audio.startBGM();
   };
 
   return (
-    <div style={{ 
-      width: '100%', 
-      height: '100vh', 
-      position: 'relative', 
-      overflow: 'hidden', 
-      background: '#87ceeb',
-    }}>
+    <div style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden', background: '#87ceeb' }}>
       <div ref={mountRef} style={{ width: '100%', height: '100%', cursor: uiState === 'play' ? 'crosshair' : 'default' }} />
       
       {/* Vignette */}
-      <div style={{
-        position: 'absolute',
-        inset: 0,
-        background: 'radial-gradient(circle at center, transparent 50%, rgba(0,0,0,0.1) 100%)',
-        pointerEvents: 'none',
-        zIndex: 10,
-      }} />
+      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at center, transparent 50%, rgba(0,0,0,0.1) 100%)', pointerEvents: 'none', zIndex: 10 }} />
 
-      {/* HUD */}
-      {uiState === 'play' && (
+      {(uiState === 'play' || uiState === 'dialogue') && (
         <>
-          {/* Bells */}
-          <div style={{
-            position: 'absolute',
-            top: 20,
-            left: 20,
-            fontFamily: '"Comic Sans MS", "Verdana", sans-serif',
-            zIndex: 20,
-          }}>
-            <div style={{
-              background: 'rgba(255, 223, 186, 0.95)',
-              padding: '12px 24px',
-              borderRadius: '25px',
-              border: '4px solid #8B4513',
-              boxShadow: '0 6px 12px rgba(0,0,0,0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-            }}>
+          {/* Top Left: Bells */}
+          <div style={{ position: 'absolute', top: 20, left: 20, fontFamily: '"Comic Sans MS", "Verdana", sans-serif', zIndex: 20 }}>
+            <div style={{ background: 'rgba(255, 223, 186, 0.95)', padding: '12px 24px', borderRadius: '25px', border: '4px solid #8B4513', boxShadow: '0 6px 12px rgba(0,0,0,0.2)', display: 'flex', alignItems: 'center', gap: '12px' }}>
               <span style={{ fontSize: '28px' }}>🔔</span>
-              <span style={{ fontSize: '24px', fontWeight: 'bold', color: '#8B4513' }}>
-                {bells.toLocaleString()}
-              </span>
+              <span style={{ fontSize: '24px', fontWeight: 'bold', color: '#8B4513' }}>{bells.toLocaleString()}</span>
             </div>
           </div>
 
-          {/* Time */}
-          <div style={{
-            position: 'absolute',
-            top: 20,
-            right: 20,
-            fontFamily: '"Comic Sans MS", sans-serif',
-            zIndex: 20,
-          }}>
-            <div style={{
-              background: 'rgba(255, 255, 255, 0.95)',
-              padding: '12px 24px',
-              borderRadius: '25px',
-              border: '4px solid #87CEEB',
-              boxShadow: '0 6px 12px rgba(0,0,0,0.2)',
-              textAlign: 'center',
-            }}>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#333' }}>
-                {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </div>
-              <div style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>
-                {time.toLocaleDateString([], { month: 'short', day: 'numeric' })}
-              </div>
-            </div>
-          </div>
-
-          {/* Items */}
-          <div style={{
-            position: 'absolute',
-            bottom: 20,
-            left: 20,
-            display: 'flex',
-            gap: '12px',
-            zIndex: 20,
-          }}>
-            {[
-              { icon: '🌸', count: items.flowers, color: '#FFB6C1' },
-              { icon: '🦋', count: items.bugs, color: '#98FB98' },
-              { icon: '🐟', count: items.fish, color: '#87CEEB' },
-              { icon: '🍎', count: items.fruit, color: '#FFA07A' },
-            ].map((item, i) => (
-              <div key={i} style={{
-                background: 'rgba(255, 255, 255, 0.95)',
-                padding: '10px 18px',
-                borderRadius: '20px',
-                border: `4px solid ${item.color}`,
-                boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontFamily: '"Comic Sans MS", sans-serif',
-              }}>
-                <span style={{ fontSize: '24px' }}>{item.icon}</span>
-                <div>
-                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#333' }}>{item.count}</div>
-                  <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' }}>{item.label}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Controls */}
-          <div style={{
-            position: 'absolute',
-            bottom: 20,
-            right: 20,
-            background: 'rgba(0, 0, 0, 0.7)',
-            color: 'white',
-            padding: '15px 20px',
-            borderRadius: '15px',
-            fontFamily: '"Comic Sans MS", sans-serif',
-            fontSize: '14px',
-            zIndex: 20,
-          }}>
+          {/* Bottom Right: Controls Help */}
+          <div style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(0, 0, 0, 0.7)', color: 'white', padding: '15px 20px', borderRadius: '15px', fontFamily: '"Comic Sans MS", sans-serif', fontSize: '14px', zIndex: 20 }}>
             <div style={{ marginBottom: '5px', fontWeight: 'bold', color: '#FFD700' }}>Controls:</div>
-            <div>🖱️ Click ground — Walk there</div>
-            <div>🏃 Shift — Run faster</div>
+            <div>🖱️ Click ground — Walk</div>
+            <div>🖱️ Click NPC — Talk</div>
+            <div>🏃 Shift — Run fast</div>
           </div>
-
-          {/* Message */}
-          {message && (
-            <div style={{
-              position: 'absolute',
-              top: '25%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              background: 'rgba(255, 255, 255, 0.98)',
-              padding: '20px 40px',
-              borderRadius: '30px',
-              border: '5px solid #FFD700',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-              fontFamily: '"Comic Sans MS", cursive',
-              fontSize: '28px',
-              fontWeight: 'bold',
-              color: '#333',
-              zIndex: 30,
-              pointerEvents: 'none',
-              animation: 'bounceIn 0.4s ease-out',
-            }}>
-              {message}
-            </div>
-          )}
         </>
+      )}
+
+      {/* DIALOGUE UI OVERLAY */}
+      {uiState === 'dialogue' && dialogueData && (
+        <div style={{ 
+            position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', 
+            width: '80%', maxWidth: '800px', zIndex: 100, pointerEvents: 'none' 
+        }}>
+            {/* Name Badge */}
+            <div style={{ 
+                background: `#${dialogueData.color.toString(16).padStart(6, '0')}`, 
+                color: 'white', padding: '8px 24px', borderRadius: '20px 20px 0 0',
+                fontFamily: '"Comic Sans MS", cursive', fontSize: '24px', fontWeight: 'bold',
+                display: 'inline-block', border: '5px solid white', borderBottom: 'none',
+                textShadow: '2px 2px 0 rgba(0,0,0,0.2)', marginLeft: '40px'
+            }}>
+                {dialogueData.name}
+            </div>
+            
+            {/* Text Box */}
+            <div style={{ 
+                background: 'rgba(255, 255, 255, 0.95)', padding: '30px 40px', 
+                borderRadius: '30px', border: '6px solid white', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', 
+                fontFamily: '"Comic Sans MS", cursive', fontSize: '26px', color: '#333',
+                lineHeight: '1.4'
+            }}>
+                {dialogueData.text}
+                
+                <div style={{ 
+                    textAlign: 'right', fontSize: '16px', color: '#888', 
+                    marginTop: '20px', animation: 'blink 1.5s infinite' 
+                }}>
+                    ▼ Click anywhere to continue
+                </div>
+            </div>
+        </div>
       )}
 
       {/* Start Screen */}
       {uiState === 'start' && (
-        <div 
-          onClick={startGame}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'linear-gradient(135deg, rgba(135, 206, 235, 0.98), rgba(144, 238, 144, 0.9))',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            zIndex: 50,
-          }}
-        >
-          <h1 style={{
-            fontFamily: '"Comic Sans MS", "Chalkboard SE", cursive',
-            fontSize: '80px',
-            color: 'white',
-            textShadow: '5px 5px 0 #228B22, 10px 10px 0 rgba(0,0,0,0.2)',
-            marginBottom: '30px',
-            animation: 'float 3s ease-in-out infinite',
-            textAlign: 'center',
-          }}>
+        <div onClick={startGame} style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(135, 206, 235, 0.98), rgba(144, 238, 144, 0.9))', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 50 }}>
+          <h1 style={{ fontFamily: '"Comic Sans MS", "Chalkboard SE", cursive', fontSize: '80px', color: 'white', textShadow: '5px 5px 0 #228B22, 10px 10px 0 rgba(0,0,0,0.2)', marginBottom: '30px', animation: 'float 3s ease-in-out infinite', textAlign: 'center' }}>
             🏝️ CANDY<br/>ISLAND
           </h1>
-          <p style={{
-            fontFamily: '"Comic Sans MS", cursive',
-            fontSize: '32px',
-            color: 'white',
-            textShadow: '3px 3px 6px rgba(0,0,0,0.3)',
-            marginBottom: '50px',
-            textAlign: 'center',
-          }}>
-            Click anywhere to walk there!<br/>
-            Collect flowers and explore 🌸
+          <p style={{ fontFamily: '"Comic Sans MS", cursive', fontSize: '32px', color: 'white', textShadow: '3px 3px 6px rgba(0,0,0,0.3)', marginBottom: '50px', textAlign: 'center' }}>
+            Meet your new neighbors! 🐰🐻🐱
           </p>
-          <div style={{ fontSize: '56px', animation: 'wiggle 2s ease-in-out infinite', display: 'flex', gap: '20px' }}>
-            🐰 🌺 🦋 🍃 🌳
-          </div>
-          
-          <div style={{
-            marginTop: '40px',
-            padding: '20px 40px',
-            background: 'rgba(255,255,255,0.2)',
-            borderRadius: '20px',
-            border: '3px solid white',
-            fontFamily: '"Comic Sans MS", cursive',
-            color: 'white',
-            fontSize: '18px',
-          }}>
-            🖱️ Point & Click Adventure
+          <div style={{ marginTop: '40px', padding: '20px 40px', background: 'rgba(255,255,255,0.2)', borderRadius: '20px', border: '3px solid white', fontFamily: '"Comic Sans MS", cursive', color: 'white', fontSize: '18px' }}>
+            🖱️ Click to Start
           </div>
         </div>
       )}
@@ -859,14 +700,9 @@ export default function CandyIslandFixed() {
           0%, 100% { transform: translateY(0) rotate(0deg); }
           50% { transform: translateY(-25px) rotate(3deg); }
         }
-        @keyframes wiggle {
-          0%, 100% { transform: rotate(-5deg); }
-          50% { transform: rotate(5deg); }
-        }
-        @keyframes bounceIn {
-          0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
-          50% { transform: translate(-50%, -50%) scale(1.1); }
-          100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
         }
       `}</style>
     </div>
