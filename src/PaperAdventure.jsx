@@ -240,7 +240,94 @@ for (let i = 0; i < 80; i++) {
 }
 return data;
 }, []);
-return (   <coneGeometry args={[1.2, 3, 6]} />  {treeData.map((tree, i) => (  ))} 
+function Vegetation() {
+  const treeData = useMemo(() => {
+    const data = [];
+    for (let i = 0; i < 150; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 20 + Math.random() * 50;
+      const x = Math.cos(angle) * dist;
+      const z = Math.sin(angle) * dist;
+      
+      const height = noise2D(x * 0.02, z * 0.02) * 4 + noise2D(x * 0.05, z * 0.05) * 2;
+      
+      if (height > 1 && dist < 55) {
+        data.push({
+          position: [x, height, z],
+          rotation: [0, Math.random() * Math.PI * 2, 0],
+          scale: 0.7 + Math.random() * 0.6
+        });
+      }
+    }
+    return data;
+  }, []);
+  
+  const flowerData = useMemo(() => {
+    const data = [];
+    const colors = [0xFF69B4, 0xFFD700, 0xFFF8DC, 0xFF1493];
+    
+    for (let i = 0; i < 80; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 5 + Math.random() * 45;
+      const x = Math.cos(angle) * dist;
+      const z = Math.sin(angle) * dist;
+      const height = noise2D(x * 0.02, z * 0.02) * 4;
+      
+      if (height > 0.5 && height < 3) {
+        data.push({
+          position: [x, height, z],
+          color: colors[Math.floor(Math.random() * colors.length)]
+        });
+      }
+    }
+    return data;
+  }, []);
+  
+  return (
+    <group>
+      <Instances limit={200}>
+        <coneGeometry args={[1.2, 3, 6]} />
+        <meshStandardMaterial color={0x228B22} roughness={0.8} />
+        {treeData.map((tree, i) => (
+          <Instance 
+            key={i}
+            position={tree.position}
+            rotation={tree.rotation}
+            scale={tree.scale}
+            castShadow
+            receiveShadow
+          />
+        ))}
+      </Instances>
+      
+      <Instances limit={200}>
+        <cylinderGeometry args={[0.25, 0.35, 2, 6]} />
+        <meshStandardMaterial color={0x8B4513} roughness={0.9} />
+        {treeData.map((tree, i) => (
+          <Instance 
+            key={i}
+            position={[tree.position[0], tree.position[1] - 0.5, tree.position[2]]}
+            rotation={tree.rotation}
+            scale={tree.scale}
+            castShadow
+          />
+        ))}
+      </Instances>
+      
+      <Instances limit={100}>
+        <sphereGeometry args={[0.15, 6, 6]} />
+        <meshStandardMaterial roughness={0.5} />
+        {flowerData.map((flower, i) => (
+          <Instance 
+            key={i}
+            position={flower.position}
+            color={flower.color}
+          />
+        ))}
+      </Instances>
+    </group>
+  );
+}
   <Instances limit={200}>
     <cylinderGeometry args={[0.25, 0.35, 2, 6]} />
     <meshStandardMaterial color={0x8B4513} roughness={0.9} />
