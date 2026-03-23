@@ -1,8 +1,16 @@
 /**
- * Raycaster.jsx  ─  now powered by Three.js
+ * Raycaster.jsx  ─  now with procedural 3D TERRIFYING enemies
+ *
+ * NO EXTERNAL MODELS REQUIRED
+ * Generates organic, pulsating horror creatures procedurally
+ * 
+ * Features:
+ * - Procedural demon geometry with animated vertices
+ * - Pulsating flesh shaders
+ * - Twitching limb animations
+ * - Dynamic silhouette that responds to light
  *
  * Install:  npm install three
- * Drop-in replacement – same props: onEncounter, onPickup
  *
  * Controls:
  *   W / S          – move forward / back
@@ -32,7 +40,7 @@ const TEX        = 128;
 const mc = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h || w; return c; };
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  WALL TEXTURES
+//  WALL TEXTURES (unchanged)
 // ═══════════════════════════════════════════════════════════════════════════
 function genStone() {
   const c = mc(TEX), ctx = c.getContext('2d');
@@ -65,7 +73,6 @@ function genWood() {
   ctx.fillStyle='#0e0602'; for(let col=1;col*pW<TEX;col++) ctx.fillRect(col*pW,0,2,TEX);
   for(let i=0;i<4;i++){ctx.fillStyle='#140800';ctx.fillRect(0,(TEX/4)*i,TEX,3);}
   for(let i=0;i<3;i++)for(let col=0;col*pW<TEX;col++){const rx=col*pW+pW/2,ry=(TEX/4)*i+TEX/8,rg=ctx.createRadialGradient(rx-1,ry-1,0,rx,ry,4);rg.addColorStop(0,'#686058');rg.addColorStop(1,'#201810');ctx.fillStyle=rg;ctx.beginPath();ctx.arc(rx,ry,3.5,0,Math.PI*2);ctx.fill();}
-  // Torch sconce & glow
   ctx.fillStyle='#120a02'; ctx.fillRect(TEX*.45,TEX*.2,TEX*.1,TEX*.35);
   const tg=ctx.createRadialGradient(TEX*.5,TEX*.18,0,TEX*.5,TEX*.25,20);tg.addColorStop(0,'rgba(255,150,18,0.55)');tg.addColorStop(1,'rgba(255,90,0,0)');ctx.fillStyle=tg;ctx.fillRect(TEX*.28,TEX*.04,TEX*.44,TEX*.42);
   return c;
@@ -88,179 +95,405 @@ function genCeiling() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  ANIMATED DRAGON (12 frames)
+//  PROCEDURAL TERRIFYING ENEMIES
 // ═══════════════════════════════════════════════════════════════════════════
-function genDragonFrame(phase) {
-  const c = mc(TEX), ctx = c.getContext('2d');
-  const cx = TEX*.5, base = TEX*.88;
-  const wF = Math.sin(phase)*.44, fU = Math.cos(phase);
-  const breathe = Math.sin(phase*1.5) > 0.55;
 
-  ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(cx,base,TEX*.18,TEX*.024,0,0,Math.PI*2); ctx.fill();
-
-  // Wings
-  [[-1,-.3],[1,.3]].forEach(([dir,baseRot]) => {
-    ctx.save(); ctx.translate(cx+dir*TEX*.17,base-TEX*.36); ctx.rotate(baseRot+dir*wF*.9);
-    ctx.fillStyle='#200828';
-    ctx.beginPath(); ctx.moveTo(0,0);
-    ctx.bezierCurveTo(dir*TEX*.14,-TEX*.04-fU*TEX*.07,dir*TEX*.40,-TEX*.07-fU*TEX*.16,dir*TEX*.44,-TEX*.01-fU*TEX*.11);
-    ctx.bezierCurveTo(dir*TEX*.38,TEX*.09,dir*TEX*.19,TEX*.15,0,TEX*.03); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle='#3a0a50'; ctx.lineWidth=1.5;
-    for(let i=0;i<3;i++){const t=(i+1)/4; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(dir*TEX*.4*t,(-TEX*.05-fU*TEX*.14)*t); ctx.stroke();}
-    ctx.strokeStyle='rgba(80,10,80,0.28)'; ctx.lineWidth=0.5;
-    for(let i=0;i<5;i++){ctx.beginPath();ctx.moveTo(dir*TEX*.01*i,TEX*.02*i);ctx.lineTo(dir*TEX*.28+dir*TEX*.015*i,-TEX*.03-fU*TEX*.09+TEX*.02*i);ctx.stroke();}
-    ctx.restore();
-  });
-
-  // Tail
-  ctx.strokeStyle='#28100e'; ctx.lineWidth=7; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(cx-TEX*.14,base-TEX*.14); ctx.quadraticCurveTo(cx-TEX*.48,base-TEX*.04,cx-TEX*.52,base-TEX*.38); ctx.stroke();
-  ctx.lineWidth=3; ctx.strokeStyle='#3c1418';
-  ctx.beginPath(); ctx.moveTo(cx-TEX*.14,base-TEX*.14); ctx.quadraticCurveTo(cx-TEX*.46,base-TEX*.04,cx-TEX*.5,base-TEX*.36); ctx.stroke();
-  ctx.fillStyle='#3c0c14'; ctx.beginPath(); ctx.moveTo(cx-TEX*.52,base-TEX*.38); ctx.lineTo(cx-TEX*.62,base-TEX*.49); ctx.lineTo(cx-TEX*.47,base-TEX*.41); ctx.closePath(); ctx.fill();
-
-  // Body
-  const bGr=ctx.createRadialGradient(cx-TEX*.05,base-TEX*.3,0,cx,base-TEX*.26,TEX*.23);
-  bGr.addColorStop(0,'#4a1830'); bGr.addColorStop(0.6,'#2a0c1c'); bGr.addColorStop(1,'#0e0408');
-  ctx.fillStyle=bGr; ctx.beginPath(); ctx.ellipse(cx,base-TEX*.26,TEX*.21,TEX*.24,0,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle='#3a1020'; ctx.lineWidth=0.8;
-  for(let row=0;row<4;row++)for(let col=-2;col<=2;col++){const sx=cx+col*TEX*.07+(row%2)*TEX*.035,sy=base-TEX*.12-row*TEX*.065;ctx.beginPath();ctx.arc(sx,sy,TEX*.029,Math.PI,Math.PI*2);ctx.stroke();}
-
-  // Legs
-  ctx.strokeStyle='#1e0810'; ctx.lineWidth=5; ctx.lineCap='round';
-  [[cx-TEX*.12,1],[cx+TEX*.12,-1]].forEach(([lx,d])=>{
-    ctx.beginPath();ctx.moveTo(lx,base-TEX*.06);ctx.lineTo(lx+d*TEX*.07,base+TEX*.06);ctx.stroke();
-    ctx.lineWidth=2.5;
-    for(let t=0;t<3;t++){const a=(t-1)*.5;ctx.beginPath();ctx.moveTo(lx+d*TEX*.07,base+TEX*.06);ctx.lineTo(lx+d*(TEX*.13+Math.sin(a)*TEX*.07),base+TEX*.12);ctx.stroke();}
-    ctx.lineWidth=5;
-  });
-
-  // Neck
-  ctx.strokeStyle='#250c14'; ctx.lineWidth=9; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(cx,base-TEX*.48); ctx.quadraticCurveTo(cx+TEX*.11,base-TEX*.62,cx+TEX*.09,base-TEX*.7); ctx.stroke();
-  ctx.lineWidth=5; ctx.strokeStyle='#3a1020';
-  ctx.beginPath(); ctx.moveTo(cx,base-TEX*.48); ctx.quadraticCurveTo(cx+TEX*.09,base-TEX*.6,cx+TEX*.07,base-TEX*.68); ctx.stroke();
-  ctx.fillStyle='#5c2438';
-  for(let i=0;i<4;i++){const nx=cx+TEX*.02+i*TEX*.023,ny=base-TEX*.51-i*TEX*.052;ctx.beginPath();ctx.moveTo(nx-2.5,ny);ctx.lineTo(nx,ny-TEX*.042+i*TEX*.007);ctx.lineTo(nx+2.5,ny);ctx.closePath();ctx.fill();}
-
-  // Head
-  const hx=cx+TEX*.09,hy=base-TEX*.78;
-  const hGr=ctx.createRadialGradient(hx-TEX*.04,hy,0,hx,hy,TEX*.155);
-  hGr.addColorStop(0,'#561626'); hGr.addColorStop(0.65,'#2c0a16'); hGr.addColorStop(1,'#140408');
-  ctx.fillStyle=hGr; ctx.beginPath(); ctx.ellipse(hx,hy,TEX*.15,TEX*.125,0.22,0,Math.PI*2); ctx.fill();
-
-  // Horns
-  [[hx-TEX*.065,hy-TEX*.075,hx-TEX*.145,hy-TEX*.24,hx-TEX*.035,hy-TEX*.075],[hx+TEX*.04,hy-TEX*.08,hx+TEX*.085,hy-TEX*.26,hx+TEX*.125,hy-TEX*.085]].forEach(([x1,y1,x2,y2,x3,y3])=>{
-    ctx.fillStyle='#300a14'; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.closePath(); ctx.fill();
-    ctx.fillStyle='#521422'; ctx.beginPath(); ctx.moveTo((x1+x3)/2,(y1+y3)/2); ctx.lineTo(x2+TEX*.01,y2+TEX*.035); ctx.lineTo((x1+x3)/2+TEX*.018,(y1+y3)/2); ctx.closePath(); ctx.fill();
-  });
-
-  // Snout & nostrils
-  ctx.fillStyle='#361020'; ctx.beginPath(); ctx.ellipse(hx+TEX*.115,hy+TEX*.04,TEX*.077,TEX*.052,0.18,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#160606'; ctx.beginPath(); ctx.ellipse(hx+TEX*.15,hy+TEX*.02,TEX*.013,TEX*.011,0,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(hx+TEX*.125,hy+TEX*.04,TEX*.011,TEX*.009,0,0,Math.PI*2); ctx.fill();
-
-  // Jaw
-  const jawDrop = breathe ? TEX*.04 : TEX*.01;
-  ctx.fillStyle='#18060c'; ctx.beginPath(); ctx.ellipse(hx+TEX*.095,hy+TEX*.1+jawDrop,TEX*.077,TEX*.028+jawDrop*.5,0.14,0,Math.PI*2); ctx.fill();
-  if(breathe){ctx.fillStyle='#d8ceb8';for(let t=0;t<4;t++){ctx.beginPath();ctx.moveTo(hx+TEX*.06+t*TEX*.037,hy+TEX*.072);ctx.lineTo(hx+TEX*.065+t*TEX*.037,hy+TEX*.1+jawDrop);ctx.lineTo(hx+TEX*.082+t*TEX*.037,hy+TEX*.072);ctx.closePath();ctx.fill();}}
-
-  // Eyes
-  [[hx-TEX*.038,hy-TEX*.028],[hx+TEX*.042,hy-TEX*.032]].forEach(([ex,ey])=>{
-    ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(ex,ey,TEX*.04,TEX*.04,0,0,Math.PI*2); ctx.fill();
-    const eg=ctx.createRadialGradient(ex,ey,0,ex,ey,TEX*.038);
-    eg.addColorStop(0,'rgba(255,70,0,1)'); eg.addColorStop(0.5,'rgba(205,24,0,0.85)'); eg.addColorStop(1,'rgba(150,0,0,0)');
-    ctx.fillStyle=eg; ctx.beginPath(); ctx.ellipse(ex,ey,TEX*.038,TEX*.038,0,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='rgba(0,0,0,0.82)'; ctx.beginPath(); ctx.ellipse(ex,ey,TEX*.008,TEX*.026,0,0,Math.PI*2); ctx.fill();
-    const glow=ctx.createRadialGradient(ex,ey,0,ex,ey,TEX*.09);
-    glow.addColorStop(0,`rgba(255,55,0,${breathe?.48:.22})`); glow.addColorStop(1,'rgba(255,55,0,0)');
-    ctx.fillStyle=glow; ctx.fillRect(ex-TEX*.09,ey-TEX*.09,TEX*.18,TEX*.18);
-  });
-
-  // Fire breath
-  if(breathe){
-    for(let fi=0;fi<14;fi++){
-      const fp=Math.random(),fx=hx+TEX*.19+fp*TEX*.58,fy=hy+TEX*.065+(Math.random()-.5)*TEX*.055*fp,fr=(TEX*.048+Math.random()*TEX*.038)*(1-fp*.5),fa=(1-fp)*.9;
-      const fGr=ctx.createRadialGradient(fx,fy,0,fx,fy,fr);
-      fGr.addColorStop(0,`rgba(255,255,200,${fa})`); fGr.addColorStop(0.3,`rgba(255,${Math.floor(200*(1-fp))},0,${fa*.85})`); fGr.addColorStop(1,'rgba(180,20,0,0)');
-      ctx.fillStyle=fGr; ctx.beginPath(); ctx.arc(fx,fy,fr,0,Math.PI*2); ctx.fill();
-    }
-    const fL=ctx.createRadialGradient(hx+TEX*.19,hy+TEX*.065,0,hx+TEX*.19,hy+TEX*.065,TEX*.24);
-    fL.addColorStop(0,'rgba(255,140,0,0.38)'); fL.addColorStop(1,'rgba(255,140,0,0)');
-    ctx.fillStyle=fL; ctx.fillRect(hx,hy-TEX*.17,TEX*.44,TEX*.35);
+// Shader for pulsating flesh effect
+const fleshVertexShader = `
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vPosition;
+  uniform float uTime;
+  uniform float uPulse;
+  
+  void main() {
+    vUv = uv;
+    vNormal = normalize(normalMatrix * normal);
+    vPosition = position;
+    
+    // Pulsating flesh - vertices breathe
+    vec3 newPos = position + normal * sin(uTime * 2.0 + position.y * 3.0) * uPulse * 0.1;
+    
+    // Occasional twitch
+    float twitch = step(0.97, sin(uTime * 10.0)) * sin(uTime * 30.0) * 0.05;
+    newPos.x += twitch * (position.y - 1.0);
+    
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(newPos, 1.0);
   }
-  return c;
+`;
+
+const fleshFragmentShader = `
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vPosition;
+  uniform float uTime;
+  uniform vec3 uColor;
+  uniform vec3 uGlowColor;
+  uniform float uGlowIntensity;
+  
+  void main() {
+    // Base flesh color with noise-like variation
+    float noise = sin(vPosition.x * 10.0) * sin(vPosition.y * 10.0) * sin(vPosition.z * 10.0);
+    vec3 baseColor = uColor + noise * 0.1;
+    
+    // Veins pulsing
+    float vein = sin(vPosition.y * 8.0 - uTime * 3.0) * 0.5 + 0.5;
+    vein = pow(vein, 4.0) * 0.3;
+    baseColor += uGlowColor * vein;
+    
+    // Rim lighting for scary silhouette
+    vec3 viewDir = normalize(cameraPosition - vPosition);
+    float rim = 1.0 - max(dot(viewDir, vNormal), 0.0);
+    rim = pow(rim, 3.0);
+    
+    // Pulsating glow from within
+    float pulse = sin(uTime * 2.0) * 0.5 + 0.5;
+    vec3 glow = uGlowColor * pulse * uGlowIntensity * rim;
+    
+    // Final scary flesh
+    gl_FragColor = vec4(baseColor + glow, 1.0);
+  }
+`;
+
+// Create a terrifying procedural demon
+function createProceduralDemon(type = 'stalker') {
+  const group = new THREE.Group();
+  
+  // Materials
+  const isStalker = type === 'stalker';
+  const mainColor = isStalker ? new THREE.Color(0x2a0a0a) : new THREE.Color(0x1a2a1a);
+  const glowColor = isStalker ? new THREE.Color(0xff1100) : new THREE.Color(0x44ff22);
+  
+  const fleshMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uPulse: { value: 0.5 },
+      uColor: { value: mainColor },
+      uGlowColor: { value: glowColor },
+      uGlowIntensity: { value: 1.5 }
+    },
+    vertexShader: fleshVertexShader,
+    fragmentShader: fleshFragmentShader,
+    side: THREE.DoubleSide
+  });
+  
+  // 1. DISTORTED TORSO (elongated, hunched)
+  const torsoGeom = new THREE.CylinderGeometry(0.3, 0.5, 1.8, 8, 4);
+  // Distort vertices for hunched back
+  const posAttribute = torsoGeom.attributes.position;
+  for (let i = 0; i < posAttribute.count; i++) {
+    const y = posAttribute.getY(i);
+    const x = posAttribute.getX(i);
+    if (y > 0) {
+      posAttribute.setX(i, x * 0.7); // Narrow shoulders
+      posAttribute.setZ(i, posAttribute.getZ(i) - y * 0.3); // Hunch forward
+    }
+  }
+  torsoGeom.computeVertexNormals();
+  const torso = new THREE.Mesh(torsoGeom, fleshMaterial.clone());
+  torso.position.y = 1.4;
+  torso.castShadow = true;
+  torso.receiveShadow = true;
+  group.add(torso);
+  
+  // 2. RIBCAGE (exposed ribs - terrifying detail)
+  const ribGroup = new THREE.Group();
+  for (let i = 0; i < 5; i++) {
+    const ribGeom = new THREE.TorusGeometry(0.35 - i * 0.04, 0.03, 4, 8, Math.PI);
+    const rib = new THREE.Mesh(ribGeom, fleshMaterial.clone());
+    rib.position.y = 1.8 - i * 0.25;
+    rib.rotation.x = Math.PI / 2;
+    rib.rotation.z = 0.2;
+    ribGroup.add(rib);
+  }
+  group.add(ribGroup);
+  
+  // 3. HEAD (distorted, no face - just darkness)
+  const headGeom = new THREE.SphereGeometry(0.35, 12, 12);
+  // Elongate head
+  headGeom.scale(0.8, 1.3, 0.9);
+  const head = new THREE.Mesh(headGeom, fleshMaterial.clone());
+  head.position.set(0, 2.6, 0.2);
+  head.castShadow = true;
+  
+  // Glowing eyes (deep in sockets)
+  const eyeGeom = new THREE.SphereGeometry(0.08, 8, 8);
+  const eyeMat = new THREE.MeshBasicMaterial({ color: glowColor });
+  const leftEye = new THREE.Mesh(eyeGeom, eyeMat);
+  leftEye.position.set(-0.12, 2.65, 0.25);
+  const rightEye = new THREE.Mesh(eyeGeom, eyeMat);
+  rightEye.position.set(0.12, 2.65, 0.25);
+  group.add(leftEye, rightEye);
+  group.add(head);
+  
+  // 4. ELONGATED ARMS (reach for player)
+  const armLength = isStalker ? 2.2 : 1.6;
+  const armGeom = new THREE.CylinderGeometry(0.08, 0.12, armLength, 6);
+  armGeom.translate(0, -armLength/2, 0); // Pivot at shoulder
+  
+  const leftArm = new THREE.Mesh(armGeom, fleshMaterial.clone());
+  leftArm.position.set(-0.5, 2.0, 0);
+  leftArm.rotation.z = 0.3;
+  leftArm.rotation.x = 0.4;
+  
+  const rightArm = new THREE.Mesh(armGeom, fleshMaterial.clone());
+  rightArm.position.set(0.5, 2.0, 0);
+  rightArm.rotation.z = -0.3;
+  rightArm.rotation.x = 0.4;
+  
+  // Claws
+  const clawGeom = new THREE.ConeGeometry(0.04, 0.3, 4);
+  for (let i = 0; i < 3; i++) {
+    const clawL = new THREE.Mesh(clawGeom, fleshMaterial.clone());
+    clawL.position.set(-0.5 + i * 0.05, -armLength, 0.1);
+    clawL.rotation.x = -0.5;
+    leftArm.add(clawL);
+    
+    const clawR = new THREE.Mesh(clawGeom, fleshMaterial.clone());
+    clawR.position.set(0.5 - i * 0.05, -armLength, 0.1);
+    clawR.rotation.x = -0.5;
+    rightArm.add(clawR);
+  }
+  
+  group.add(leftArm, rightArm);
+  
+  // 5. SPINDLY LEGS
+  const legGeom = new THREE.CylinderGeometry(0.1, 0.06, 1.4, 6);
+  legGeom.translate(0, -0.7, 0);
+  
+  const leftLeg = new THREE.Mesh(legGeom, fleshMaterial.clone());
+  leftLeg.position.set(-0.25, 0.7, 0);
+  leftLeg.rotation.z = 0.15;
+  leftLeg.rotation.x = -0.2;
+  
+  const rightLeg = new THREE.Mesh(legGeom, fleshMaterial.clone());
+  rightLeg.position.set(0.25, 0.7, 0);
+  rightLeg.rotation.z = -0.15;
+  rightLeg.rotation.x = -0.2;
+  
+  group.add(leftLeg, rightLeg);
+  
+  // 6. TENTACLES/SPIKES on back (for stalker)
+  if (isStalker) {
+    for (let i = 0; i < 6; i++) {
+      const spikeGeom = new THREE.ConeGeometry(0.05, 0.6 + Math.random() * 0.4, 4);
+      const spike = new THREE.Mesh(spikeGeom, fleshMaterial.clone());
+      const angle = (i / 6) * Math.PI * 2;
+      spike.position.set(Math.cos(angle) * 0.3, 1.2 + Math.random() * 0.5, Math.sin(angle) * 0.3 - 0.3);
+      spike.rotation.x = Math.random() * 0.5;
+      spike.rotation.z = (Math.random() - 0.5) * 0.5;
+      group.add(spike);
+    }
+  }
+  
+  // 7. GLOW LIGHT
+  const glowLight = new THREE.PointLight(glowColor, 2, 5, 2);
+  glowLight.position.set(0, 2, 0.5);
+  group.add(glowLight);
+  
+  // Store references for animation
+  group.userData = {
+    type: type,
+    materials: [torso.material, leftArm.material, rightArm.material, head.material],
+    leftArm: leftArm,
+    rightArm: rightArm,
+    head: head,
+    leftEye: leftEye,
+    rightEye: rightEye,
+    glowLight: glowLight,
+    glowColor: glowColor,
+    hp: isStalker ? 3 : 2,
+    speed: isStalker ? 0.015 : 0.035,
+    state: 'idle',
+    lastAttack: 0,
+    animTime: Math.random() * 100
+  };
+  
+  return group;
+}
+
+// Enemy Manager for procedural demons
+class ProceduralEnemyManager {
+  constructor(scene) {
+    this.scene = scene;
+    this.enemies = [];
+  }
+  
+  spawnEnemy(x, z, type = 'stalker') {
+    const enemy = createProceduralDemon(type);
+    enemy.position.set(x, 0, z);
+    this.scene.add(enemy);
+    
+    this.enemies.push({
+      mesh: enemy,
+      x: x,
+      z: z,
+      hp: enemy.userData.hp,
+      speed: enemy.userData.speed,
+      type: type,
+      state: 'idle',
+      lastAttack: 0
+    });
+    
+    return enemy;
+  }
+  
+  update(delta, playerPos, playerDir) {
+    const time = performance.now() / 1000;
+    
+    this.enemies.forEach(enemy => {
+      if (enemy.hp <= 0) return;
+      
+      const data = enemy.mesh.userData;
+      
+      // Update shader uniforms for pulsating effect
+      data.materials.forEach(mat => {
+        if (mat.uniforms) {
+          mat.uniforms.uTime.value = time + data.animTime;
+          mat.uniforms.uPulse.value = 0.5 + Math.sin(time * 2) * 0.2;
+        }
+      });
+      
+      // AI Movement
+      const dx = playerPos.x - enemy.x;
+      const dz = playerPos.z - enemy.z;
+      const dist = Math.sqrt(dx*dx + dz*dz);
+      
+      if (dist < 10 && dist > 1.2) {
+        // Chase player
+        const moveX = (dx / dist) * enemy.speed;
+        const moveZ = (dz / dist) * enemy.speed;
+        
+        if (this.canMove(enemy.x + moveX, enemy.z + moveZ)) {
+          enemy.x += moveX;
+          enemy.z += moveZ;
+          enemy.mesh.position.set(enemy.x, 0, enemy.z);
+          enemy.mesh.lookAt(playerPos.x, 0, playerPos.z);
+          
+          // Running animation - arms swing
+          const runTime = time * 8;
+          data.leftArm.rotation.x = 0.4 + Math.sin(runTime) * 0.6;
+          data.rightArm.rotation.x = 0.4 + Math.cos(runTime) * 0.6;
+          
+          // Bobbing
+          enemy.mesh.position.y = Math.abs(Math.sin(runTime * 2)) * 0.1;
+        }
+      } else if (dist <= 1.2) {
+        // Attack - lunge
+        if (Date.now() - enemy.lastAttack > 2000) {
+          data.leftArm.rotation.x = -1.5; // Raise arms
+          data.rightArm.rotation.x = -1.5;
+          enemy.lastAttack = Date.now();
+          
+          // Flash eyes
+          data.leftEye.material.color.setHex(0xffffff);
+          data.rightEye.material.color.setHex(0xffffff);
+          setTimeout(() => {
+            data.leftEye.material.color.copy(data.glowColor);
+            data.rightEye.material.color.copy(data.glowColor);
+          }, 200);
+        }
+      } else {
+        // Idle - breathing animation
+        data.leftArm.rotation.x = 0.4 + Math.sin(time + data.animTime) * 0.1;
+        data.rightArm.rotation.x = 0.4 + Math.cos(time + data.animTime) * 0.1;
+        
+        // Occasional twitch
+        if (Math.random() < 0.01) {
+          data.head.rotation.y = (Math.random() - 0.5) * 0.5;
+          setTimeout(() => { data.head.rotation.y = 0; }, 200);
+        }
+      }
+      
+      // Update glow light
+      data.glowLight.intensity = 1.5 + Math.sin(time * 3 + data.animTime) * 0.5;
+    });
+  }
+  
+  canMove(x, z) {
+    if (x < 0 || x >= mapWidth || z < 0 || z >= mapHeight) return false;
+    const t = worldMap[Math.floor(x)]?.[Math.floor(z)];
+    return t === 0;
+  }
+  
+  takeDamage(enemy, damage) {
+    enemy.hp -= damage;
+    const data = enemy.mesh.userData;
+    
+    // Flash white
+    data.materials.forEach(mat => {
+      const oldColor = mat.uniforms.uColor.value.clone();
+      mat.uniforms.uColor.value.setHex(0xffffff);
+      setTimeout(() => {
+        mat.uniforms.uColor.value.copy(oldColor);
+      }, 100);
+    });
+    
+    if (enemy.hp <= 0) {
+      this.killEnemy(enemy);
+    }
+  }
+  
+  killEnemy(enemy) {
+    // Death animation - dissolve and fall
+    const mesh = enemy.mesh;
+    let scale = 1;
+    let y = mesh.position.y;
+    
+    const deathAnim = setInterval(() => {
+      scale *= 0.95;
+      y -= 0.02;
+      mesh.scale.setScalar(scale);
+      mesh.position.y = y;
+      mesh.rotation.x += 0.1;
+      
+      // Fade out glow
+      mesh.userData.glowLight.intensity *= 0.9;
+      
+      if (scale < 0.1) {
+        clearInterval(deathAnim);
+        this.removeEnemy(enemy);
+      }
+    }, 50);
+  }
+  
+  removeEnemy(enemy) {
+    this.scene.remove(enemy.mesh);
+    const idx = this.enemies.indexOf(enemy);
+    if (idx > -1) this.enemies.splice(idx, 1);
+  }
+  
+  checkHit(origin, direction, maxDist = 7) {
+    let hit = null;
+    let bestDist = maxDist;
+    
+    this.enemies.forEach(enemy => {
+      if (enemy.hp <= 0) return;
+      
+      const dx = enemy.x - origin.x;
+      const dz = enemy.z - origin.z;
+      const dist = Math.sqrt(dx*dx + dz*dz);
+      
+      if (dist > maxDist) return;
+      
+      const dot = (dx/dist)*direction.x + (dz/dist)*direction.z;
+      if (dot > 0.84 && dist < bestDist) {
+        bestDist = dist;
+        hit = enemy;
+      }
+    });
+    
+    return hit;
+  }
+  
+  dispose() {
+    this.enemies.forEach(e => this.scene.remove(e.mesh));
+    this.enemies = [];
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  ANIMATED GOBLIN (8 frames)
-// ═══════════════════════════════════════════════════════════════════════════
-function genGoblinFrame(phase) {
-  const c = mc(TEX), ctx = c.getContext('2d');
-  const cx=TEX*.5, base=TEX*.87, bob=Math.sin(phase)*3, as=Math.sin(phase)*.34;
-
-  ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(cx,base+bob*.2,TEX*.13,TEX*.023,0,0,Math.PI*2); ctx.fill();
-
-  // Legs
-  ctx.fillStyle='#285020';
-  ctx.beginPath(); ctx.ellipse(cx-TEX*.08,base-TEX*.1+Math.abs(bob)*.28,TEX*.052,TEX*.115,0.1+as*.2,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(cx+TEX*.08,base-TEX*.1-Math.abs(bob)*.28,TEX*.052,TEX*.115,-0.1-as*.2,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#180e08';
-  ctx.beginPath(); ctx.ellipse(cx-TEX*.1,base,TEX*.065,TEX*.038,0.3,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(cx+TEX*.1,base,TEX*.065,TEX*.038,-0.3,0,Math.PI*2); ctx.fill();
-
-  // Body
-  const bGr=ctx.createRadialGradient(cx-TEX*.04,base-TEX*.29+bob,0,cx,base-TEX*.25+bob,TEX*.18);
-  bGr.addColorStop(0,'#489040'); bGr.addColorStop(1,'#285028');
-  ctx.fillStyle=bGr; ctx.beginPath(); ctx.ellipse(cx,base-TEX*.25+bob,TEX*.155,TEX*.18,0,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#382808'; ctx.beginPath();
-  ctx.moveTo(cx-TEX*.14,base-TEX*.11+bob); ctx.lineTo(cx-TEX*.085,base-TEX*.29+bob); ctx.lineTo(cx,base-TEX*.19+bob); ctx.lineTo(cx+TEX*.085,base-TEX*.29+bob); ctx.lineTo(cx+TEX*.14,base-TEX*.11+bob); ctx.closePath(); ctx.fill();
-  ctx.fillStyle='#583010'; ctx.fillRect(cx-TEX*.155,base-TEX*.155+bob,TEX*.31,TEX*.028);
-  ctx.fillStyle='#c0a020'; ctx.fillRect(cx-TEX*.024,base-TEX*.17+bob,TEX*.048,TEX*.052);
-
-  // Arms
-  ctx.fillStyle='#387030';
-  ctx.beginPath(); ctx.ellipse(cx-TEX*.22,base-TEX*.22+bob-as*TEX*.05,TEX*.047,TEX*.115,0.2+as,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(cx-TEX*.25,base-TEX*.1+bob-as*TEX*.08,TEX*.047,TEX*.038,0,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(cx+TEX*.22,base-TEX*.23+bob+as*TEX*.05,TEX*.047,TEX*.125,-0.24-as,0,Math.PI*2); ctx.fill();
-
-  // Club
-  ctx.save(); ctx.translate(cx+TEX*.23,base-TEX*.11+bob+as*TEX*.06); ctx.rotate(0.28+as);
-  ctx.fillStyle='#583010'; ctx.fillRect(-TEX*.023,-TEX*.25,TEX*.046,TEX*.25);
-  const cGr=ctx.createRadialGradient(0,-TEX*.29,0,0,-TEX*.27,TEX*.088);cGr.addColorStop(0,'#643810');cGr.addColorStop(1,'#281008');
-  ctx.fillStyle=cGr; ctx.beginPath(); ctx.ellipse(0,-TEX*.29,TEX*.088,TEX*.075,0,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#888';
-  [[TEX*.078,-TEX*.37,TEX*.135,-TEX*.44,TEX*.038,-TEX*.35],[-(TEX*.078),-TEX*.35,-(TEX*.135),-TEX*.43,-(TEX*.038),-TEX*.33]].forEach(([x1,y1,x2,y2,x3,y3])=>{ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.lineTo(x3,y3);ctx.closePath();ctx.fill();});
-  ctx.restore();
-
-  // Head
-  const hGr=ctx.createRadialGradient(cx-TEX*.038,base-TEX*.55+bob,0,cx,base-TEX*.53+bob,TEX*.145);
-  hGr.addColorStop(0,'#509048'); hGr.addColorStop(1,'#2c5e26');
-  ctx.fillStyle=hGr; ctx.beginPath(); ctx.ellipse(cx,base-TEX*.54+bob,TEX*.135,TEX*.15,0,0,Math.PI*2); ctx.fill();
-
-  // Ears
-  [[-0.15,-0.09,-0.22,-0.18,-0.1],[0.15,-0.09,0.22,-0.18,0.1]].forEach(([dx,dy,ex,ey,dx2])=>{
-    ctx.fillStyle='#387030'; ctx.beginPath(); ctx.moveTo(cx+dx*TEX,base+(dy-.455)*TEX+bob); ctx.lineTo(cx+ex*TEX,base+(ey-.455)*TEX+bob); ctx.lineTo(cx+dx2*TEX,base+(dy-.455)*TEX+bob); ctx.closePath(); ctx.fill();
-    ctx.fillStyle='#489040'; ctx.beginPath(); ctx.moveTo(cx+dx*TEX*.84,base+(dy-.455)*TEX+bob); ctx.lineTo(cx+ex*TEX*.9,base+(ey-.445)*TEX+bob); ctx.lineTo(cx+dx2*TEX*.84,base+(dy-.455)*TEX+bob); ctx.closePath(); ctx.fill();
-  });
-
-  // Eyes
-  [[cx-TEX*.053,base-TEX*.565+bob],[cx+TEX*.053,base-TEX*.565+bob]].forEach(([ex,ey])=>{
-    ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(ex,ey,TEX*.034,TEX*.036,0,0,Math.PI*2); ctx.fill();
-    const eg=ctx.createRadialGradient(ex,ey,0,ex,ey,TEX*.03);eg.addColorStop(0,'rgba(255,18,0,1)');eg.addColorStop(0.55,'rgba(195,8,0,0.8)');eg.addColorStop(1,'rgba(170,0,0,0)');
-    ctx.fillStyle=eg; ctx.beginPath(); ctx.ellipse(ex,ey,TEX*.03,TEX*.032,0,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='rgba(255,90,55,0.55)'; ctx.beginPath(); ctx.arc(ex+TEX*.009,ey-TEX*.011,TEX*.008,0,Math.PI*2); ctx.fill();
-  });
-
-  // Nose + mouth
-  ctx.fillStyle='#2c5e26'; ctx.beginPath(); ctx.ellipse(cx,base-TEX*.52+bob,TEX*.019,TEX*.022,0,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle='#160808'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(cx,base-TEX*.498+bob,TEX*.058,.2,Math.PI-.2); ctx.stroke();
-  ctx.fillStyle='#e4dccc'; for(let t=0;t<4;t++) ctx.fillRect(cx-TEX*.048+t*TEX*.031,base-TEX*.498+bob,TEX*.019,TEX*.02);
-  return c;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  SCARY MUSIC
+//  SCARY MUSIC (unchanged)
 // ═══════════════════════════════════════════════════════════════════════════
 class ScaryMusic {
   constructor() { this.ctx=null; this.master=null; this.nodes=[]; this.timers=[]; this.alive=false; }
@@ -353,8 +586,8 @@ class ScaryMusic {
 export default function Raycaster({ onEncounter, onPickup }) {
   const mountRef    = useRef(null);
   const minimapRef  = useRef(null);
-  const [hint, setHint] = useState('click_to_start');   // 'click_to_start' | 'playing'
-  const [flash, setFlash] = useState(0);                // screen flash 0-1
+  const [hint, setHint] = useState('click_to_start');
+  const [flash, setFlash] = useState(0);
 
   const onEncounterRef = useRef(onEncounter);
   const onPickupRef    = useRef(onPickup);
@@ -443,7 +676,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
           const l = new THREE.PointLight(0xff6010, 1.8, 7, 2);
           l.position.set(x + 0.5, WALL_H * 0.72, z + 0.5);
           scene.add(l);
-          // Small flame sphere
           const flame = new THREE.Mesh(
             new THREE.SphereGeometry(0.06, 6, 6),
             new THREE.MeshBasicMaterial({ color: 0xff8820 })
@@ -455,7 +687,7 @@ export default function Raycaster({ onEncounter, onPickup }) {
       }
     }
 
-    // ── Player torch (moves with camera) ───────────────────────
+    // ── Player torch ───────────────────────────────────────────
     const playerLight = new THREE.PointLight(0xff7820, 3.0, 10, 2);
     playerLight.castShadow = true;
     playerLight.shadow.mapSize.setScalar(512);
@@ -463,27 +695,17 @@ export default function Raycaster({ onEncounter, onPickup }) {
     playerLight.shadow.camera.far  = 10;
     scene.add(playerLight);
 
-    // ── Enemy sprites ───────────────────────────────────────────
-    const dragonFrames = Array.from({ length: 12 }, (_, i) => genDragonFrame((i / 12) * Math.PI * 2));
-    const goblinFrames = Array.from({ length: 8  }, (_, i) => genGoblinFrame((i /  8) * Math.PI * 2));
-
-    const enemies = [];
+    // ── SPAWN PROCEDURAL ENEMIES ────────────────────────────────
+    const enemyManager = new ProceduralEnemyManager(scene);
+    
+    // Spawn enemies at worldMap '2' positions
     for (let x = 0; x < mapWidth; x++) {
       for (let z = 0; z < mapHeight; z++) {
-        if (worldMap[x][z] !== 2) continue;
-        const type  = Math.random() < 0.45 ? 'dragon' : 'goblin';
-        const frames= type === 'dragon' ? dragonFrames : goblinFrames;
-        const tex   = new THREE.CanvasTexture(frames[0]);
-        const sp    = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
-        const scale = type === 'dragon' ? 2.4 : 1.9;
-        sp.scale.set(scale, scale, 1);
-        sp.position.set(x + 0.5, scale * 0.5, z + 0.5);
-        scene.add(sp);
-        // Enemy glow (red for dragon, green for goblin)
-        const eLight = new THREE.PointLight(type === 'dragon' ? 0xff2200 : 0x40ee20, 1.2, 5, 2);
-        eLight.position.copy(sp.position);
-        scene.add(eLight);
-        enemies.push({ x: x + 0.5, z: z + 0.5, type, frames, tex, sp, eLight, frameIdx: Math.random() * frames.length });
+        if (worldMap[x][z] === 2) {
+          const type = Math.random() < 0.45 ? 'stalker' : 'runner';
+          enemyManager.spawnEnemy(x + 0.5, z + 0.5, type);
+          worldMap[x][z] = 0; // Clear spawn point
+        }
       }
     }
 
@@ -521,14 +743,12 @@ export default function Raycaster({ onEncounter, onPickup }) {
     weaponScene.add(weaponPointLight);
 
     const wGroup = new THREE.Group();
-    // Handle – tapered dark wood cylinder
     const handleMesh = new THREE.Mesh(
       new THREE.CylinderGeometry(0.022, 0.036, 0.65, 10),
       new THREE.MeshLambertMaterial({ color: 0x1e0c04 })
     );
     handleMesh.rotation.z = 0.18;
     wGroup.add(handleMesh);
-    // Leather wraps (thin tori)
     for (let i = 0; i < 5; i++) {
       const wrap = new THREE.Mesh(
         new THREE.TorusGeometry(0.028, 0.008, 5, 16),
@@ -537,32 +757,27 @@ export default function Raycaster({ onEncounter, onPickup }) {
       wrap.rotation.y = Math.PI / 2; wrap.position.y = -0.22 + i * 0.11;
       wrap.rotation.z = 0.18; wGroup.add(wrap);
     }
-    // Metal band
     const band = new THREE.Mesh(
       new THREE.TorusGeometry(0.034, 0.01, 5, 20),
       new THREE.MeshStandardMaterial({ color: 0x807060, metalness: 0.9, roughness: 0.3 })
     );
     band.rotation.y = Math.PI / 2; band.position.y = 0.3; band.rotation.z = 0.18; wGroup.add(band);
-    // Orb
     const orbMesh = new THREE.Mesh(
       new THREE.SphereGeometry(0.068, 14, 14),
       new THREE.MeshStandardMaterial({ color: 0x3050ee, emissive: 0x1030bb, emissiveIntensity: 1.4, roughness: 0.05, metalness: 0.2 })
     );
     orbMesh.position.set(0, 0.36, 0); wGroup.add(orbMesh);
-    // Inner orb sparkle
     const innerOrb = new THREE.Mesh(
       new THREE.SphereGeometry(0.03, 8, 8),
       new THREE.MeshBasicMaterial({ color: 0xaaccff })
     );
     innerOrb.position.set(-0.022, 0.375, 0.022); wGroup.add(innerOrb);
-    // Beam (hidden normally)
     const beamMesh = new THREE.Mesh(
       new THREE.CylinderGeometry(0.012, 0.025, 2.8, 6),
       new THREE.MeshBasicMaterial({ color: 0x88aaff, transparent: true, opacity: 0.7 })
     );
     beamMesh.rotation.x = Math.PI / 2; beamMesh.position.set(0, 0.36, -1.45); beamMesh.visible = false;
     wGroup.add(beamMesh);
-    // Burst rings (hidden)
     const rings = Array.from({ length: 3 }, (_, i) => {
       const r = new THREE.Mesh(
         new THREE.TorusGeometry(0.08 + i * 0.08, 0.012, 4, 20),
@@ -582,7 +797,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
     let bobPhase = 0;
     let torchFlicker = 1;
     let frameCount = 0;
-    const notifs = [];
 
     // ── Pointer lock ────────────────────────────────────────────
     const music = new ScaryMusic();
@@ -603,19 +817,15 @@ export default function Raycaster({ onEncounter, onPickup }) {
         e.preventDefault();
         fireFlashVal = 1.0;
         music.fireBlast();
-        // Aim check
+        
         const forward = new THREE.Vector3(); camera.getWorldDirection(forward);
-        let hit = null, bestDot = 0.84;
-        enemies.forEach(en => {
-          if (worldMap[Math.floor(en.x)][Math.floor(en.z)] !== 2) return;
-          const dx = en.x - px, dz = en.z - pz, dist = Math.sqrt(dx*dx + dz*dz);
-          if (dist > 7) return;
-          const dot = (dx/dist)*forward.x + (dz/dist)*forward.z;
-          if (dot > bestDot) { bestDot = dot; hit = en; }
-        });
+        const hit = enemyManager.checkHit({ x: px, z: pz }, { x: forward.x, z: forward.z });
+        
         if (hit) {
-          worldMap[Math.floor(hit.x)][Math.floor(hit.z)] = 0;
-          setTimeout(() => onEncounterRef.current(), 320);
+          enemyManager.takeDamage(hit, 1);
+          if (hit.hp <= 1) {
+            setTimeout(() => onEncounterRef.current(), 320);
+          }
         }
       }
     };
@@ -626,8 +836,8 @@ export default function Raycaster({ onEncounter, onPickup }) {
     // ── Collision helper ────────────────────────────────────────
     const canWalk = (x, z) => {
       if (x < 0 || x >= mapWidth || z < 0 || z >= mapHeight) return false;
-      const t = worldMap[Math.floor(x)][Math.floor(z)];
-      return t === 0 || t === 2;
+      const t = worldMap[Math.floor(x)]?.[Math.floor(z)];
+      return t === 0;
     };
 
     // ── Resize ──────────────────────────────────────────────────
@@ -644,9 +854,15 @@ export default function Raycaster({ onEncounter, onPickup }) {
       const ts = 4, mW = mapWidth*ts, mH = mapHeight*ts;
       mc2.width = mW; mc2.height = mH;
       mctx.fillStyle='rgba(4,3,2,0.88)'; mctx.fillRect(0,0,mW,mH);
-      for(let x=0;x<mapWidth;x++)for(let z=0;z<mapHeight;z++){const t=worldMap[x][z];mctx.fillStyle=t===1?'#4a3a24':t===3?'#5a2818':t===4?'#3a2210':t===2?'rgba(180,40,20,0.55)':'#14110d';mctx.fillRect(x*ts,z*ts,ts,ts);}
+      for(let x=0;x<mapWidth;x++)for(let z=0;z<mapHeight;z++){const t=worldMap[x][z];mctx.fillStyle=t===1?'#4a3a24':t===3?'#5a2818':t===4?'#3a2210':'#14110d';mctx.fillRect(x*ts,z*ts,ts,ts);}
       pickups.forEach(p=>{if(p.collected)return;mctx.fillStyle=p.type==='coin'?'#c8a020':'#20c050';mctx.beginPath();mctx.arc(p.x*ts,p.z*ts,2,0,Math.PI*2);mctx.fill();});
-      enemies.forEach(e=>{if(worldMap[Math.floor(e.x)][Math.floor(e.z)]!==2)return;mctx.fillStyle='rgba(220,40,20,0.9)';mctx.beginPath();mctx.arc(e.x*ts,e.z*ts,2.5,0,Math.PI*2);mctx.fill();});
+      
+      enemyManager.enemies.forEach(e=>{
+        if(e.hp<=0)return;
+        mctx.fillStyle=e.type==='stalker'?'rgba(220,40,20,0.9)':'rgba(40,220,60,0.9)';
+        mctx.beginPath();mctx.arc(e.x*ts,e.z*ts,3,0,Math.PI*2);mctx.fill();
+      });
+      
       const ppx=px*ts, ppz=pz*ts;
       const fw=new THREE.Vector3(); camera.getWorldDirection(fw);
       mctx.fillStyle='#e8d070'; mctx.beginPath(); mctx.arc(ppx,ppz,3,0,Math.PI*2); mctx.fill();
@@ -656,9 +872,16 @@ export default function Raycaster({ onEncounter, onPickup }) {
 
     // ── Game loop ───────────────────────────────────────────────
     let rafId;
+    const clock = new THREE.Clock();
+    
     const loop = () => {
       rafId = requestAnimationFrame(loop);
+      const delta = clock.getDelta();
       frameCount++;
+
+      const playerPos = { x: px, z: pz };
+      const forward = new THREE.Vector3(); camera.getWorldDirection(forward);
+      const playerDir = { x: forward.x, z: forward.z };
 
       // Movement
       const sprint = keys['Shift'] ? 1.65 : 1;
@@ -680,12 +903,17 @@ export default function Raycaster({ onEncounter, onPickup }) {
       if (keys['ArrowLeft'])               { yaw += ROT_SPEED; }
       if (keys['ArrowRight'])              { yaw -= ROT_SPEED; }
 
-      // Step on enemy
-      if (worldMap[Math.floor(px)][Math.floor(pz)] === 2) {
-        worldMap[Math.floor(px)][Math.floor(pz)] = 0;
-        cancelAnimationFrame(rafId);
-        onEncounterRef.current(); return;
-      }
+      // Check enemy collision
+      enemyManager.enemies.forEach(enemy => {
+        if (enemy.hp <= 0) return;
+        const dx = px - enemy.x;
+        const dz = pz - enemy.z;
+        const dist = Math.sqrt(dx*dx + dz*dz);
+        if (dist < 0.8) {
+          enemyManager.takeDamage(enemy, 999);
+          onEncounterRef.current();
+        }
+      });
 
       // Pickups
       pickups.forEach(pu => {
@@ -693,8 +921,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
         const dx=px-pu.x, dz=pz-pu.z;
         if (dx*dx+dz*dz < 0.35) {
           pu.collected = true; pu.mesh.visible = false; pu.light.visible = false;
-          const [txt,col] = pu.type==='coin' ? ['+15 Gold 💰','#f0d040'] : ['+20 Health 🧪','#50e070'];
-          notifs.push({ text: txt, color: col, life: 90, y: 0 });
           setFlash(0.5); setTimeout(() => setFlash(0), 400);
           onPickupRef.current?.(pu.type==='coin'?'gold':'health', pu.type==='coin'?15:20);
         }
@@ -705,29 +931,20 @@ export default function Raycaster({ onEncounter, onPickup }) {
       camera.rotation.order = 'YXZ'; camera.rotation.y = yaw; camera.rotation.x = 0;
       if (moving) bobPhase += sprint > 1 ? 0.1 : 0.065;
 
-      // Player torch flicker
+      // Player torch
       torchFlicker += (Math.random()-0.5)*0.035;
       torchFlicker = Math.max(0.82, Math.min(1.0, torchFlicker));
       playerLight.position.copy(camera.position).add(new THREE.Vector3(fw.x*0.5, 0.1, fw.z*0.5));
       playerLight.intensity = 3.0 * torchFlicker;
 
-      // Fixed torches flicker
+      // Fixed torches
       fixedTorches.forEach(t => {
         t.light.intensity = t.base * (0.88 + Math.random()*0.24);
         t.flame.material.color.setHSL(0.06+Math.random()*0.04, 1, 0.5+Math.random()*0.2);
       });
 
-      // Enemy animation + glow pulse
-      enemies.forEach(en => {
-        en.frameIdx += 0.14;
-        const idx = Math.floor(en.frameIdx) % en.frames.length;
-        en.tex.image = en.frames[idx]; en.tex.needsUpdate = true;
-        if (worldMap[Math.floor(en.x)][Math.floor(en.z)] !== 2) {
-          en.sp.visible = false; en.eLight.visible = false;
-        } else {
-          en.eLight.intensity = 0.9 + Math.sin(frameCount*0.08)*0.4;
-        }
-      });
+      // Update enemies
+      enemyManager.update(delta, playerPos, playerDir);
 
       // Pickup float
       pickups.forEach(pu => {
@@ -736,11 +953,10 @@ export default function Raycaster({ onEncounter, onPickup }) {
         pu.mesh.rotation.y += 0.025;
       });
 
-      // Fire flash decay
+      // Fire flash
       if (fireFlashVal > 0) {
         fireFlashVal = Math.max(0, fireFlashVal - 0.05);
-        const orbMat = orbMesh.material;
-        orbMat.emissiveIntensity = 1.4 + fireFlashVal * 5;
+        orbMesh.material.emissiveIntensity = 1.4 + fireFlashVal * 5;
         weaponPointLight.intensity = 1.5 + fireFlashVal * 6;
         beamMesh.visible = fireFlashVal > 0.1;
         beamMesh.material.opacity = fireFlashVal * 0.8;
@@ -767,7 +983,7 @@ export default function Raycaster({ onEncounter, onPickup }) {
       renderer.render(weaponScene, weaponCamera);
       renderer.autoClear = true;
 
-      // Minimap (every 4 frames)
+      // Minimap
       if (frameCount % 4 === 0) drawMinimap();
     };
 
@@ -779,6 +995,7 @@ export default function Raycaster({ onEncounter, onPickup }) {
       window.removeEventListener('keyup', onKU);
       window.removeEventListener('resize', onResize);
       music.stop();
+      enemyManager.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
     };
@@ -786,40 +1003,29 @@ export default function Raycaster({ onEncounter, onPickup }) {
 
   return (
     <div style={{ width:'100%', height:'100%', position:'relative', background:'#050208', overflow:'hidden' }}>
-      {/* Three.js canvas mount */}
       <div ref={mountRef} style={{ width:'100%', height:'100%' }} />
-
-      {/* Screen flash overlay */}
+      
       {flash > 0 && (
         <div style={{ position:'absolute', inset:0, background:`rgba(80,110,255,${flash})`, pointerEvents:'none', transition:'opacity 0.1s' }} />
       )}
-
-      {/* Minimap */}
+      
       <canvas ref={minimapRef} style={{ position:'absolute', top:12, right:12, border:'1px solid #3a2a14', outline:'1px solid #5a4020', imageRendering:'pixelated', opacity:0.9 }} />
-
-      {/* Compass */}
+      
       <div style={{ position:'absolute', top:12, left:'50%', transform:'translateX(-50%)', fontFamily:"'Cinzel',serif", fontSize:10, color:'#7a5828', letterSpacing:6, background:'rgba(4,3,2,0.7)', padding:'4px 14px', border:'1px solid #2a1e0e', borderRadius:2 }}>
         SHADOW KEEP
       </div>
-
-      {/* Click-to-start overlay */}
+      
       {hint === 'click_to_start' && (
         <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(3,2,6,0.55)', pointerEvents:'none' }}>
           <div style={{ fontFamily:"'Cinzel',serif", color:'#c8a96e', fontSize:13, letterSpacing:4, marginBottom:10, textShadow:'0 0 20px #c8a96e88' }}>CLICK TO ENTER THE DUNGEON</div>
           <div style={{ fontFamily:"'Crimson Text',serif", color:'#5a4020', fontSize:12, letterSpacing:2 }}>mouse look · music · full controls</div>
         </div>
       )}
-
-      {/* Controls */}
+      
       <div style={{ position:'absolute', bottom:14, left:14, fontFamily:"'Crimson Text',serif", fontSize:11, color:'rgba(130,90,40,0.55)', lineHeight:1.9, letterSpacing:0.5, pointerEvents:'none' }}>
         <div>W A S D · move &amp; strafe</div>
         <div>← → · turn &nbsp;|&nbsp; Shift · sprint</div>
         <div>SPACE · cast wand</div>
-      </div>
-
-      {/* Floating notifs */}
-      <div style={{ position:'absolute', top:'32%', left:0, right:0, display:'flex', flexDirection:'column', alignItems:'center', gap:8, pointerEvents:'none' }}>
-        {/* Rendered via canvas in loop, but CSS fallback shown on pickup */}
       </div>
     </div>
   );
