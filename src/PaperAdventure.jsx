@@ -207,7 +207,8 @@ geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
 
 return { geometry: geo, colors: cols };
 }, []);
-return (    ); }
+return [state, actions];
+}
 // ═══════════════════════════════════════════════════════════════════════════════ // VEGETATION // ═══════════════════════════════════════════════════════════════════════════════
 function Vegetation() { const treeData = useMemo(() => { const data = []; for (let i = 0; i < 150; i++) { const angle = Math.random() * Math.PI * 2; const dist = 20 + Math.random() * 50; const x = Math.cos(angle) * dist; const z = Math.sin(angle) * dist;
   const height = noise2D(x * 0.02, z * 0.02) * 4 + noise2D(x * 0.05, z * 0.05) * 2;
