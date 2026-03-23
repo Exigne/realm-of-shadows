@@ -1,36 +1,8 @@
-import React, { useRef, useMemo, useState, useCallback, Suspense, useContext, createContext } from 'react'; import { Canvas, useFrame, useThree } from '@react-three/fiber'; import { Sky, Environment, ContactShadows, SoftShadows, useTexture, Text, Float, Trail, Sparkles, Instance, Instances, Detailed, Billboard, OrbitControls, PerspectiveCamera, Stars } from '@react-three/drei'; import { EffectComposer, Bloom, DepthOfField, Vignette } from '@react-three/postprocessing'; import * as THREE from 'three'; import { createNoise2D } from 'simplex-noise';
-// ═══════════════════════════════════════════════════════════════════════════════ // STATE MANAGEMENT // ═══════════════════════════════════════════════════════════════════════════════
+import React, { useRef, useMemo, useState, useCallback, Suspense, createContext } from 'react'; import { Canvas, useFrame, useThree } from '@react-three/fiber'; import { Sky, Environment, ContactShadows, SoftShadows, Float, Sparkles, Instance, Instances, Stars } from '@react-three/drei'; import { EffectComposer, Bloom, DepthOfField, Vignette } from '@react-three/postprocessing'; import * as THREE from 'three'; import { createNoise2D } from 'simplex-noise';
 const GameContext = createContext();
-const useGameStore = () => {
-  const [state, setState] = useState({
-    bells: 0,
-    items: { flowers: 0, bugs: 0, fish: 0, fruit: 0 },
-    isRiding: false,
-    isRunning: false,
-    gameTime: 8.0,
-    playerPos: new THREE.Vector3(0, 0, 0),
-    targetPos: null,
-    isMoving: false,
-    dialogue: null,
-    uiState: 'start',
-  });
-
-  const actions = useMemo(() => ({
-    addBells: (amount) => setState(s => ({ ...s, bells: s.bells + amount })),
-    addItem: (type) => setState(s => ({ ...s, items: { ...s.items, [type]: s.items[type] + 1 } })),
-    setRiding: (val) => setState(s => ({ ...s, isRiding: val })),
-    setRunning: (val) => setState(s => ({ ...s, isRunning: val })),
-    setGameTime: (val) => setState(s => ({ ...s, gameTime: val })),
-    setPlayerPos: (pos) => setState(s => ({ ...s, playerPos: pos })),
-    setTarget: (pos) => setState(s => ({ ...s, targetPos: pos, isMoving: !!pos })),
-    stopMoving: () => setState(s => ({ ...s, isMoving: false, targetPos: null })),
-    setDialogue: (data) => setState(s => ({ ...s, dialogue: data, uiState: data ? 'dialogue' : 'play' })),
-    setUIState: (val) => setState(s => ({ ...s, uiState: val })),
-  }), []);
-
-  return [state, actions];  // ✅ CORRECT
-};
-// ═══════════════════════════════════════════════════════════════════════════════ // AUDIO ENGINE // ═══════════════════════════════════════════════════════════════════════════════
+const useGameStore = () => { const [state, setState] = useState({ bells: 0, items: { flowers: 0, bugs: 0, fish: 0, fruit: 0 }, isRiding: false, isRunning: false, gameTime: 8.0, playerPos: new THREE.Vector3(0, 0, 0), targetPos: null, isMoving: false, dialogue: null, uiState: 'start', });
+const actions = useMemo(() => ({ addBells: (amount) => setState(s => ({ ...s, bells: s.bells + amount })), addItem: (type) => setState(s => ({ ...s, items: { ...s.items, [type]: s.items[type] + 1 } })), setRiding: (val) => setState(s => ({ ...s, isRiding: val })), setRunning: (val) => setState(s => ({ ...s, isRunning: val })), setGameTime: (val) => setState(s => ({ ...s, gameTime: val })), setPlayerPos: (pos) => setState(s => ({ ...s, playerPos: pos })), setTarget: (pos) => setState(s => ({ ...s, targetPos: pos, isMoving: !!pos })), stopMoving: () => setState(s => ({ ...s, isMoving: false, targetPos: null })), setDialogue: (data) => setState(s => ({ ...s, dialogue: data, uiState: data ? 'dialogue' : 'play' })), setUIState: (val) => setState(s => ({ ...s, uiState: val })), }), []);
+return [state, actions]; };
 class SpatialAudio { constructor() { this.ctx = null; this.master = null; this.bgmOscillators = []; this.isPlaying = false; }
 init() { if (this.ctx) return; this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.master = this.ctx.createGain(); this.master.gain.value = 0.3;
 const compressor = this.ctx.createDynamicsCompressor();
@@ -161,11 +133,9 @@ const createSound = () => {
 createSound();
 }
 stop() { this.isPlaying = false; this.bgmOscillators.forEach(({ osc }) => { try { osc.stop(); } catch(e) {} }); this.bgmOscillators = []; } }
-const audio = new SpatialAudio();
-const noise2D = createNoise2D();
-// ═══════════════════════════════════════════════════════════════════════════════ // TERRAIN // ═══════════════════════════════════════════════════════════════════════════════
+const audio = new SpatialAudio(); const noise2D = createNoise2D();
 function Terrain() { const meshRef = useRef();
-const { geometry, colors } = useMemo(() => { const size = 120; const segments = 80; const geo = new THREE.PlaneGeometry(size, size, segments, segments); geo.rotateX(-Math.PI / 2);
+const { geometry } = useMemo(() => { const size = 120; const segments = 80; const geo = new THREE.PlaneGeometry(size, size, segments, segments); geo.rotateX(-Math.PI / 2);
 const pos = geo.attributes.position;
 const cols = [];
 const colorGrass = new THREE.Color(0x90EE90);
@@ -205,11 +175,9 @@ for (let i = 0; i < pos.count; i++) {
 geo.computeVertexNormals();
 geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
 
-return { geometry: geo, colors: cols };
+return { geometry: geo };
 }, []);
-return [state, actions];
-}
-// ═══════════════════════════════════════════════════════════════════════════════ // VEGETATION // ═══════════════════════════════════════════════════════════════════════════════
+return (    ); }
 function Vegetation() { const treeData = useMemo(() => { const data = []; for (let i = 0; i < 150; i++) { const angle = Math.random() * Math.PI * 2; const dist = 20 + Math.random() * 50; const x = Math.cos(angle) * dist; const z = Math.sin(angle) * dist;
   const height = noise2D(x * 0.02, z * 0.02) * 4 + noise2D(x * 0.05, z * 0.05) * 2;
 
@@ -240,124 +208,27 @@ for (let i = 0; i < 80; i++) {
 }
 return data;
 }, []);
-function Vegetation() {
-  const treeData = useMemo(() => {
-    const data = [];
-    for (let i = 0; i < 150; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 20 + Math.random() * 50;
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      
-      const height = noise2D(x * 0.02, z * 0.02) * 4 + noise2D(x * 0.05, z * 0.05) * 2;
-      
-      if (height > 1 && dist < 55) {
-        data.push({
-          position: [x, height, z],
-          rotation: [0, Math.random() * Math.PI * 2, 0],
-          scale: 0.7 + Math.random() * 0.6
-        });
-      }
-    }
-    return data;
-  }, []);
-  
-  const flowerData = useMemo(() => {
-    const data = [];
-    const colors = [0xFF69B4, 0xFFD700, 0xFFF8DC, 0xFF1493];
-    
-    for (let i = 0; i < 80; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 5 + Math.random() * 45;
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      const height = noise2D(x * 0.02, z * 0.02) * 4;
-      
-      if (height > 0.5 && height < 3) {
-        data.push({
-          position: [x, height, z],
-          color: colors[Math.floor(Math.random() * colors.length)]
-        });
-      }
-    }
-    return data;
-  }, []);
-  
-  return (
-    <group>
-      <Instances limit={200}>
-        <coneGeometry args={[1.2, 3, 6]} />
-        <meshStandardMaterial color={0x228B22} roughness={0.8} />
-        {treeData.map((tree, i) => (
-          <Instance 
-            key={i}
-            position={tree.position}
-            rotation={tree.rotation}
-            scale={tree.scale}
-            castShadow
-            receiveShadow
-          />
-        ))}
-      </Instances>
-      
-      <Instances limit={200}>
-        <cylinderGeometry args={[0.25, 0.35, 2, 6]} />
-        <meshStandardMaterial color={0x8B4513} roughness={0.9} />
-        {treeData.map((tree, i) => (
-          <Instance 
-            key={i}
-            position={[tree.position[0], tree.position[1] - 0.5, tree.position[2]]}
-            rotation={tree.rotation}
-            scale={tree.scale}
-            castShadow
-          />
-        ))}
-      </Instances>
-      
-      <Instances limit={100}>
-        <sphereGeometry args={[0.15, 6, 6]} />
-        <meshStandardMaterial roughness={0.5} />
-      <Instances limit={200}>
-        <cylinderGeometry args={[0.25, 0.35, 2, 6]} />
-        <meshStandardMaterial color={0x8B4513} roughness={0.9} />
-        {treeData.map((tree, i) => (
-          <Instance 
-            key={i}
-            position={[tree.position[0], tree.position[1] - 0.5, tree.position[2]]}
-            rotation={tree.rotation}
-            scale={tree.scale}
-            castShadow
-          />
-            <Instances limit={100}>
-        <sphereGeometry args={[0.15, 6, 6]} />
-        <meshStandardMaterial roughness={0.5} />
-        {flowerData.map((flower, i) => (
-          <Instance 
-            key={i}
-            position={flower.position}
-            color={flower.color}
-          />
-        ))}
-      </Instances>
-    </group>
-  );
-}
-      </Instances>
+return (   <coneGeometry args={[1.2, 3, 6]} />  {treeData.map((tree, i) => (  ))} 
+  <Instances limit={200}>
+    <cylinderGeometry args={[0.25, 0.35, 2, 6]} />
+    <meshStandardMaterial color={0x8B4513} roughness={0.9} />
+    {treeData.map((tree, i) => (
+      <Instance 
+        key={i}
+        position={[tree.position[0], tree.position[1] - 0.5, tree.position[2]]}
+        rotation={tree.rotation}
+        scale={tree.scale}
+        castShadow
+      />
+    ))}
+  </Instances>
 
-      <Instances limit={100}>
-        <sphereGeometry args={[0.15, 6, 6]} />
-        <meshStandardMaterial roughness={0.5} />
-        {flowerData.map((flower, i) => (
-          <Instance 
-            key={i}
-            position={flower.position}
-            color={flower.color}
-          />
-        ))}
-      </Instances>
-    </group>
-  );
-}
+  <Instances limit={100}>
+    <sphereGeometry args={[0.15, 6, 6]} />
+    <meshStandardMaterial roughness={0.5} />
+    {flowerData.map((flower, i) => (
+      <Instance 
+        key={i}
         position={flower.position}
         color={flower.color}
       />
@@ -365,7 +236,6 @@ function Vegetation() {
   </Instances>
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // OCEAN // ═══════════════════════════════════════════════════════════════════════════════
 function Ocean() { const meshRef = useRef();
 const uniforms = useMemo(() => ({ time: { value: 0 }, color: { value: new THREE.Color(0x40E0D0) } }), []);
 useFrame((state) => { if (meshRef.current) { meshRef.current.material.uniforms.time.value = state.clock.elapsedTime; } });
@@ -399,7 +269,6 @@ return ( <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -1, 
   />
 </mesh>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // PLAYER // ═══════════════════════════════════════════════════════════════════════════════
 function Player({ state, actions }) { const groupRef = useRef(); const boardRef = useRef();
 useFrame((frameState, delta) => { if (!groupRef.current) return;
 const currentPos = groupRef.current.position;
@@ -488,7 +357,6 @@ return ( <group ref={groupRef} position={[0, 0, 0]} castShadow> <mesh position
   <ContactShadows position={[0, 0.01, 0]} opacity={0.4} scale={2} blur={1.5} far={2} />
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // NPC // ═══════════════════════════════════════════════════════════════════════════════
 function NPC({ data, onInteract }) { const groupRef = useRef(); const homePos = data.home;
 useFrame((frameState) => { if (!groupRef.current || data.isTalking) return;
 const time = frameState.clock.elapsedTime;
@@ -557,7 +425,6 @@ return ( <group ref={groupRef} position={[homePos.x, 0.9, homePos.z]} onClic
   </Float>
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // COLLECTIBLES // ═══════════════════════════════════════════════════════════════════════════════
 function Collectibles({ state, actions }) { const items = useMemo(() => { const data = [];
 for (let i = 0; i < 20; i++) {
   const angle = Math.random() * Math.PI * 2;
@@ -614,7 +481,6 @@ return (  {items.map(item => { if (collected.has(item.id)) return null;
   })}
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // HOUSE // ═══════════════════════════════════════════════════════════════════════════════
 function House({ position, roofColor }) { return (  <mesh position={[0, 1.5, 0]} castShadow receiveShadow> <boxGeometry args={[4, 3, 4]} />  
   <mesh position={[0, 4, 0]} rotation={[0, Math.PI/4, 0]} castShadow>
     <coneGeometry args={[3, 2.5, 4]} />
@@ -638,13 +504,11 @@ function House({ position, roofColor }) { return (  <mesh position={[0, 1.5, 
   <pointLight position={[0, 2.5, 2.5]} intensity={0.5} distance={15} color={0xFFAA55} />
 </group>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // DAY/NIGHT CYCLE // ═══════════════════════════════════════════════════════════════════════════════
 function DayNightCycle({ time }) { const sunRef = useRef();
 const sunAngle = ((time - 6) / 12) * Math.PI - Math.PI; const sunX = Math.cos(sunAngle) * 60; const sunY = Math.max(Math.sin(-sunAngle) * 60, -10); const sunZ = Math.cos(sunAngle) * 20;
 const getSkyColor = () => { if (time >= 5 && time < 8) return new THREE.Color(0xFF7E5F); if (time >= 8 && time < 17) return new THREE.Color(0x87CEEB); if (time >= 17 && time < 20) return new THREE.Color(0xFD5E53); return new THREE.Color(0x0A0A2A); };
 const intensity = time > 6 && time < 18 ? 1.0 : 0.2;
 return ( <> <ambientLight intensity={0.4 + intensity * 0.3} color={getSkyColor()} /> <directionalLight ref={sunRef} position={[sunX, sunY, sunZ]} intensity={intensity} color={0xFFF5E6} castShadow shadow-mapSize={[2048, 2048]} shadow-camera-left={-60} shadow-camera-right={60} shadow-camera-top={60} shadow-camera-bottom={-60} /> {(time < 6 || time > 19) && } </> ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // CAMERA CONTROLLER // ═══════════════════════════════════════════════════════════════════════════════
 function CameraController({ state }) { const { camera } = useThree();
 useFrame((frameState, delta) => { const playerPos = state.playerPos; const isRiding = state.isRiding;
 const offset = new THREE.Vector3(20, isRiding ? 25 : 18, 20);
@@ -655,7 +519,6 @@ camera.position.lerp(targetPos, delta * (isRiding ? 2 : 3));
 camera.lookAt(playerPos.x, 0.5, playerPos.z);
 });
 return null; }
-// ═══════════════════════════════════════════════════════════════════════════════ // SCENE // ═══════════════════════════════════════════════════════════════════════════════
 function Scene({ state, actions }) { const handleGroundClick = useCallback((e) => { if (state.uiState !== 'play') return; e.stopPropagation(); actions.setTarget(e.point); audio.sfx('pop'); if (state.isRiding) audio.sfx('hover'); }, [state.uiState, state.isRiding, actions]);
 const handleNPCInteract = useCallback((npcData) => { actions.setDialogue({ name: npcData.name, texts: npcData.dialogues[0], color: npcData.color, current: 0 }); audio.sfx('talk'); }, [actions]);
 return ( <> <Sky sunPosition={[100, 20, 100]} turbidity={8} rayleigh={6} mieCoefficient={0.005} mieDirectionalG={0.8} /> 
@@ -725,7 +588,6 @@ return ( <> <Sky sunPosition={[100, 20, 100]} turbidity={8} rayleigh={6} mieCo
   </EffectComposer>
 </>
 ); }
-// ═══════════════════════════════════════════════════════════════════════════════ // UI // ═══════════════════════════════════════════════════════════════════════════════
 const UI = ({ state, actions }) => { const [message, setMessage] = useState(null);
 const showMessage = useCallback((text) => { setMessage(text); setTimeout(() => setMessage(null), 2500); }, []);
 React.useEffect(() => { const handleKeyDown = (e) => { if (e.code === 'ShiftLeft') actions.setRunning(true); if (e.code === 'Space') { e.preventDefault(); actions.setRiding(!state.isRiding); audio.sfx('hover'); } }; const handleKeyUp = (e) => { if (e.code === 'ShiftLeft') actions.setRunning(false); };
@@ -1070,7 +932,6 @@ return (
   `}</style>
 </div>
 ); };
-// ═══════════════════════════════════════════════════════════════════════════════ // MAIN APP // ═══════════════════════════════════════════════════════════════════════════════
 export default function CandyIslandJoyride() { const [state, actions] = useGameStore();
 return ( <GameContext.Provider value={{ state, actions }}>
     <UI state={state} actions={actions} />
