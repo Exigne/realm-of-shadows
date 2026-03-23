@@ -1,14 +1,12 @@
-// Change this:
-// import Raycaster from './Raycaster';
-
-// To this:
-import PaperAdventure from './PaperAdventure';
+import PaperAdventure from './PaperAdventure'; // Make sure you saved the file as PaperAdventure.jsx
 
 function App() {
   return (
     <div className="App">
-      {/* Swap the component here */}
-      <PaperAdventure /> 
+      <PaperAdventure />
     </div>
   );
 }
+
+// THIS IS THE LINE VITE IS COMPLAINING ABOUT:
+export default App;
