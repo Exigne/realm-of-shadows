@@ -1,6 +1,6 @@
 /**
- * 🏝️ CANDY ISLAND — Point & Click Edition
- * Animal Crossing style: Click anywhere on the ground to walk there!
+ * 🏝️ CANDY ISLAND — Fixed Point & Click Edition
+ * Debugged and working movement system
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -11,10 +11,10 @@ import * as THREE from 'three';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const CONFIG = {
-  walkSpeed: 6,
-  runSpeed: 12,
-  cameraHeight: 15,
-  cameraDistance: 20,
+  walkSpeed: 8,
+  runSpeed: 15,
+  cameraHeight: 18,
+  cameraDistance: 25,
   worldSize: 80,
 };
 
@@ -23,7 +23,6 @@ const COLORS = {
   grassDark: 0x7CFC00,
   water: 0x40E0D0,
   sand: 0xF5DEB3,
-  dirt: 0xD2691E,
   wood: 0x8B4513,
   leaves: 0x228B22,
   flowerRed: 0xFF69B4,
@@ -47,29 +46,31 @@ class IslandAudio {
 
   init() {
     if (this.ctx) return;
-    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.master = this.ctx.createGain();
-    this.master.gain.value = 0.2;
-    this.master.connect(this.ctx.destination);
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.2;
+      this.master.connect(this.ctx.destination);
+    } catch (e) {
+      console.warn('Audio init failed:', e);
+    }
   }
 
   startBGM() {
-    if (this.isPlaying) return;
+    if (this.isPlaying || !this.ctx) return;
     this.isPlaying = true;
-    this.init();
-
-    // Relaxing island chords
+    
     const chords = [
-      [523.25, 659.25, 783.99], // C major
-      [587.33, 739.99, 880.00], // D major
-      [659.25, 783.99, 987.77], // E minor
-      [493.88, 622.25, 739.99], // G major
+      [523.25, 659.25, 783.99],
+      [587.33, 739.99, 880.00],
+      [659.25, 783.99, 987.77],
+      [493.88, 622.25, 739.99],
     ];
     
     let chordIndex = 0;
     
     const playChord = () => {
-      if (!this.isPlaying) return;
+      if (!this.isPlaying || !this.ctx) return;
       
       const chord = chords[chordIndex];
       chord.forEach((freq) => {
@@ -98,39 +99,43 @@ class IslandAudio {
   sfx(name) {
     if (!this.ctx) return;
     
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    gain.connect(this.master);
-    
-    switch(name) {
-      case 'step':
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(200, this.ctx.currentTime);
-        gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.05);
-        break;
-        
-      case 'collect':
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1760, this.ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15);
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.15);
-        break;
-        
-      case 'pop':
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(600, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1200, this.ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.1);
-        break;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      gain.connect(this.master);
+      
+      switch(name) {
+        case 'step':
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+          gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.05);
+          break;
+          
+        case 'collect':
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(1760, this.ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.15);
+          break;
+          
+        case 'pop':
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(600, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(1200, this.ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.1);
+          break;
+      }
+    } catch (e) {
+      console.warn('SFX error:', e);
     }
   }
 
@@ -140,26 +145,30 @@ class IslandAudio {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT — Point & Click Candy Island
+// MAIN COMPONENT — Fixed Point & Click
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function CandyIslandPointClick() {
+export default function CandyIslandFixed() {
   const mountRef = useRef(null);
-  const [gameState, setGameState] = useState('start');
+  const [uiState, setUiState] = useState('start'); // For UI only
   const [bells, setBells] = useState(0);
   const [items, setItems] = useState({ flowers: 0, bugs: 0, fish: 0, fruit: 0 });
   const [time, setTime] = useState(new Date());
   const [message, setMessage] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   
+  // Game state in ref to avoid closure issues
   const gameRef = useRef({
+    isPlaying: false,
     scene: null,
     camera: null,
     renderer: null,
     player: null,
+    playerBody: null,
     targetMarker: null,
     raycaster: new THREE.Raycaster(),
     mouse: new THREE.Vector2(),
+    groundPlane: null,
     audio: new IslandAudio(),
     targetPosition: null,
     isMoving: false,
@@ -168,6 +177,7 @@ export default function CandyIslandPointClick() {
     collectibles: [],
     lastTime: 0,
     stepTimer: 0,
+    cameraOffset: new THREE.Vector3(20, CONFIG.cameraHeight, 20),
   });
 
   const showMessage = useCallback((text) => {
@@ -177,17 +187,21 @@ export default function CandyIslandPointClick() {
 
   useEffect(() => {
     const container = mountRef.current;
-    if (!container) return;
+    if (!container) {
+      console.error('No container ref!');
+      return;
+    }
+    
     const g = gameRef.current;
+    console.log('Initializing game...');
 
     // ─── 1. Scene Setup ─────────────────────────────────────────────────────
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(COLORS.sky);
-    scene.fog = new THREE.Fog(COLORS.sky, 30, 90);
+    scene.fog = new THREE.Fog(COLORS.sky, 40, 120);
     g.scene = scene;
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 200);
-    // Isometric-style camera position
     camera.position.set(20, CONFIG.cameraHeight, 20);
     g.camera = camera;
 
@@ -198,6 +212,8 @@ export default function CandyIslandPointClick() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
     g.renderer = renderer;
+
+    console.log('Renderer created');
 
     // ─── 2. Lighting ──────────────────────────────────────────────────────────
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -215,7 +231,7 @@ export default function CandyIslandPointClick() {
     sunLight.shadow.bias = -0.0005;
     scene.add(sunLight);
 
-    // ─── 3. Ground (Clickable Island) ────────────────────────────────────
+    // ─── 3. Ground (CLICKABLE) ─────────────────────────────────────────────
     const groundGeo = new THREE.CircleGeometry(CONFIG.worldSize, 64);
     const groundMat = new THREE.MeshStandardMaterial({ 
       color: COLORS.grass,
@@ -224,8 +240,11 @@ export default function CandyIslandPointClick() {
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
-    ground.name = 'ground'; // For raycasting identification
+    ground.name = 'ground';
     scene.add(ground);
+    g.groundPlane = ground;
+    
+    console.log('Ground created at y=0');
 
     // Hills
     for (let i = 0; i < 6; i++) {
@@ -333,11 +352,12 @@ export default function CandyIslandPointClick() {
       g.collectibles.push(createFlower(Math.cos(angle) * dist, Math.sin(angle) * dist, color));
     }
 
-    // ─── 6. Player Character (Cute Bunny) ───────────────────────────────────
+    // ─── 6. Player Character ────────────────────────────────────────────────
     const playerGroup = new THREE.Group();
     playerGroup.position.set(0, 0, 0);
     scene.add(playerGroup);
     g.player = playerGroup;
+    console.log('Player created at:', playerGroup.position);
 
     // Body
     const bodyGeo = new THREE.SphereGeometry(0.6, 16, 16);
@@ -346,6 +366,7 @@ export default function CandyIslandPointClick() {
     body.position.y = 0.6;
     body.castShadow = true;
     playerGroup.add(body);
+    g.playerBody = body;
 
     // Ears
     const earGeo = new THREE.CapsuleGeometry(0.15, 0.6, 4, 8);
@@ -381,7 +402,7 @@ export default function CandyIslandPointClick() {
     playerGroup.add(leftBlush);
     playerGroup.add(rightBlush);
 
-    // ─── 7. Target Marker (Shows where you clicked) ─────────────────────────
+    // ─── 7. Target Marker ───────────────────────────────────────────────────
     const markerGeo = new THREE.RingGeometry(0.3, 0.5, 16);
     const markerMat = new THREE.MeshBasicMaterial({ 
       color: COLORS.targetMarker, 
@@ -396,58 +417,71 @@ export default function CandyIslandPointClick() {
     scene.add(targetMarker);
     g.targetMarker = targetMarker;
 
-    // ─── 8. Camera Setup ──────────────────────────────────────────────────────
-    camera.lookAt(playerGroup.position);
-
-    // ─── 9. Click Handler (Point & Click Movement!) ────────────────────────
+    // ─── 8. CLICK HANDLER (The important part!) ─────────────────────────────
     const handleClick = (e) => {
-      if (gameState !== 'play') return;
+      console.log('Click detected! Game playing:', g.isPlaying);
+      
+      if (!g.isPlaying) {
+        console.log('Game not playing yet, ignoring click');
+        return;
+      }
 
-      // Calculate mouse position in normalized device coordinates
+      // Get click position relative to canvas
       const rect = renderer.domElement.getBoundingClientRect();
-      g.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      g.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      
+      g.mouse.set(x, y);
+      console.log('Mouse NDC:', x, y);
 
-      // Raycast from camera through mouse position
+      // Raycast
       g.raycaster.setFromCamera(g.mouse, camera);
+      const intersects = g.raycaster.intersectObjects(scene.children, true);
+      console.log('Intersects found:', intersects.length);
 
-      // Intersect with ground
-      const intersects = g.raycaster.intersectObjects(scene.children);
-      const groundHit = intersects.find(hit => hit.object.name === 'ground');
+      // Find ground hit
+      const groundHit = intersects.find(hit => {
+        // Check if we hit the ground plane or beach
+        return hit.object.name === 'ground' || hit.object.parent?.name === 'ground';
+      });
 
       if (groundHit) {
-        // Set target position
-        g.targetPosition = groundHit.point;
-        g.targetPosition.y = 0; // Keep on ground
+        console.log('Ground hit at:', groundHit.point);
+        
+        // Set target
+        g.targetPosition = groundHit.point.clone();
+        g.targetPosition.y = 0;
         g.isMoving = true;
         
-        // Show target marker
+        // Show marker
         targetMarker.position.copy(g.targetPosition);
         targetMarker.position.y = 0.1;
         targetMarker.visible = true;
         
-        // Calculate direction to face
+        // Calculate rotation to face target
         const direction = new THREE.Vector3().subVectors(g.targetPosition, playerGroup.position);
         direction.y = 0;
-        if (direction.length() > 0) {
+        if (direction.length() > 0.1) {
           const targetRotation = Math.atan2(direction.x, direction.z);
-          // Smooth rotation will happen in animate loop
           playerGroup.userData.targetRotation = targetRotation;
+          console.log('Will rotate to:', targetRotation);
         }
         
-        // Pop sound effect
         g.audio.sfx('pop');
         
         // Hide marker after delay
         setTimeout(() => {
           targetMarker.visible = false;
-        }, 1000);
+        }, 1500);
+      } else {
+        console.log('No ground hit found');
       }
     };
 
     container.addEventListener('click', handleClick);
+    console.log('Click listener attached');
 
-    // Shift to run
+    // Keyboard for running
     const handleKeyDown = (e) => {
       if (e.code === 'ShiftLeft') setIsRunning(true);
     };
@@ -457,7 +491,7 @@ export default function CandyIslandPointClick() {
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
 
-    // ─── 10. Resize Handler ─────────────────────────────────────────────────
+    // ─── 9. Resize ───────────────────────────────────────────────────────────
     const handleResize = () => {
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
@@ -465,7 +499,7 @@ export default function CandyIslandPointClick() {
     };
     window.addEventListener('resize', handleResize);
 
-    // ─── 11. Game Loop ──────────────────────────────────────────────────────
+    // ─── 10. GAME LOOP ───────────────────────────────────────────────────────
     const clock = new THREE.Clock();
     
     const animate = () => {
@@ -474,38 +508,48 @@ export default function CandyIslandPointClick() {
       const delta = Math.min(clock.getDelta(), 0.1);
       const time = clock.getElapsedTime();
       
-      if (gameState === 'play') {
-        // Point & Click Movement
+      // Use ref for game state, not React state!
+      if (g.isPlaying) {
+        
+        // MOVEMENT LOGIC
         if (g.isMoving && g.targetPosition) {
-          const direction = new THREE.Vector3().subVectors(g.targetPosition, playerGroup.position);
-          direction.y = 0;
-          const distance = direction.length();
+          const currentPos = playerGroup.position;
+          const targetPos = g.targetPosition;
           
-          if (distance > 0.1) {
-            direction.normalize();
+          // Calculate distance
+          const dx = targetPos.x - currentPos.x;
+          const dz = targetPos.z - currentPos.z;
+          const distance = Math.sqrt(dx * dx + dz * dz);
+          
+          console.log('Moving... Distance:', distance.toFixed(2));
+          
+          if (distance > 0.2) {
+            // Normalize direction
+            const dirX = dx / distance;
+            const dirZ = dz / distance;
             
-            // Smooth rotation to face target
+            // Smooth rotation
             if (playerGroup.userData.targetRotation !== undefined) {
               let currentRot = playerGroup.rotation.y;
               let targetRot = playerGroup.userData.targetRotation;
               
-              // Shortest path rotation
+              // Shortest path
               let diff = targetRot - currentRot;
               while (diff > Math.PI) diff -= Math.PI * 2;
               while (diff < -Math.PI) diff += Math.PI * 2;
               
-              playerGroup.rotation.y += diff * 10 * delta;
+              playerGroup.rotation.y += diff * 8 * delta;
             }
             
-            // Move towards target
+            // Move
             const speed = isRunning ? CONFIG.runSpeed : CONFIG.walkSpeed;
             const moveStep = speed * delta;
             const actualMove = Math.min(moveStep, distance);
             
-            playerGroup.position.x += direction.x * actualMove;
-            playerGroup.position.z += direction.z * actualMove;
+            currentPos.x += dirX * actualMove;
+            currentPos.z += dirZ * actualMove;
             
-            // Walking animation (bobbing)
+            // Bobbing animation
             const bobSpeed = isRunning ? 15 : 10;
             body.position.y = 0.6 + Math.abs(Math.sin(time * bobSpeed)) * 0.15;
             
@@ -517,30 +561,26 @@ export default function CandyIslandPointClick() {
               g.stepTimer = 0;
             }
           } else {
-            // Arrived at destination
+            // Arrived!
+            console.log('Arrived at destination!');
             g.isMoving = false;
             g.targetPosition = null;
             body.position.y = 0.6;
             targetMarker.visible = false;
           }
         } else {
-          // Idle breathing animation
+          // Idle animation
           body.position.y = 0.6 + Math.sin(time * 2) * 0.02;
-          body.scale.set(
-            1 + Math.sin(time * 2) * 0.01,
-            1 - Math.sin(time * 2) * 0.01,
-            1 + Math.sin(time * 2) * 0.01
-          );
         }
         
-        // Camera follow player (smooth)
+        // Camera follow (smooth)
         const targetCamPos = new THREE.Vector3(
-          playerGroup.position.x + 20,
-          CONFIG.cameraHeight,
-          playerGroup.position.z + 20
+          playerGroup.position.x + g.cameraOffset.x,
+          g.cameraOffset.y,
+          playerGroup.position.z + g.cameraOffset.z
         );
         camera.position.lerp(targetCamPos, delta * 2);
-        camera.lookAt(playerGroup.position);
+        camera.lookAt(playerGroup.position.x, 0.5, playerGroup.position.z);
         
         // Animate collectibles
         g.collectibles.forEach(c => {
@@ -568,10 +608,10 @@ export default function CandyIslandPointClick() {
           }
         });
         
-        // Animate target marker
+        // Animate marker
         if (targetMarker.visible) {
-          targetMarker.rotation.z += delta * 2;
-          const scale = 1 + Math.sin(time * 10) * 0.2;
+          targetMarker.rotation.z += delta * 3;
+          const scale = 1 + Math.sin(time * 8) * 0.2;
           targetMarker.scale.set(scale, scale, scale);
         }
       }
@@ -580,11 +620,13 @@ export default function CandyIslandPointClick() {
     };
 
     animate();
+    console.log('Animation loop started');
 
     // Update time
     const timeInterval = setInterval(() => setTime(new Date()), 60000);
 
     return () => {
+      console.log('Cleaning up...');
       clearInterval(timeInterval);
       container.removeEventListener('click', handleClick);
       document.removeEventListener('keydown', handleKeyDown);
@@ -593,11 +635,14 @@ export default function CandyIslandPointClick() {
       renderer.dispose();
       g.audio.stop();
     };
-  }, [gameState, isRunning, showMessage]);
+  }, [isRunning, showMessage]); // Only depend on things that change during gameplay
 
   // Start game
   const startGame = () => {
-    setGameState('play');
+    console.log('Starting game!');
+    setUiState('play');
+    gameRef.current.isPlaying = true;
+    gameRef.current.audio.init();
     gameRef.current.audio.startBGM();
   };
 
@@ -608,9 +653,8 @@ export default function CandyIslandPointClick() {
       position: 'relative', 
       overflow: 'hidden', 
       background: '#87ceeb',
-      cursor: gameState === 'play' ? 'crosshair' : 'default'
     }}>
-      <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
+      <div ref={mountRef} style={{ width: '100%', height: '100%', cursor: uiState === 'play' ? 'crosshair' : 'default' }} />
       
       {/* Vignette */}
       <div style={{
@@ -622,9 +666,9 @@ export default function CandyIslandPointClick() {
       }} />
 
       {/* HUD */}
-      {gameState === 'play' && (
+      {uiState === 'play' && (
         <>
-          {/* Top Left — Bells */}
+          {/* Bells */}
           <div style={{
             position: 'absolute',
             top: 20,
@@ -649,7 +693,7 @@ export default function CandyIslandPointClick() {
             </div>
           </div>
 
-          {/* Top Right — Time */}
+          {/* Time */}
           <div style={{
             position: 'absolute',
             top: 20,
@@ -674,7 +718,7 @@ export default function CandyIslandPointClick() {
             </div>
           </div>
 
-          {/* Bottom Left — Items */}
+          {/* Items */}
           <div style={{
             position: 'absolute',
             bottom: 20,
@@ -684,10 +728,10 @@ export default function CandyIslandPointClick() {
             zIndex: 20,
           }}>
             {[
-              { icon: '🌸', count: items.flowers, color: '#FFB6C1', label: 'Flowers' },
-              { icon: '🦋', count: items.bugs, color: '#98FB98', label: 'Bugs' },
-              { icon: '🐟', count: items.fish, color: '#87CEEB', label: 'Fish' },
-              { icon: '🍎', count: items.fruit, color: '#FFA07A', label: 'Fruit' },
+              { icon: '🌸', count: items.flowers, color: '#FFB6C1' },
+              { icon: '🦋', count: items.bugs, color: '#98FB98' },
+              { icon: '🐟', count: items.fish, color: '#87CEEB' },
+              { icon: '🍎', count: items.fruit, color: '#FFA07A' },
             ].map((item, i) => (
               <div key={i} style={{
                 background: 'rgba(255, 255, 255, 0.95)',
@@ -699,11 +743,7 @@ export default function CandyIslandPointClick() {
                 alignItems: 'center',
                 gap: '8px',
                 fontFamily: '"Comic Sans MS", sans-serif',
-                transition: 'transform 0.2s',
-              }}
-              onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
-              onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-              >
+              }}>
                 <span style={{ fontSize: '24px' }}>{item.icon}</span>
                 <div>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#333' }}>{item.count}</div>
@@ -713,7 +753,7 @@ export default function CandyIslandPointClick() {
             ))}
           </div>
 
-          {/* Bottom Right — Controls */}
+          {/* Controls */}
           <div style={{
             position: 'absolute',
             bottom: 20,
@@ -725,14 +765,13 @@ export default function CandyIslandPointClick() {
             fontFamily: '"Comic Sans MS", sans-serif',
             fontSize: '14px',
             zIndex: 20,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
           }}>
             <div style={{ marginBottom: '5px', fontWeight: 'bold', color: '#FFD700' }}>Controls:</div>
             <div>🖱️ Click ground — Walk there</div>
             <div>🏃 Shift — Run faster</div>
           </div>
 
-          {/* Center Message */}
+          {/* Message */}
           {message && (
             <div style={{
               position: 'absolute',
@@ -749,8 +788,8 @@ export default function CandyIslandPointClick() {
               fontWeight: 'bold',
               color: '#333',
               zIndex: 30,
-              animation: 'bounceIn 0.4s ease-out',
               pointerEvents: 'none',
+              animation: 'bounceIn 0.4s ease-out',
             }}>
               {message}
             </div>
@@ -759,7 +798,7 @@ export default function CandyIslandPointClick() {
       )}
 
       {/* Start Screen */}
-      {gameState === 'start' && (
+      {uiState === 'start' && (
         <div 
           onClick={startGame}
           style={{
@@ -792,17 +831,11 @@ export default function CandyIslandPointClick() {
             textShadow: '3px 3px 6px rgba(0,0,0,0.3)',
             marginBottom: '50px',
             textAlign: 'center',
-            maxWidth: '600px',
           }}>
             Click anywhere to walk there!<br/>
             Collect flowers and explore 🌸
           </p>
-          <div style={{ 
-            fontSize: '56px', 
-            animation: 'wiggle 2s ease-in-out infinite',
-            display: 'flex',
-            gap: '20px'
-          }}>
+          <div style={{ fontSize: '56px', animation: 'wiggle 2s ease-in-out infinite', display: 'flex', gap: '20px' }}>
             🐰 🌺 🦋 🍃 🌳
           </div>
           
