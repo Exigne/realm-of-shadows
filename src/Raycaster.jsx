@@ -27,37 +27,181 @@ const FOG_NEAR   = 1;
 const FOG_FAR    = 16;
 const PICKUP_N   = 10;
 const TEX        = 128;
-const SPRITE_SIZE = 128; // Pixel art resolution
+const SPRITE_SIZE = 128;
 
 const mc = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h || w; return c; };
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TEXTURE GENERATORS  (pixel-art, NearestFilter-ready)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function genStone() {
+  const c = mc(TEX, TEX);
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  // Base grey
+  ctx.fillStyle = '#2e2a26';
+  ctx.fillRect(0, 0, TEX, TEX);
+
+  // Irregular stone blocks
+  const blocks = [
+    [0,0,42,28],[42,0,42,28],[84,0,44,28],
+    [0,28,54,30],[54,28,74,30],
+    [0,58,38,28],[38,58,50,28],[88,58,40,28],
+    [0,86,TEX,42],
+  ];
+  const shades = ['#3a3530','#332e2a','#3f3a34','#2a2622'];
+  blocks.forEach(([x,y,w,h], i) => {
+    ctx.fillStyle = shades[i % shades.length];
+    ctx.fillRect(x+1, y+1, w-2, h-2);
+    // mortar gap
+    ctx.fillStyle = '#1a1714';
+    ctx.fillRect(x, y, w, 1);
+    ctx.fillRect(x, y, 1, h);
+  });
+
+  // Noise
+  const id = ctx.getImageData(0,0,TEX,TEX); const d = id.data;
+  for (let i=0;i<d.length;i+=4) { const n=(Math.random()-0.5)*22; d[i]+=n;d[i+1]+=n;d[i+2]+=n; }
+  ctx.putImageData(id,0,0);
+  return c;
+}
+
+function genBrick() {
+  const c = mc(TEX, TEX);
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  ctx.fillStyle = '#1a0a04';
+  ctx.fillRect(0, 0, TEX, TEX);
+
+  const brickH = 16, brickW = 32;
+  const rows = Math.ceil(TEX / brickH);
+  const brickShades = ['#6b1a0a','#5a1408','#721e0c','#601810'];
+
+  for (let row=0; row<rows; row++) {
+    const offset = (row % 2 === 0) ? 0 : brickW / 2;
+    const cols = Math.ceil((TEX + brickW) / brickW);
+    for (let col=0; col<cols; col++) {
+      const bx = col * brickW - offset;
+      const by = row * brickH;
+      ctx.fillStyle = brickShades[(row*3+col) % brickShades.length];
+      ctx.fillRect(bx+1, by+1, brickW-2, brickH-2);
+    }
+  }
+
+  const id = ctx.getImageData(0,0,TEX,TEX); const d = id.data;
+  for (let i=0;i<d.length;i+=4) { const n=(Math.random()-0.5)*18; d[i]+=n;d[i+1]+=n;d[i+2]+=n; }
+  ctx.putImageData(id,0,0);
+  return c;
+}
+
+function genWood() {
+  const c = mc(TEX, TEX);
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  ctx.fillStyle = '#2a1406';
+  ctx.fillRect(0, 0, TEX, TEX);
+
+  // Plank lines
+  const plankW = 16;
+  const planks = Math.ceil(TEX / plankW);
+  const woodShades = ['#3a1e08','#32190a','#3e2008','#2e1806'];
+  for (let i=0; i<planks; i++) {
+    ctx.fillStyle = woodShades[i % woodShades.length];
+    ctx.fillRect(i*plankW+1, 0, plankW-2, TEX);
+  }
+
+  // Grain lines
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 1;
+  for (let y=0; y<TEX; y+=4) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + Math.sin(y*0.3)*2);
+    ctx.lineTo(TEX, y + Math.sin(y*0.3+2)*2);
+    ctx.stroke();
+  }
+
+  const id = ctx.getImageData(0,0,TEX,TEX); const d = id.data;
+  for (let i=0;i<d.length;i+=4) { const n=(Math.random()-0.5)*14; d[i]+=n;d[i+1]*=0.98;d[i+2]*=0.95; }
+  ctx.putImageData(id,0,0);
+  return c;
+}
+
+function genFloor() {
+  const c = mc(TEX, TEX);
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  ctx.fillStyle = '#0e0c0a';
+  ctx.fillRect(0, 0, TEX, TEX);
+
+  // Flagstone grid
+  const tileSize = 32;
+  const tiles = TEX / tileSize;
+  const tileShades = ['#181412','#141210','#1c1614','#120f0d'];
+  for (let ty=0; ty<tiles; ty++) {
+    for (let tx=0; tx<tiles; tx++) {
+      ctx.fillStyle = tileShades[(ty*tiles+tx) % tileShades.length];
+      ctx.fillRect(tx*tileSize+1, ty*tileSize+1, tileSize-2, tileSize-2);
+    }
+  }
+
+  const id = ctx.getImageData(0,0,TEX,TEX); const d = id.data;
+  for (let i=0;i<d.length;i+=4) { const n=(Math.random()-0.5)*12; d[i]+=n;d[i+1]+=n;d[i+2]+=n; }
+  ctx.putImageData(id,0,0);
+  return c;
+}
+
+function genCeiling() {
+  const c = mc(TEX, TEX);
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  ctx.fillStyle = '#070508';
+  ctx.fillRect(0, 0, TEX, TEX);
+
+  // Dark stone ceiling blocks
+  const tileSize = 40;
+  const tilesX = Math.ceil(TEX / tileSize);
+  const tilesY = Math.ceil(TEX / tileSize);
+  const shades = ['#0d0a10','#0a0810','#100c12','#08060e'];
+  for (let ty=0; ty<tilesY; ty++) {
+    const offset = (ty%2===0) ? 0 : tileSize/2;
+    for (let tx=0; tx<tilesX+1; tx++) {
+      ctx.fillStyle = shades[(ty*4+tx) % shades.length];
+      ctx.fillRect(tx*tileSize-offset+1, ty*tileSize+1, tileSize-2, tileSize-2);
+    }
+  }
+
+  const id = ctx.getImageData(0,0,TEX,TEX); const d = id.data;
+  for (let i=0;i<d.length;i+=4) { const n=(Math.random()-0.5)*10; d[i]+=n;d[i+1]+=n;d[i+2]+=n; }
+  ctx.putImageData(id,0,0);
+  return c;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  RETRO PIXEL ART ENEMY SPRITE GENERATOR
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Generate a complete enemy sprite sheet
 function generateEnemySpriteSheet(type = 'imp') {
   const frames = [];
   const isRed = type === 'stalker' || type === 'imp';
   const mainColor = isRed ? '#8B0000' : '#2F4F2F';
   const glowColor = isRed ? '#FF0000' : '#00FF44';
   
-  // Generate 8 walking frames + 4 attack frames
   for (let frame = 0; frame < 12; frame++) {
     const c = mc(SPRITE_SIZE, SPRITE_SIZE);
     const ctx = c.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    
-    // Clear with transparency
     ctx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
     
     const cx = SPRITE_SIZE / 2;
     const baseY = SPRITE_SIZE * 0.85;
     const walkBob = frame < 8 ? Math.sin(frame * Math.PI / 4) * 4 : 0;
-    const attackLunge = frame >= 8 ? (frame - 8) * 8 : 0;
     
-    // ─── BODY ───
-    // Hunched back - pixelated curve
     ctx.fillStyle = mainColor;
     for (let y = 0; y < 40; y++) {
       const width = 30 + Math.sin(y * 0.1) * 10;
@@ -65,23 +209,18 @@ function generateEnemySpriteSheet(type = 'imp') {
       ctx.fillRect(x, baseY - 60 + y - walkBob, width, 1);
     }
     
-    // ─── RIBS (exposed) ───
     ctx.fillStyle = '#4A0000';
     for (let i = 0; i < 4; i++) {
       const ribY = baseY - 45 + i * 8 - walkBob;
       ctx.fillRect(cx - 20 + i * 2, ribY, 40 - i * 4, 3);
     }
     
-    // ─── HEAD ───
-    // Skull-like, elongated
     const headY = baseY - 75 + walkBob;
     ctx.fillStyle = '#3D0000';
-    // Cranium
     for (let y = 0; y < 25; y++) {
       const w = 20 - y * 0.3;
       ctx.fillRect(cx - w/2, headY + y, w, 1);
     }
-    // Jaw (unhinged in attack frames)
     const jawOpen = frame >= 8 ? (frame - 8) * 0.3 : 0.1;
     ctx.fillStyle = '#2A0000';
     for (let y = 0; y < 15; y++) {
@@ -89,41 +228,26 @@ function generateEnemySpriteSheet(type = 'imp') {
       ctx.fillRect(cx - w/2, headY + 20 + y + jawOpen * 10, w, 1);
     }
     
-    // ─── EYES ───
-    // Glowing, multiple, wrong positions
     const eyeGlow = frame >= 8 ? '#FFFFFF' : glowColor;
     ctx.fillStyle = eyeGlow;
-    // Left eye
     ctx.fillRect(cx - 8, headY + 8, 4, 4);
-    // Right eye  
     ctx.fillRect(cx + 4, headY + 8, 4, 4);
-    // Third eye (forehead - creepy!)
-    if (isRed) {
-      ctx.fillRect(cx - 2, headY + 2, 4, 3);
-    }
-    
-    // Eye glow effect
+    if (isRed) ctx.fillRect(cx - 2, headY + 2, 4, 3);
     ctx.shadowColor = glowColor;
     ctx.shadowBlur = 10;
     ctx.fillRect(cx - 8, headY + 8, 4, 4);
     ctx.fillRect(cx + 4, headY + 8, 4, 4);
     ctx.shadowBlur = 0;
     
-    // ─── ARMS ───
-    // Long, reaching, claws
-    const armSwing = frame < 8 ? Math.sin(frame * Math.PI / 2) * 15 : 
+    const armSwing = frame < 8 ? Math.sin(frame * Math.PI / 2) * 15 :
                      frame === 8 ? -20 : frame === 9 ? -35 : frame === 10 ? -25 : -10;
-    
     ctx.fillStyle = mainColor;
-    // Left arm
     ctx.beginPath();
     ctx.moveTo(cx - 15, baseY - 50 + walkBob);
     ctx.lineTo(cx - 25 + armSwing, baseY - 20 + walkBob);
     ctx.lineTo(cx - 20 + armSwing, baseY - 20 + walkBob);
     ctx.lineTo(cx - 12, baseY - 45 + walkBob);
     ctx.fill();
-    
-    // Right arm (opposite phase)
     const rightSwing = -armSwing;
     ctx.beginPath();
     ctx.moveTo(cx + 15, baseY - 50 + walkBob);
@@ -132,9 +256,7 @@ function generateEnemySpriteSheet(type = 'imp') {
     ctx.lineTo(cx + 12, baseY - 45 + walkBob);
     ctx.fill();
     
-    // ─── CLAWS ───
     ctx.fillStyle = '#1A1A1A';
-    // Left claw
     const clawX = cx - 25 + armSwing;
     const clawY = baseY - 20 + walkBob;
     for (let i = 0; i < 3; i++) {
@@ -144,7 +266,6 @@ function generateEnemySpriteSheet(type = 'imp') {
       ctx.lineTo(clawX + i * 3 + 2, clawY + 12 + (frame >= 8 ? 5 : 0));
       ctx.fill();
     }
-    // Right claw
     const rClawX = cx + 25 + rightSwing;
     for (let i = 0; i < 3; i++) {
       ctx.beginPath();
@@ -154,37 +275,21 @@ function generateEnemySpriteSheet(type = 'imp') {
       ctx.fill();
     }
     
-    // ─── LEGS ───
     ctx.fillStyle = '#2A0000';
     const legOffset = frame < 8 ? Math.sin(frame * Math.PI / 2) * 8 : 0;
-    // Left leg
     ctx.fillRect(cx - 12 + legOffset, baseY - 15 + walkBob, 8, 15);
-    // Right leg (opposite)
     ctx.fillRect(cx + 4 - legOffset, baseY - 15 + walkBob, 8, 15);
     
-    // ─── HORNS/SPIKES (for red enemies) ───
     if (isRed) {
       ctx.fillStyle = '#4A0000';
-      // Left horn
-      ctx.beginPath();
-      ctx.moveTo(cx - 8, headY);
-      ctx.lineTo(cx - 15, headY - 12);
-      ctx.lineTo(cx - 5, headY - 2);
-      ctx.fill();
-      // Right horn
-      ctx.beginPath();
-      ctx.moveTo(cx + 8, headY);
-      ctx.lineTo(cx + 15, headY - 12);
-      ctx.lineTo(cx + 5, headY - 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.moveTo(cx - 8, headY); ctx.lineTo(cx - 15, headY - 12); ctx.lineTo(cx - 5, headY - 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(cx + 8, headY); ctx.lineTo(cx + 15, headY - 12); ctx.lineTo(cx + 5, headY - 2); ctx.fill();
     }
     
-    // ─── PIXELATION EFFECT ───
-    // Add noise for retro texture
     const imageData = ctx.getImageData(0, 0, SPRITE_SIZE, SPRITE_SIZE);
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 3] > 0) { // If not transparent
+      if (data[i + 3] > 0) {
         const noise = (Math.random() - 0.5) * 20;
         data[i] = Math.max(0, Math.min(255, data[i] + noise));
         data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
@@ -192,53 +297,42 @@ function generateEnemySpriteSheet(type = 'imp') {
       }
     }
     ctx.putImageData(imageData, 0, 0);
-    
     frames.push(c);
   }
   
-  // Death frames (4 frames of collapsing)
   for (let frame = 0; frame < 4; frame++) {
     const c = mc(SPRITE_SIZE, SPRITE_SIZE);
     const ctx = c.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
-    
     const collapse = frame * 0.25;
     const cx = SPRITE_SIZE / 2;
     const baseY = SPRITE_SIZE * 0.85 + frame * 10;
-    
     ctx.fillStyle = mainColor;
-    // Flattened body
     for (let y = 0; y < 20 * (1 - collapse); y++) {
       const width = 40 * (1 - collapse * 0.5);
       ctx.fillRect(cx - width/2, baseY - 30 + y, width, 1);
     }
-    
-    // X eyes
     ctx.fillStyle = '#000000';
-    ctx.fillRect(cx - 8, baseY - 40, 6, 2);
-    ctx.fillRect(cx - 8, baseY - 42, 2, 6);
-    ctx.fillRect(cx + 2, baseY - 40, 6, 2);
-    ctx.fillRect(cx + 2, baseY - 42, 2, 6);
-    
+    ctx.fillRect(cx - 8, baseY - 40, 6, 2); ctx.fillRect(cx - 8, baseY - 42, 2, 6);
+    ctx.fillRect(cx + 2, baseY - 40, 6, 2); ctx.fillRect(cx + 2, baseY - 42, 2, 6);
     frames.push(c);
   }
   
   return frames;
 }
 
-// Create a sprite enemy
 function createSpriteEnemy(type = 'stalker') {
   const frames = generateEnemySpriteSheet(type);
   const textures = frames.map(canvas => {
     const tex = new THREE.CanvasTexture(canvas);
-    tex.magFilter = THREE.NearestFilter; // Pixelated look
+    tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   });
   
-  const material = new THREE.SpriteMaterial({ 
+  const material = new THREE.SpriteMaterial({
     map: textures[0],
     color: 0xffffff,
     sizeAttenuation: true,
@@ -247,12 +341,9 @@ function createSpriteEnemy(type = 'stalker') {
   });
   
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(1.5, 1.5, 1); // World size
-  
-  // Center the sprite
+  sprite.scale.set(1.5, 1.5, 1);
   sprite.center.set(0.5, 0.5);
   
-  // Glow light
   const glowColor = type === 'stalker' ? 0xff0000 : 0x00ff44;
   const light = new THREE.PointLight(glowColor, 2, 4, 2);
   light.position.set(0, 0.8, 0);
@@ -262,25 +353,16 @@ function createSpriteEnemy(type = 'stalker') {
   group.add(light);
   
   group.userData = {
-    type: type,
-    sprite: sprite,
-    material: material,
-    textures: textures,
-    light: light,
+    type, sprite, material, textures, light,
     glowColor: new THREE.Color(glowColor),
     hp: type === 'stalker' ? 3 : 2,
     speed: type === 'stalker' ? 0.015 : 0.025,
-    frame: 0,
-    animTimer: 0,
-    state: 'idle',
-    lastAttack: 0,
-    dead: false
+    frame: 0, animTimer: 0, state: 'idle', lastAttack: 0, dead: false
   };
   
   return group;
 }
 
-// Sprite-based Enemy Manager
 class SpriteEnemyManager {
   constructor(scene, camera) {
     this.scene = scene;
@@ -292,77 +374,43 @@ class SpriteEnemyManager {
     const enemy = createSpriteEnemy(type);
     enemy.position.set(x, 0, z);
     this.scene.add(enemy);
-    
-    this.enemies.push({
-      mesh: enemy,
-      x: x,
-      z: z,
-      hp: enemy.userData.hp,
-      speed: enemy.userData.speed,
-      type: type,
-      state: 'idle',
-      lastAttack: 0
-    });
-    
+    this.enemies.push({ mesh: enemy, x, z, hp: enemy.userData.hp, speed: enemy.userData.speed, type, state: 'idle', lastAttack: 0 });
     return enemy;
   }
   
   update(delta, time, playerPos) {
-    // Update all enemies
     this.enemies.forEach(enemy => {
       if (enemy.hp <= 0 || enemy.mesh.userData.dead) return;
-      
       const data = enemy.mesh.userData;
-      
-      // Animation frame update (8fps for retro feel)
       data.animTimer += delta;
-      if (data.animTimer > 0.125) { // 8fps
+      if (data.animTimer > 0.125) {
         data.animTimer = 0;
-        data.frame = (data.frame + 1) % 8; // Loop walk frames
+        data.frame = (data.frame + 1) % 8;
         data.material.map = data.textures[data.frame];
       }
-      
-      // AI
       const dx = playerPos.x - enemy.x;
       const dz = playerPos.z - enemy.z;
       const dist = Math.sqrt(dx*dx + dz*dz);
-      
       if (dist < 10 && dist > 1.2) {
-        // Chase
         const moveX = (dx / dist) * data.speed;
         const moveZ = (dz / dist) * data.speed;
-        
         if (this.canMove(enemy.x + moveX, enemy.z + moveZ)) {
-          enemy.x += moveX;
-          enemy.z += moveZ;
+          enemy.x += moveX; enemy.z += moveZ;
           enemy.mesh.position.set(enemy.x, 0, enemy.z);
-          
-          // Face player (sprite automatically billboards)
           data.state = 'chase';
         }
       } else if (dist <= 1.2) {
-        // Attack
         if (Date.now() - enemy.lastAttack > 2000) {
-          // Attack animation frames (8-11)
           data.frame = 8;
           data.material.map = data.textures[8];
-          
-          // Flash eyes
           data.light.intensity = 5;
           setTimeout(() => data.light.intensity = 2, 200);
-          
-          // Lunge
           const lungeX = (dx / dist) * 0.3;
           const lungeZ = (dz / dist) * 0.3;
           enemy.mesh.position.x += lungeX;
           enemy.mesh.position.z += lungeZ;
-          
           enemy.lastAttack = Date.now();
-          
-          // Return to walk after attack
-          setTimeout(() => {
-            if (!data.dead) data.frame = 0;
-          }, 400);
+          setTimeout(() => { if (!data.dead) data.frame = 0; }, 400);
         }
         data.state = 'attack';
       } else {
@@ -370,8 +418,6 @@ class SpriteEnemyManager {
         data.frame = 0;
         data.material.map = data.textures[0];
       }
-      
-      // Pulse light
       data.light.intensity = 2 + Math.sin(time * 4) * 0.5;
     });
   }
@@ -385,24 +431,16 @@ class SpriteEnemyManager {
   takeDamage(enemy, damage) {
     enemy.hp -= damage;
     const data = enemy.mesh.userData;
-    
-    // Flash white
     data.material.color.setHex(0xffffff);
     setTimeout(() => data.material.color.setHex(0xffffff), 100);
-    
-    if (enemy.hp <= 0) {
-      this.killEnemy(enemy);
-    }
+    if (enemy.hp <= 0) this.killEnemy(enemy);
   }
   
   killEnemy(enemy) {
     const data = enemy.mesh.userData;
     data.dead = true;
-    
-    // Death animation (frames 12-15)
     let deathFrame = 12;
     data.material.map = data.textures[deathFrame];
-    
     const deathInterval = setInterval(() => {
       deathFrame++;
       if (deathFrame < 16) {
@@ -422,25 +460,16 @@ class SpriteEnemyManager {
   }
   
   checkHit(origin, direction, maxDist = 7) {
-    let hit = null;
-    let bestDist = maxDist;
-    
+    let hit = null, bestDist = maxDist;
     this.enemies.forEach(enemy => {
       if (enemy.hp <= 0 || enemy.mesh.userData.dead) return;
-      
       const dx = enemy.x - origin.x;
       const dz = enemy.z - origin.z;
       const dist = Math.sqrt(dx*dx + dz*dz);
-      
       if (dist > maxDist) return;
-      
       const dot = (dx/dist)*direction.x + (dz/dist)*direction.z;
-      if (dot > 0.85 && dist < bestDist) {
-        bestDist = dist;
-        hit = enemy;
-      }
+      if (dot > 0.85 && dist < bestDist) { bestDist = dist; hit = enemy; }
     });
-    
     return hit;
   }
   
@@ -451,7 +480,7 @@ class SpriteEnemyManager {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  SCARY MUSIC (unchanged)
+//  SCARY MUSIC
 // ═══════════════════════════════════════════════════════════════════════════
 class ScaryMusic {
   constructor() { this.ctx=null; this.master=null; this.nodes=[]; this.timers=[]; this.alive=false; }
@@ -556,29 +585,25 @@ export default function Raycaster({ onEncounter, onPickup }) {
     const container = mountRef.current;
     if (!container) return;
 
-    // ── Renderer ────────────────────────────────────────────────
     const W = container.clientWidth, H = container.clientHeight;
-    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' }); // Disable AA for retro feel
+    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
     renderer.setSize(W, H);
-    renderer.shadowMap.enabled  = false; // Disable shadows for performance
+    renderer.shadowMap.enabled  = false;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
-    // ── Main scene ──────────────────────────────────────────────
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x050208, FOG_NEAR, FOG_FAR);
     scene.background = new THREE.Color(0x050208);
 
-    // ── Camera ──────────────────────────────────────────────────
     const camera = new THREE.PerspectiveCamera(72, W / H, 0.05, 50);
 
-    // ── Textures ────────────────────────────────────────────────
     const toTex = (canvas, rx=1, ry=1) => {
       const t = new THREE.CanvasTexture(canvas);
-      t.magFilter = THREE.NearestFilter; // Pixelated
+      t.magFilter = THREE.NearestFilter;
       t.minFilter = THREE.NearestFilter;
-      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); 
+      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry);
       return t;
     };
     const stoneTex  = toTex(genStone());
@@ -587,14 +612,11 @@ export default function Raycaster({ onEncounter, onPickup }) {
     const floorTex  = toTex(genFloor(), mapWidth/2, mapHeight/2);
     const ceilTex   = toTex(genCeiling(), mapWidth/2, mapHeight/2);
 
-    // ── Materials ───────────────────────────────────────────────
     const makeMat = (tex) => new THREE.MeshLambertMaterial({ map: tex });
     const mats = { 1: makeMat(stoneTex), 3: makeMat(brickTex), 4: makeMat(woodTex) };
 
-    // ── Ambient ─────────────────────────────────────────────────
     scene.add(new THREE.AmbientLight(0x180a08, 0.8));
 
-    // ── Floor & Ceiling ─────────────────────────────────────────
     const floorMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(mapWidth, mapHeight),
       new THREE.MeshLambertMaterial({ map: floorTex })
@@ -611,7 +633,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
     ceilMesh.position.set(mapWidth / 2, WALL_H, mapHeight / 2);
     scene.add(ceilMesh);
 
-    // ── Walls ───────────────────────────────────────────────────
     const wallGeom = new THREE.BoxGeometry(1, WALL_H, 1);
     for (let x = 0; x < mapWidth; x++) {
       for (let z = 0; z < mapHeight; z++) {
@@ -623,7 +644,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
       }
     }
 
-    // ── Torches (fixed lights) ───────────────────────────────────
     const fixedTorches = [];
     for (let x = 1; x < mapWidth - 1; x++) {
       for (let z = 1; z < mapHeight - 1; z++) {
@@ -644,15 +664,11 @@ export default function Raycaster({ onEncounter, onPickup }) {
       }
     }
 
-    // ── Player torch ───────────────────────────────────────────
     const playerLight = new THREE.PointLight(0xff7820, 3.0, 10, 2);
     playerLight.position.set(0, 0, 0);
     scene.add(playerLight);
 
-    // ── SPAWN RETRO SPRITE ENEMIES ────────────────────────────────
     const enemyManager = new SpriteEnemyManager(scene, camera);
-
-    // Use strategic spawn configuration
     enemySpawns.forEach(spawn => {
       if (worldMap[spawn.y][spawn.x] === 0 || worldMap[spawn.y][spawn.x] === 2) {
         const type = spawn.type === 'runner' ? 'runner' : 'stalker';
@@ -660,8 +676,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
         worldMap[spawn.y][spawn.x] = 0;
       }
     });
-
-    // Fill remaining 2's
     for (let y = 0; y < mapHeight; y++) {
       for (let x = 0; x < mapWidth; x++) {
         if (worldMap[y][x] === 2) {
@@ -672,7 +686,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
       }
     }
 
-    // ── Pickups ─────────────────────────────────────────────────
     const open = [];
     for (let y = 2; y < mapHeight - 2; y++)
       for (let x = 2; x < mapWidth - 2; x++)
@@ -696,7 +709,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
       pickups.push({ x: open[i].x, z: open[i].z, type: isCoin ? 'coin' : 'potion', mesh, light: pLight, collected: false, phase: Math.random() * Math.PI * 2 });
     }
 
-    // ── Weapon scene ────────────────────────────────────────────
     const weaponScene  = new THREE.Scene();
     const weaponCamera = new THREE.PerspectiveCamera(62, W / H, 0.01, 10);
     weaponScene.add(new THREE.AmbientLight(0x705030, 1.1));
@@ -716,11 +728,9 @@ export default function Raycaster({ onEncounter, onPickup }) {
       new THREE.MeshBasicMaterial({ color: 0x3050ee })
     );
     orbMesh.position.set(0, 0.36, 0); wGroup.add(orbMesh);
-
     wGroup.position.set(0.28, -0.34, -0.52);
     weaponScene.add(wGroup);
 
-    // ── Player state ────────────────────────────────────────────
     let px = 2.5, pz = 2.5, yaw = 0;
     camera.position.set(px, EYE_H, pz);
     const keys = {};
@@ -729,7 +739,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
     let torchFlicker = 1;
     let frameCount = 0;
 
-    // ── Pointer lock ────────────────────────────────────────────
     const music = new ScaryMusic();
     const canvas = renderer.domElement;
     canvas.addEventListener('click', () => { canvas.requestPointerLock(); music.start(); setHint('playing'); });
@@ -741,22 +750,17 @@ export default function Raycaster({ onEncounter, onPickup }) {
       yaw -= e.movementX * MOUSE_SENS;
     });
 
-    // ── Keyboard ────────────────────────────────────────────────
     const onKD = e => {
       keys[e.key] = true;
       if ((e.key === ' ' || e.code === 'Space') && fireFlashVal <= 0) {
         e.preventDefault();
         fireFlashVal = 1.0;
         music.fireBlast();
-        
         const forward = new THREE.Vector3(); camera.getWorldDirection(forward);
         const hit = enemyManager.checkHit({ x: px, z: pz }, { x: forward.x, z: forward.z });
-        
         if (hit) {
           enemyManager.takeDamage(hit, 1);
-          if (hit.hp <= 1) {
-            setTimeout(() => onEncounterRef.current(), 320);
-          }
+          if (hit.hp <= 1) setTimeout(() => onEncounterRef.current(), 320);
         }
       }
     };
@@ -764,21 +768,18 @@ export default function Raycaster({ onEncounter, onPickup }) {
     window.addEventListener('keydown', onKD);
     window.addEventListener('keyup', onKU);
 
-    // ── Collision helper ────────────────────────────────────────
     const canWalk = (x, z) => {
       if (x < 0 || x >= mapWidth || z < 0 || z >= mapHeight) return false;
       const t = worldMap[Math.floor(z)]?.[Math.floor(x)];
       return t === 0;
     };
 
-    // ── Resize ──────────────────────────────────────────────────
     const onResize = () => {
       const w = container.clientWidth, h = container.clientHeight;
       renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
     };
     window.addEventListener('resize', onResize);
 
-    // ── Minimap draw ────────────────────────────────────────────
     const drawMinimap = () => {
       const mc2 = minimapRef.current; if (!mc2) return;
       const mctx = mc2.getContext('2d'); if (!mctx) return;
@@ -787,13 +788,11 @@ export default function Raycaster({ onEncounter, onPickup }) {
       mctx.fillStyle='rgba(4,3,2,0.88)'; mctx.fillRect(0,0,mW,mH);
       for(let y=0;y<mapHeight;y++)for(let x=0;x<mapWidth;x++){const t=worldMap[y][x];mctx.fillStyle=t===1?'#4a3a24':t===3?'#5a2818':t===4?'#3a2210':'#14110d';mctx.fillRect(x*ts,y*ts,ts,ts);}
       pickups.forEach(p=>{if(p.collected)return;mctx.fillStyle=p.type==='coin'?'#c8a020':'#20c050';mctx.beginPath();mctx.arc(p.x*ts,p.z*ts,2,0,Math.PI*2);mctx.fill();});
-      
       enemyManager.enemies.forEach(e=>{
         if(e.hp<=0)return;
         mctx.fillStyle=e.type==='stalker'?'rgba(220,40,20,0.9)':'rgba(40,220,60,0.9)';
         mctx.beginPath();mctx.arc(e.x*ts,e.z*ts,3,0,Math.PI*2);mctx.fill();
       });
-      
       const ppx=px*ts, ppz=pz*ts;
       const fw=new THREE.Vector3(); camera.getWorldDirection(fw);
       mctx.fillStyle='#e8d070'; mctx.beginPath(); mctx.arc(ppx,ppz,3,0,Math.PI*2); mctx.fill();
@@ -801,7 +800,6 @@ export default function Raycaster({ onEncounter, onPickup }) {
       mctx.beginPath(); mctx.moveTo(ppx,ppz); mctx.lineTo(ppx+fw.x*10,ppz+fw.z*10); mctx.stroke();
     };
 
-    // ── Game loop ───────────────────────────────────────────────
     let rafId;
     const clock = new THREE.Clock();
     
@@ -813,9 +811,7 @@ export default function Raycaster({ onEncounter, onPickup }) {
 
       const playerPos = { x: px, z: pz };
       const forward = new THREE.Vector3(); camera.getWorldDirection(forward);
-      const playerDir = { x: forward.x, z: forward.z };
 
-      // Movement
       const sprint = keys['Shift'] ? 1.65 : 1;
       const ms = MOVE_SPEED * sprint;
       const fw = new THREE.Vector3(); camera.getWorldDirection(fw); fw.y = 0; fw.normalize();
@@ -835,19 +831,13 @@ export default function Raycaster({ onEncounter, onPickup }) {
       if (keys['ArrowLeft'])               { yaw += ROT_SPEED; }
       if (keys['ArrowRight'])              { yaw -= ROT_SPEED; }
 
-      // Check enemy collision
       enemyManager.enemies.forEach(enemy => {
         if (enemy.hp <= 0 || enemy.mesh.userData.dead) return;
-        const dx = px - enemy.x;
-        const dz = pz - enemy.z;
+        const dx = px - enemy.x, dz = pz - enemy.z;
         const dist = Math.sqrt(dx*dx + dz*dz);
-        if (dist < 0.8) {
-          enemyManager.takeDamage(enemy, 999);
-          onEncounterRef.current();
-        }
+        if (dist < 0.8) { enemyManager.takeDamage(enemy, 999); onEncounterRef.current(); }
       });
 
-      // Pickups
       pickups.forEach(pu => {
         if (pu.collected) return;
         const dx=px-pu.x, dz=pz-pu.z;
@@ -858,34 +848,28 @@ export default function Raycaster({ onEncounter, onPickup }) {
         }
       });
 
-      // Camera
       camera.position.set(px, EYE_H + (moving ? Math.sin(bobPhase*8)*0.04 : 0), pz);
       camera.rotation.order = 'YXZ'; camera.rotation.y = yaw; camera.rotation.x = 0;
       if (moving) bobPhase += sprint > 1 ? 0.1 : 0.065;
 
-      // Player torch
       torchFlicker += (Math.random()-0.5)*0.035;
       torchFlicker = Math.max(0.82, Math.min(1.0, torchFlicker));
       playerLight.position.copy(camera.position).add(new THREE.Vector3(fw.x*0.5, 0.1, fw.z*0.5));
       playerLight.intensity = 3.0 * torchFlicker;
 
-      // Fixed torches
       fixedTorches.forEach(t => {
         t.light.intensity = t.base * (0.88 + Math.random()*0.24);
         t.flame.material.color.setHSL(0.06+Math.random()*0.04, 1, 0.5+Math.random()*0.2);
       });
 
-      // Update enemies
       enemyManager.update(delta, time, playerPos);
 
-      // Pickup float
       pickups.forEach(pu => {
         if (pu.collected) return;
         pu.mesh.position.y = 0.28 + Math.sin(frameCount*0.045 + pu.phase)*0.1;
         pu.mesh.rotation.y += 0.025;
       });
 
-      // Fire flash
       if (fireFlashVal > 0) {
         fireFlashVal = Math.max(0, fireFlashVal - 0.05);
         orbMesh.material.color.setHex(0x88aaff);
@@ -897,21 +881,18 @@ export default function Raycaster({ onEncounter, onPickup }) {
         weaponPointLight.intensity = 1.5;
       }
 
-      // Wand sway
       const sway = Math.sin(frameCount*0.025)*0.04;
       const walkSway = moving ? Math.sin(bobPhase*8)*0.018 : 0;
       wGroup.rotation.z = 0.18 + sway;
       wGroup.rotation.x = walkSway;
       wGroup.position.y = -0.34 + (moving ? Math.sin(bobPhase*8)*0.025 : 0);
 
-      // Render
       renderer.autoClear = true;
       renderer.render(scene, camera);
       renderer.autoClear = false; renderer.clearDepth();
       renderer.render(weaponScene, weaponCamera);
       renderer.autoClear = true;
 
-      // Minimap
       if (frameCount % 4 === 0) drawMinimap();
     };
 
@@ -946,7 +927,7 @@ export default function Raycaster({ onEncounter, onPickup }) {
       {hint === 'click_to_start' && (
         <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(3,2,6,0.55)', pointerEvents:'none' }}>
           <div style={{ fontFamily:"'Cinzel',serif", color:'#c8a96e', fontSize:13, letterSpacing:4, marginBottom:10, textShadow:'0 0 20px #c8a96e88' }}>CLICK TO ENTER THE DUNGEON</div>
-          <div style={{ fontFamily:"'Crimson Text',serif', color:'#5a4020', fontSize:12, letterSpacing:2 }}>mouse look · music · full controls</div>
+          <div style={{ fontFamily:"'Crimson Text',serif", color:'#5a4020', fontSize:12, letterSpacing:2 }}>mouse look · music · full controls</div>
         </div>
       )}
       
