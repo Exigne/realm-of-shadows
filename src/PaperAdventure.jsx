@@ -1,9 +1,35 @@
 import React, { useRef, useMemo, useState, useCallback, Suspense, useContext, createContext } from 'react'; import { Canvas, useFrame, useThree } from '@react-three/fiber'; import { Sky, Environment, ContactShadows, SoftShadows, useTexture, Text, Float, Trail, Sparkles, Instance, Instances, Detailed, Billboard, OrbitControls, PerspectiveCamera, Stars } from '@react-three/drei'; import { EffectComposer, Bloom, DepthOfField, Vignette } from '@react-three/postprocessing'; import * as THREE from 'three'; import { createNoise2D } from 'simplex-noise';
 // ═══════════════════════════════════════════════════════════════════════════════ // STATE MANAGEMENT // ═══════════════════════════════════════════════════════════════════════════════
 const GameContext = createContext();
-const useGameStore = () => { const [state, setState] = useState({ bells: 0, items: { flowers: 0, bugs: 0, fish: 0, fruit: 0 }, isRiding: false, isRunning: false, gameTime: 8.0, playerPos: new THREE.Vector3(0, 0, 0), targetPos: null, isMoving: false, dialogue: null, uiState: 'start', });
-const actions = useMemo(() => ({ addBells: (amount) => setState(s => ({ ...s, bells: s.bells + amount })), addItem: (type) => setState(s => ({ ...s, items: { ...s.items, [type]: s.items[type] + 1 } })), setRiding: (val) => setState(s => ({ ...s, isRiding: val })), setRunning: (val) => setState(s => ({ ...s, isRunning: val })), setGameTime: (val) => setState(s => ({ ...s, gameTime: val })), setPlayerPos: (pos) => setState(s => ({ ...s, playerPos: pos })), setTarget: (pos) => setState(s => ({ ...s, targetPos: pos, isMoving: !!pos })), stopMoving: () => setState(s => ({ ...s, isMoving: false, targetPos: null })), setDialogue: (data) => setState(s => ({ ...s, dialogue: data, uiState: data ? 'dialogue' : 'play' })), setUIState: (val) => setState(s => ({ ...s, uiState: val })), }), []);
-return [state, actions]; };
+const useGameStore = () => {
+  const [state, setState] = useState({
+    bells: 0,
+    items: { flowers: 0, bugs: 0, fish: 0, fruit: 0 },
+    isRiding: false,
+    isRunning: false,
+    gameTime: 8.0,
+    playerPos: new THREE.Vector3(0, 0, 0),
+    targetPos: null,
+    isMoving: false,
+    dialogue: null,
+    uiState: 'start',
+  });
+
+  const actions = useMemo(() => ({
+    addBells: (amount) => setState(s => ({ ...s, bells: s.bells + amount })),
+    addItem: (type) => setState(s => ({ ...s, items: { ...s.items, [type]: s.items[type] + 1 } })),
+    setRiding: (val) => setState(s => ({ ...s, isRiding: val })),
+    setRunning: (val) => setState(s => ({ ...s, isRunning: val })),
+    setGameTime: (val) => setState(s => ({ ...s, gameTime: val })),
+    setPlayerPos: (pos) => setState(s => ({ ...s, playerPos: pos })),
+    setTarget: (pos) => setState(s => ({ ...s, targetPos: pos, isMoving: !!pos })),
+    stopMoving: () => setState(s => ({ ...s, isMoving: false, targetPos: null })),
+    setDialogue: (data) => setState(s => ({ ...s, dialogue: data, uiState: data ? 'dialogue' : 'play' })),
+    setUIState: (val) => setState(s => ({ ...s, uiState: val })),
+  }), []);
+
+  return [state, actions];  // ✅ CORRECT
+};
 // ═══════════════════════════════════════════════════════════════════════════════ // AUDIO ENGINE // ═══════════════════════════════════════════════════════════════════════════════
 class SpatialAudio { constructor() { this.ctx = null; this.master = null; this.bgmOscillators = []; this.isPlaying = false; }
 init() { if (this.ctx) return; this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.master = this.ctx.createGain(); this.master.gain.value = 0.3;
