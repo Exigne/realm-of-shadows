@@ -1,7 +1,7 @@
 /**
  * 🏝️ CANDY ISLAND - FULL MULTIPLAYER MERGE
- * - Extended & Fixed Character Legs
- * - Fixed Chat Input (WASD bypass)
+ * - Dynamic Biped/Quadruped Animation Rig (Stand on 2 legs, run on 4!)
+ * - Instant Chat UI (No server lag for local messages)
  * - Procedural "Crunch" and "Splash" footstep audio
  * - Real-Time Multiplayer Sync
  */
@@ -169,26 +169,24 @@ class GameAudio {
   sfx(type) {
     if (!this.ctx) return;
     
-    // NEW: Grass Crunch Footstep
     if (type === 'step') {
       const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.05, this.ctx.sampleRate);
       const d = buf.getChannelData(0);
       for(let i=0; i<d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 2);
       const src = this.ctx.createBufferSource(); src.buffer = buf;
       const filter = this.ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 1000;
-      const gain = this.ctx.createGain(); gain.gain.value = 0.5;
+      const gain = this.ctx.createGain(); gain.gain.value = 0.4;
       src.connect(filter); filter.connect(gain); gain.connect(this.master);
       src.start();
     }
     
-    // NEW: Water Splash Footstep
     if (type === 'splash') {
       const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.15, this.ctx.sampleRate);
       const d = buf.getChannelData(0);
       for(let i=0; i<d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 3);
       const src = this.ctx.createBufferSource(); src.buffer = buf;
       const filter = this.ctx.createBiquadFilter(); filter.type = 'bandpass'; filter.frequency.value = 600; filter.Q.value = 1.0;
-      const gain = this.ctx.createGain(); gain.gain.value = 0.4;
+      const gain = this.ctx.createGain(); gain.gain.value = 0.3;
       src.connect(filter); filter.connect(gain); gain.connect(this.master);
       src.start();
     }
@@ -228,7 +226,7 @@ class GameAudio {
 const audio = new GameAudio();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  CREATURE MESHES (FIXED LEG PROPORTIONS)
+//  CREATURE ANIMATION ENGINE (Biped -> Quadruped Transition)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const matBlack = new THREE.MeshBasicMaterial({ color: '#111' });
@@ -239,142 +237,188 @@ function stdMat(color, opts = {}) {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0, ...opts });
 }
 
-function CatCreature({ color, walkCycle = 0, isMoving = false, isSwimming = false }) {
-  const bodyMat  = useMemo(() => stdMat(color), [color]);
-  const innerCol = color === CONFIG.COLORS.player ? '#ffccd8' : '#e8c0f0';
-  const innerMat = useMemo(() => stdMat(innerCol), [innerCol]);
+// Highly robust animation hook that calculates its own movement updates
+function useCreatureAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
+  const body = useRef();
+  const head = useRef();
+  const armL = useRef();
+  const armR = useRef();
+  const legL = useRef();
+  const legR = useRef();
+  const tail = useRef();
+  const walk = useRef(0);
+  const tilt = useRef(0);
 
-  const fL = isSwimming ? -1.0 : (isMoving ? Math.sin(walkCycle) * 0.42 : 0);
-  const fR = isSwimming ? -1.0 : (isMoving ? Math.sin(walkCycle + Math.PI) * 0.42 : 0);
-  const bL = isSwimming ? 1.0 : (isMoving ? Math.sin(walkCycle + Math.PI) * 0.35 : 0);
-  const bR = isSwimming ? 1.0 : (isMoving ? Math.sin(walkCycle) * 0.35 : 0);
-  const bodyBob    = isMoving && !isSwimming ? Math.abs(Math.sin(walkCycle * 2)) * 0.04 : 0;
-  const bodySway   = isMoving ? Math.sin(walkCycle) * 0.025 : 0;
-  const headNod    = isMoving ? Math.sin(walkCycle * 2) * 0.06 : 0;
-  const tailWag    = Math.sin(walkCycle * 1.5) * 0.18;
+  useFrame((_, delta) => {
+    let isMoving = false;
+    let isSwimming = false;
+
+    if (isNPC && npcMovingRef) {
+      isMoving = npcMovingRef.current;
+    } else if (velRef && isSwimmingRef) {
+      isMoving = Math.sqrt(velRef.current.x**2 + velRef.current.z**2) > 0.5;
+      isSwimming = isSwimmingRef.current;
+    }
+
+    if (isMoving) walk.current += delta * (isSwimming ? 5 : 12);
+    
+    // Smooth transition from Biped (0) to Quadruped (-1.3 radians pitched forward)
+    const targetTilt = isSwimming ? -1.2 : (isMoving ? -1.3 : 0);
+    tilt.current = THREE.MathUtils.lerp(tilt.current, targetTilt, 12 * delta);
+    
+    if (body.current) {
+      body.current.rotation.x = tilt.current;
+      // Lower the body so all 4 paws touch the floor when running
+      body.current.position.y = 0.8 - Math.abs(tilt.current) * 0.25;
+      if (isSwimming) body.current.position.y += Math.sin(walk.current * 0.5) * 0.05;
+    }
+    
+    if (head.current) {
+      // Head counter-rotates to look forward, plus a little running bob
+      head.current.rotation.x = -tilt.current * 0.8 + (isMoving && !isSwimming ? Math.sin(walk.current * 2) * 0.08 : 0);
+    }
+    
+    if (tail.current) tail.current.rotation.z = Math.sin(walk.current * 1.5) * 0.3;
+
+    const s = isMoving ? Math.sin(walk.current) : 0;
+    
+    if (isSwimming) {
+      if (armL.current) armL.current.rotation.x = -1.0 + s * 0.4;
+      if (armR.current) armR.current.rotation.x = -1.0 - s * 0.4;
+      if (legL.current) legL.current.rotation.x = 1.0 - s * 0.4;
+      if (legR.current) legR.current.rotation.x = 1.0 + s * 0.4;
+    } else {
+      // Quadruped run cycle
+      if (armL.current) armL.current.rotation.x = s * 0.8;
+      if (armR.current) armR.current.rotation.x = -s * 0.8;
+      if (legL.current) legL.current.rotation.x = -s * 0.8;
+      if (legR.current) legR.current.rotation.x = s * 0.8;
+    }
+  });
+
+  return { body, head, armL, armR, legL, legR, tail };
+}
+
+// ─── CREATURE MESHES ─────────────────────────────────────────────────────────
+
+function CatCreature(props) {
+  const { body, head, armL, armR, legL, legR, tail } = useCreatureAnim(props);
+  const bodyMat  = useMemo(() => stdMat(props.color), [props.color]);
+  const innerMat = useMemo(() => stdMat('#ffccd8'), []);
 
   return (
-    <group rotation={[isSwimming ? -0.5 : 0, 0, 0]}>
-      <mesh castShadow position={[0, 0.55 + bodyBob, 0]} rotation={[0, 0, bodySway]} scale={[1, 1.05, 0.95]} material={bodyMat}><sphereGeometry args={[0.52, 18, 14]} /></mesh>
-      <mesh castShadow position={[0, 1.22 + bodyBob, 0.08]} rotation={[headNod, 0, bodySway]} material={bodyMat}><sphereGeometry args={[0.4, 18, 14]} /></mesh>
-      <mesh position={[0, 1.12 + bodyBob, 0.41]} rotation={[headNod, 0, 0]} material={innerMat}><sphereGeometry args={[0.18, 12, 10]} /></mesh>
-      <mesh castShadow position={[-0.24, 1.61 + bodyBob, 0.05]} rotation={[headNod, 0, -0.28]} material={bodyMat}><coneGeometry args={[0.1, 0.28, 7]} /></mesh>
-      <mesh position={[-0.24, 1.61 + bodyBob, 0.1]} rotation={[headNod, 0, -0.28]} material={innerMat}><coneGeometry args={[0.055, 0.2, 7]} /></mesh>
-      <mesh castShadow position={[0.24, 1.61 + bodyBob, 0.05]} rotation={[headNod, 0, 0.28]} material={bodyMat}><coneGeometry args={[0.1, 0.28, 7]} /></mesh>
-      <mesh position={[0.24, 1.61 + bodyBob, 0.1]} rotation={[headNod, 0, 0.28]} material={innerMat}><coneGeometry args={[0.055, 0.2, 7]} /></mesh>
-      <mesh position={[-0.14, 1.26 + bodyBob, 0.37]} rotation={[headNod,0,0]} material={matBlack}><sphereGeometry args={[0.07, 9, 9]} /></mesh>
-      <mesh position={[ 0.14, 1.26 + bodyBob, 0.37]} rotation={[headNod,0,0]} material={matBlack}><sphereGeometry args={[0.07, 9, 9]} /></mesh>
-      <mesh position={[-0.11, 1.28 + bodyBob, 0.43]} material={matWhite}><sphereGeometry args={[0.025, 6, 6]} /></mesh>
-      <mesh position={[ 0.17, 1.28 + bodyBob, 0.43]} material={matWhite}><sphereGeometry args={[0.025, 6, 6]} /></mesh>
-      <mesh position={[0, 1.14 + bodyBob, 0.46]} material={matPink}><sphereGeometry args={[0.036, 7, 7]} /></mesh>
-      <mesh castShadow position={[-0.26, 0.78, -0.46]} rotation={[0.55, tailWag, 0.32]} material={bodyMat}><cylinderGeometry args={[0.07, 0.11, 0.7, 8]} /></mesh>
-      <mesh castShadow position={[-0.16 + tailWag*0.3, 1.08, -0.66]} material={innerMat}><sphereGeometry args={[0.1, 9, 9]} /></mesh>
+    <group ref={body} position={[0, 0.8, 0]}>
+      <mesh material={bodyMat} castShadow><sphereGeometry args={[0.5, 16, 16]} /></mesh>
       
-      {/* LONGER LEGS */}
-      <group position={[-0.2, 0.25, 0.18]} rotation={[fL, 0, 0]}>
-        <mesh castShadow position={[0, -0.25, 0]} material={bodyMat}><cylinderGeometry args={[0.12, 0.1, 0.5, 8]} /></mesh>
-        <mesh castShadow position={[0, -0.5, 0.04]} material={bodyMat}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
+      <group ref={head} position={[0, 0.45, 0.2]}>
+        <mesh material={bodyMat} castShadow><sphereGeometry args={[0.4, 16, 16]} /></mesh>
+        <mesh material={bodyMat} position={[-0.2, 0.3, 0]} rotation={[0,0,0.2]} castShadow><coneGeometry args={[0.1, 0.3, 8]} /></mesh>
+        <mesh material={innerMat} position={[-0.2, 0.3, 0.05]} rotation={[0,0,0.2]}><coneGeometry args={[0.06, 0.2, 8]} /></mesh>
+        <mesh material={bodyMat} position={[0.2, 0.3, 0]} rotation={[0,0,-0.2]} castShadow><coneGeometry args={[0.1, 0.3, 8]} /></mesh>
+        <mesh material={innerMat} position={[0.2, 0.3, 0.05]} rotation={[0,0,-0.2]}><coneGeometry args={[0.06, 0.2, 8]} /></mesh>
+        <mesh material={matBlack} position={[-0.15, 0.05, 0.37]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
+        <mesh material={matBlack} position={[0.15, 0.05, 0.37]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
+        <mesh material={matPink} position={[0, -0.05, 0.4]}><sphereGeometry args={[0.03, 8, 8]} /></mesh>
       </group>
-      <group position={[0.2, 0.25, 0.18]} rotation={[fR, 0, 0]}>
-        <mesh castShadow position={[0, -0.25, 0]} material={bodyMat}><cylinderGeometry args={[0.12, 0.1, 0.5, 8]} /></mesh>
-        <mesh castShadow position={[0, -0.5, 0.04]} material={bodyMat}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
+
+      <group ref={armL} position={[-0.25, 0.1, 0.3]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.1, 0.5, 8, 8]} /></mesh>
       </group>
-      <group position={[-0.2, 0.2, -0.18]} rotation={[bL, 0, 0]}>
-        <mesh castShadow position={[0, -0.25, 0]} material={bodyMat}><cylinderGeometry args={[0.12, 0.1, 0.5, 8]} /></mesh>
-        <mesh castShadow position={[0, -0.5, 0.04]} material={bodyMat}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
+      <group ref={armR} position={[0.25, 0.1, 0.3]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.1, 0.5, 8, 8]} /></mesh>
       </group>
-      <group position={[0.2, 0.2, -0.18]} rotation={[bR, 0, 0]}>
-        <mesh castShadow position={[0, -0.25, 0]} material={bodyMat}><cylinderGeometry args={[0.12, 0.1, 0.5, 8]} /></mesh>
-        <mesh castShadow position={[0, -0.5, 0.04]} material={bodyMat}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
+
+      <group ref={legL} position={[-0.25, -0.2, -0.1]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
+      </group>
+      <group ref={legR} position={[0.25, -0.2, -0.1]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
+      </group>
+
+      <group ref={tail} position={[0, -0.3, -0.4]}>
+        <mesh material={bodyMat} position={[0, 0.3, -0.2]} rotation={[-0.5, 0, 0]} castShadow><cylinderGeometry args={[0.06, 0.08, 0.6, 8]} /></mesh>
       </group>
     </group>
   );
 }
 
-function BearCreature({ color, walkCycle = 0, isMoving = false, isSwimming = false }) {
-  const bodyMat  = useMemo(() => stdMat(color), [color]);
+function BearCreature(props) {
+  const { body, head, armL, armR, legL, legR } = useCreatureAnim(props);
+  const bodyMat  = useMemo(() => stdMat(props.color), [props.color]);
   const bellyMat = useMemo(() => stdMat('#d4eef8'), []);
 
-  const fL = isSwimming ? -1.0 : (isMoving ? Math.sin(walkCycle) * 0.38 : 0);
-  const fR = isSwimming ? -1.0 : (isMoving ? Math.sin(walkCycle + Math.PI) * 0.38 : 0);
-  const aL = isSwimming ? -0.5 : (isMoving ? Math.sin(walkCycle) * 0.32 : 0);  
-  const aR = isSwimming ? -0.5 : (isMoving ? Math.sin(walkCycle + Math.PI) * 0.32 : 0);
-  const bodyBob  = isMoving && !isSwimming ? Math.abs(Math.sin(walkCycle * 2)) * 0.04 : 0;
-  const headNod  = isMoving ? Math.sin(walkCycle * 2) * 0.05 : 0;
-
   return (
-    <group rotation={[isSwimming ? -0.5 : 0, 0, 0]}>
-      <mesh castShadow position={[0, 0.62 + bodyBob, 0]} scale={[1.1, 1.0, 1.0]} material={bodyMat}><sphereGeometry args={[0.6, 18, 14]} /></mesh>
-      <mesh position={[0, 0.62 + bodyBob, 0.54]} material={bellyMat}><sphereGeometry args={[0.38, 12, 10]} /></mesh>
-      <mesh castShadow position={[0, 1.38 + bodyBob, 0.05]} rotation={[headNod, 0, 0]} material={bodyMat}><sphereGeometry args={[0.44, 18, 14]} /></mesh>
-      <mesh position={[0, 1.24 + bodyBob, 0.45]} rotation={[headNod,0,0]} material={bellyMat}><sphereGeometry args={[0.2, 12, 10]} /></mesh>
-      {[-0.3, 0.3].map((ex, i) => (
-        <group key={i}>
-          <mesh castShadow position={[ex, 1.76 + bodyBob, 0]} material={bodyMat}><sphereGeometry args={[0.14, 12, 12]} /></mesh>
-          <mesh position={[ex, 1.76 + bodyBob, 0.05]} material={bellyMat}><sphereGeometry args={[0.08, 10, 10]} /></mesh>
-        </group>
-      ))}
-      <mesh position={[-0.16, 1.40 + bodyBob, 0.42]} material={matBlack}><sphereGeometry args={[0.075, 9, 9]} /></mesh>
-      <mesh position={[ 0.16, 1.40 + bodyBob, 0.42]} material={matBlack}><sphereGeometry args={[0.075, 9, 9]} /></mesh>
-      <mesh position={[-0.12, 1.42 + bodyBob, 0.48]} material={matWhite}><sphereGeometry args={[0.026, 6, 6]} /></mesh>
-      <mesh position={[ 0.20, 1.42 + bodyBob, 0.48]} material={matWhite}><sphereGeometry args={[0.026, 6, 6]} /></mesh>
-      <mesh position={[0, 1.26 + bodyBob, 0.51]} material={matBlack}><sphereGeometry args={[0.044, 7, 7]} /></mesh>
+    <group ref={body} position={[0, 0.8, 0]}>
+      <mesh material={bodyMat} scale={[1.1, 1, 1]} castShadow><sphereGeometry args={[0.55, 16, 16]} /></mesh>
+      <mesh material={bellyMat} position={[0, 0, 0.48]}><sphereGeometry args={[0.35, 16, 16]} /></mesh>
       
-      {/* LONGER ARMS/LEGS */}
-      <group position={[-0.68, 0.96 + bodyBob, 0.05]} rotation={[aL, 0, 0.3]}><mesh castShadow material={bodyMat} position={[0, -0.2, 0]}><capsuleGeometry args={[0.12, 0.35, 6, 8]} /></mesh></group>
-      <group position={[0.68, 0.96 + bodyBob, 0.05]} rotation={[aR, 0, -0.3]}><mesh castShadow material={bodyMat} position={[0, -0.2, 0]}><capsuleGeometry args={[0.12, 0.35, 6, 8]} /></mesh></group>
-      <group position={[-0.22, 0.25, 0.12]} rotation={[fL, 0, 0]}><mesh castShadow material={bodyMat} position={[0, -0.3, 0]}><cylinderGeometry args={[0.15, 0.14, 0.6, 9]} /></mesh><mesh castShadow material={bodyMat} position={[0, -0.6, 0.06]}><sphereGeometry args={[0.15, 8, 8]} /></mesh></group>
-      <group position={[0.22, 0.25, 0.12]} rotation={[fR, 0, 0]}><mesh castShadow material={bodyMat} position={[0, -0.3, 0]}><cylinderGeometry args={[0.15, 0.14, 0.6, 9]} /></mesh><mesh castShadow material={bodyMat} position={[0, -0.6, 0.06]}><sphereGeometry args={[0.15, 8, 8]} /></mesh></group>
+      <group ref={head} position={[0, 0.55, 0.2]}>
+        <mesh material={bodyMat} castShadow><sphereGeometry args={[0.42, 16, 16]} /></mesh>
+        <mesh material={bellyMat} position={[0, -0.1, 0.38]}><sphereGeometry args={[0.18, 16, 16]} /></mesh>
+        <mesh material={bodyMat} position={[-0.25, 0.3, 0]} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
+        <mesh material={bodyMat} position={[0.25, 0.3, 0]} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
+        <mesh material={matBlack} position={[-0.15, 0.05, 0.39]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
+        <mesh material={matBlack} position={[0.15, 0.05, 0.39]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
+        <mesh material={matBlack} position={[0, -0.05, 0.55]}><sphereGeometry args={[0.04, 8, 8]} /></mesh>
+      </group>
+
+      <group ref={armL} position={[-0.35, 0.1, 0.3]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
+      </group>
+      <group ref={armR} position={[0.35, 0.1, 0.3]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
+      </group>
+
+      <group ref={legL} position={[-0.3, -0.2, -0.1]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.15, 0.5, 8, 8]} /></mesh>
+      </group>
+      <group ref={legR} position={[0.3, -0.2, -0.1]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.15, 0.5, 8, 8]} /></mesh>
+      </group>
     </group>
   );
 }
 
-function BunnyCreature({ color, walkCycle = 0, isMoving = false, isSwimming = false }) {
-  const bodyMat  = useMemo(() => stdMat(color), [color]);
+function BunnyCreature(props) {
+  const { body, head, armL, armR, legL, legR, tail } = useCreatureAnim(props);
+  const bodyMat  = useMemo(() => stdMat(props.color), [props.color]);
   const innerMat = useMemo(() => stdMat('#ffe0a0'), []);
 
-  const fL = isSwimming ? -1.0 : (isMoving ? Math.sin(walkCycle) * 0.45 : 0);
-  const fR = isSwimming ? -1.0 : (isMoving ? Math.sin(walkCycle + Math.PI) * 0.45 : 0);
-  const bL = isSwimming ? 1.0 : (isMoving ? Math.sin(walkCycle + Math.PI) * 0.52 : 0); 
-  const bR = isSwimming ? 1.0 : (isMoving ? Math.sin(walkCycle) * 0.52 : 0);
-  const bodyBob  = isMoving && !isSwimming ? Math.abs(Math.sin(walkCycle * 2)) * 0.06 : 0;
-  const earBounce = isMoving ? Math.sin(walkCycle * 2) * 0.08 : 0;
-  const headNod  = isMoving ? Math.sin(walkCycle * 2) * 0.06 : 0;
-
   return (
-    <group rotation={[isSwimming ? -0.5 : 0, 0, 0]}>
-      <mesh castShadow position={[0, 0.55 + bodyBob, 0]} scale={[1, 1.05, 1]} material={bodyMat}><sphereGeometry args={[0.5, 18, 14]} /></mesh>
-      <mesh castShadow position={[0, 1.18 + bodyBob, 0.06]} rotation={[headNod, 0, 0]} material={bodyMat}><sphereGeometry args={[0.38, 18, 14]} /></mesh>
-      <mesh position={[0, 1.08 + bodyBob, 0.38]} rotation={[headNod,0,0]} material={innerMat}><sphereGeometry args={[0.15, 10, 9]} /></mesh>
-      {[-0.14, 0.14].map((ex, i) => (
-        <group key={i} position={[ex, 1.6 + bodyBob + earBounce, 0]} rotation={[0, 0, ex < 0 ? -0.1 : 0.1]}>
-          <mesh castShadow material={bodyMat} position={[0, 0.38, -0.04]}><capsuleGeometry args={[0.08, 0.55, 6, 8]} /></mesh>
-          <mesh material={innerMat} position={[0, 0.38, 0.03]}><capsuleGeometry args={[0.04, 0.48, 6, 8]} /></mesh>
-        </group>
-      ))}
-      <mesh position={[-0.14, 1.21 + bodyBob, 0.35]} material={matBlack}><sphereGeometry args={[0.068, 9, 9]} /></mesh>
-      <mesh position={[ 0.14, 1.21 + bodyBob, 0.35]} material={matBlack}><sphereGeometry args={[0.068, 9, 9]} /></mesh>
-      <mesh position={[-0.10, 1.23 + bodyBob, 0.41]} material={matWhite}><sphereGeometry args={[0.023, 6, 6]} /></mesh>
-      <mesh position={[ 0.18, 1.23 + bodyBob, 0.41]} material={matWhite}><sphereGeometry args={[0.023, 6, 6]} /></mesh>
-      <mesh position={[0, 1.09 + bodyBob, 0.42]} material={matPink}><sphereGeometry args={[0.034, 7, 7]} /></mesh>
-      <mesh castShadow position={[0, 0.7, -0.52]} material={matWhite}><sphereGeometry args={[0.14, 10, 10]} /></mesh>
+    <group ref={body} position={[0, 0.8, 0]}>
+      <mesh material={bodyMat} castShadow><sphereGeometry args={[0.5, 16, 16]} /></mesh>
       
-      {/* LONGER LEGS */}
-      <group position={[-0.18, 0.25, 0.18]} rotation={[fL, 0, 0]}>
-        <mesh castShadow material={bodyMat} position={[0, -0.25, 0]}><cylinderGeometry args={[0.11, 0.1, 0.5, 8]} /></mesh>
-        <mesh castShadow material={bodyMat} position={[0, -0.5, 0.04]}><sphereGeometry args={[0.11, 8, 8]} /></mesh>
+      <group ref={head} position={[0, 0.45, 0.2]}>
+        <mesh material={bodyMat} castShadow><sphereGeometry args={[0.38, 16, 16]} /></mesh>
+        <mesh material={innerMat} position={[0, -0.05, 0.35]}><sphereGeometry args={[0.12, 10, 10]} /></mesh>
+        
+        <mesh material={bodyMat} position={[-0.15, 0.45, -0.05]} rotation={[0, 0, -0.1]} castShadow><capsuleGeometry args={[0.08, 0.5, 8, 8]} /></mesh>
+        <mesh material={innerMat} position={[-0.15, 0.45, 0]} rotation={[0, 0, -0.1]}><capsuleGeometry args={[0.04, 0.45, 8, 8]} /></mesh>
+        
+        <mesh material={bodyMat} position={[0.15, 0.45, -0.05]} rotation={[0, 0, 0.1]} castShadow><capsuleGeometry args={[0.08, 0.5, 8, 8]} /></mesh>
+        <mesh material={innerMat} position={[0.15, 0.45, 0]} rotation={[0, 0, 0.1]}><capsuleGeometry args={[0.04, 0.45, 8, 8]} /></mesh>
+        
+        <mesh material={matBlack} position={[-0.12, 0.05, 0.35]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
+        <mesh material={matBlack} position={[0.12, 0.05, 0.35]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
+        <mesh material={matPink} position={[0, -0.02, 0.46]}><sphereGeometry args={[0.03, 8, 8]} /></mesh>
       </group>
-      <group position={[0.18, 0.25, 0.18]} rotation={[fR, 0, 0]}>
-        <mesh castShadow material={bodyMat} position={[0, -0.25, 0]}><cylinderGeometry args={[0.11, 0.1, 0.5, 8]} /></mesh>
-        <mesh castShadow material={bodyMat} position={[0, -0.5, 0.04]}><sphereGeometry args={[0.11, 8, 8]} /></mesh>
+
+      <group ref={armL} position={[-0.25, 0.1, 0.3]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.09, 0.5, 8, 8]} /></mesh>
       </group>
-      <group position={[-0.2, 0.2, -0.16]} rotation={[bL, 0, 0]}>
-        <mesh castShadow material={bodyMat} position={[0, -0.3, 0]}><cylinderGeometry args={[0.13, 0.12, 0.6, 8]} /></mesh>
-        <mesh castShadow material={bodyMat} position={[0, -0.6, 0.06]}><sphereGeometry args={[0.13, 8, 8]} /></mesh>
+      <group ref={armR} position={[0.25, 0.1, 0.3]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.09, 0.5, 8, 8]} /></mesh>
       </group>
-      <group position={[0.2, 0.2, -0.16]} rotation={[bR, 0, 0]}>
-        <mesh castShadow material={bodyMat} position={[0, -0.3, 0]}><cylinderGeometry args={[0.13, 0.12, 0.6, 8]} /></mesh>
-        <mesh castShadow material={bodyMat} position={[0, -0.6, 0.06]}><sphereGeometry args={[0.13, 8, 8]} /></mesh>
+
+      <group ref={legL} position={[-0.25, -0.2, -0.1]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.13, 0.5, 8, 8]} /></mesh>
+      </group>
+      <group ref={legR} position={[0.25, -0.2, -0.1]}>
+        <mesh material={bodyMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.13, 0.5, 8, 8]} /></mesh>
+      </group>
+
+      <group ref={tail} position={[0, -0.3, -0.45]}>
+        <mesh material={matWhite} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
       </group>
     </group>
   );
@@ -577,7 +621,6 @@ function CameraRig() {
   const { camera } = useThree();
 
   useFrame((_, delta) => {
-    // Smoother, slower camera sweep
     if (keyState['arrowleft'])  camState.yawVel += 10.0 * delta;
     if (keyState['arrowright']) camState.yawVel -= 10.0 * delta;
     if (keyState['arrowup'])    camState.pitchVel -= 10.0 * delta;
@@ -609,9 +652,7 @@ function CameraRig() {
 
 function PlayerController() {
   const { state, actions, playerPosRef, playerGroupRef } = useContext(GameContext);
-  const bodyRef   = useRef();
   const vel       = useRef(new THREE.Vector3());
-  const walkRef   = useRef(0);
   const movingRef = useRef(false);
   const prevGrounded = useRef(true);
   const isSwimmingRef = useRef(false);
@@ -619,7 +660,7 @@ function PlayerController() {
   const downVec   = useMemo(() => new THREE.Vector3(0, -1, 0), []);
   const { scene } = useThree();
   const lastSend = useRef(0);
-  const lastStep = useRef(0); // For audio footsteps
+  const lastStep = useRef(0);
 
   useFrame(({ clock }, delta) => {
     const g = playerGroupRef.current;
@@ -708,41 +749,20 @@ function PlayerController() {
     const spd2D = Math.sqrt(vel.current.x ** 2 + vel.current.z ** 2);
     movingRef.current = spd2D > 0.5 && isGrounded; 
 
-    const rotSpeed = Math.min(1, 10 * delta);
-    const bobSpeed = Math.min(1, 15 * delta);
-    
     if (movingRef.current) {
-      walkRef.current += delta * (isSwimming ? 5.0 : 7.5);
-      
-      // TRIGGER AUDIO FOOTSTEPS BASED ON WALK CYCLE
-      if (walkRef.current - lastStep.current > (isSwimming ? 2.2 : 1.5)) {
+      g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), Math.min(1, 10 * delta));
+      // Procedural Audio sync logic based on continuous distance moved
+      lastStep.current += (spd2D * delta);
+      if (lastStep.current > (isSwimming ? 1.5 : 1.2)) {
         audio.sfx(isSwimming ? 'splash' : 'step');
-        lastStep.current = walkRef.current;
-      }
-
-      g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), rotSpeed);
-      if (bodyRef.current && !isSwimming) {
-        bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, Math.sin(walkRef.current) * 0.03, bobSpeed);
+        lastStep.current = 0;
       }
     } else {
-      if (bodyRef.current && !isSwimming) {
-        bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, 0, bobSpeed);
-      }
-    }
-
-    // Swim Animation Tilt
-    if (bodyRef.current) {
-       bodyRef.current.rotation.x = THREE.MathUtils.lerp(bodyRef.current.rotation.x, isSwimming ? -0.5 : 0, rotSpeed);
-       if (isSwimming) {
-          bodyRef.current.position.y = THREE.MathUtils.lerp(bodyRef.current.position.y, Math.sin(clock.elapsedTime * 2.5) * 0.05, rotSpeed);
-       } else {
-          bodyRef.current.position.y = THREE.MathUtils.lerp(bodyRef.current.position.y, 0, rotSpeed);
-       }
+      lastStep.current = 0;
     }
 
     playerPosRef.current.copy(g.position);
 
-    // Multiplier Sync Block
     if (socket && clock.elapsedTime - lastSend.current > 0.05) {
       socket.emit('move', {
         position: g.position,
@@ -758,9 +778,7 @@ function PlayerController() {
 
   return (
     <group ref={playerGroupRef} position={[0, 1, 0]}>
-      <group ref={bodyRef}>
-        <Creature color={state.playerConfig.color} walkCycle={walkRef.current} isMoving={movingRef.current} isSwimming={isSwimmingRef.current} />
-      </group>
+      <Creature color={state.playerConfig.color} velRef={vel} isSwimmingRef={isSwimmingRef} />
       <ContactShadows opacity={0.45} scale={4} blur={2.5} position={[0, 0.02, 0]} />
     </group>
   );
@@ -769,18 +787,21 @@ function PlayerController() {
 // ─── Network Player Renderer ──────────────────────────────────────────────────
 function NetworkPlayer({ data }) {
   const ref = useRef();
-  const walkRef = useRef(0);
+  const movingRef = useRef(false);
+  const isSwimmingRef = useRef(false);
+
   useFrame((_, delta) => {
     if (!ref.current) return;
     ref.current.position.lerp(new THREE.Vector3(data.position.x, data.position.y, data.position.z), 10 * delta);
     ref.current.rotation.y = THREE.MathUtils.lerp(ref.current.rotation.y, data.rotation.y, 10 * delta);
-    if (data.isMoving) walkRef.current += delta * (data.isSwimming ? 5.0 : 7.5);
+    movingRef.current = data.isMoving;
+    isSwimmingRef.current = data.isSwimming;
   });
 
   const Creature = data.creatureType === 'bear' ? BearCreature : data.creatureType === 'bunny' ? BunnyCreature : CatCreature;
   return (
     <group ref={ref}>
-      <Creature color={data.color} walkCycle={walkRef.current} isMoving={data.isMoving} isSwimming={data.isSwimming} />
+      <Creature color={data.color} isNPC={true} npcMovingRef={movingRef} isSwimmingRef={isSwimmingRef} />
       <Html position={[0, 2.3, 0]} center>
         <div style={{ background:'rgba(0,0,0,0.5)', color:'white', padding:'2px 8px', borderRadius:10, fontSize:12, fontWeight:'bold', border:`2px solid ${data.color}`, whiteSpace:'nowrap' }}>
           {data.name}
@@ -797,14 +818,15 @@ function NPC({ name, color, home, dialogues, creatureType }) {
   const ref       = useRef();
   const modeRef   = useRef('idle');
   const target    = useRef(new THREE.Vector3(home.x, home.y, home.z));
-  const walkRef   = useRef(0);
   const movingRef = useRef(false);
 
   useFrame(({ clock }, delta) => {
-    if (!ref.current || state.dialogue?.name === name) return;
+    if (!ref.current || state.dialogue?.name === name) {
+      movingRef.current = false;
+      return;
+    }
     const t = clock.elapsedTime + home.x;
     
-    // NPCs will pick a random nearby spot to walk to every 10 seconds
     if (Math.floor(t) % 10 === 0 && modeRef.current === 'idle') {
       modeRef.current = 'walk';
       target.current.set(home.x + (Math.random()-0.5)*12, ref.current.position.y, home.z + (Math.random()-0.5)*12);
@@ -814,15 +836,12 @@ function NPC({ name, color, home, dialogues, creatureType }) {
       const dir = target.current.clone().sub(ref.current.position).normalize();
       ref.current.position.add(dir.multiplyScalar(delta * 1.6));
       ref.current.lookAt(target.current.x, ref.current.position.y, target.current.z);
-      walkRef.current += delta * 4.5;
       movingRef.current = true;
       if (ref.current.position.distanceTo(target.current) < 0.5) { 
         modeRef.current = 'idle'; 
         movingRef.current = false; 
       }
     } else {
-      // Idle breathing bob
-      ref.current.position.y = home.y + 0.05 + Math.sin(t * 1.6) * 0.06;
       movingRef.current = false;
     }
   });
@@ -831,7 +850,7 @@ function NPC({ name, color, home, dialogues, creatureType }) {
 
   return (
     <group ref={ref} position={[home.x, home.y, home.z]} userData={{ isNPC: true, name, color, dialogues }}>
-      <Creature color={color} walkCycle={walkRef.current} isMoving={movingRef.current} />
+      <Creature color={color} isNPC={true} npcMovingRef={movingRef} />
       <Html position={[0, 2.3, 0]} center occlude>
         <div style={{ background:'white', padding:'2px 10px', borderRadius:10, fontSize:12, border:`2px solid ${color}`, fontWeight:'bold', pointerEvents:'none', whiteSpace:'nowrap', color:'#333' }}>
           {name}
@@ -1020,7 +1039,6 @@ function WorldAssets() {
 function Atmosphere() {
   const { state, actions } = useContext(GameContext);
   
-  // SAFE TICK: Only update React state 1 time per second, eliminating white screens!
   useEffect(() => {
     const timer = setInterval(() => actions.tickTime(), 1000);
     return () => clearInterval(timer);
@@ -1134,6 +1152,7 @@ function GameUI() {
         </div>
       )}
 
+      {/* FIXED CHAT CONTAINER - pointerEvents enables clicking */}
       <div style={ST.chatArea}>
         <div style={ST.chatLog}>
           {state.chatMessages.map((m, i) => <div key={i}><b style={{ color: m.color }}>{m.name}:</b> {m.text}</div>)}
@@ -1141,7 +1160,10 @@ function GameUI() {
         <input style={ST.chatInput} placeholder="Type here and hit Enter..." value={chatText} onChange={e => setChatText(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && chatText.trim()) {
-              socket.emit('chat', chatText);
+              // OPTIMISTIC UPDATE: Adds your message instantly even if server drops it!
+              const msg = { name: state.playerConfig.name, color: state.playerConfig.color, text: chatText };
+              actions.addChatMessage(msg);
+              if (socket) socket.emit('chat', chatText);
               setChatText("");
             }
           }} />
@@ -1173,7 +1195,7 @@ export default function CandyIslandUltimate() {
 
   useEffect(() => {
     const onDown = (e) => {
-      // FIX: Ignore keyboard events if typing in the chat!
+      // Bypasses player movement when typing in ANY input field
       if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
       
       const k = e.key.toLowerCase();
@@ -1281,13 +1303,13 @@ const ST = {
   colorPicker: { width: '100%', height: 45, marginBottom: 20, border: 'none', borderRadius: 10, cursor: 'pointer' },
   startBtn:    { width: '100%', background: '#ff8fab', color: 'white', border: 'none', padding: '18px', borderRadius: 20, fontSize: 20, fontWeight: 'bold', cursor: 'pointer', fontFamily: FF },
   
-  backpack:    { position:'absolute', top:25, right:25, background:'rgba(255,255,255,0.85)', padding:15, borderRadius:15, border:'4px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)', fontFamily:FF, zIndex:50 },
+  backpack:    { position:'absolute', top:25, right:25, background:'rgba(255,255,255,0.85)', padding:15, borderRadius:15, border:'4px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)', fontFamily:FF, zIndex:50, pointerEvents: 'auto' },
   bpItem:      { background:'#fff', padding:'5px 10px', borderRadius:10, display:'flex', alignItems:'center', gap:8 },
   
-  dialogueBox: { position:'absolute', bottom:40, left:'50%', transform:'translateX(-50%)', width:'60%', minWidth:320, background:'rgba(255,255,255,0.95)', padding:24, borderRadius:20, border:'5px solid #fff', boxShadow:'0 10px 30px rgba(0,0,0,0.15)', fontFamily:FF, textAlign:'center', zIndex:60 },
+  dialogueBox: { position:'absolute', bottom:40, left:'50%', transform:'translateX(-50%)', width:'60%', minWidth:320, background:'rgba(255,255,255,0.95)', padding:24, borderRadius:20, border:'5px solid #fff', boxShadow:'0 10px 30px rgba(0,0,0,0.15)', fontFamily:FF, textAlign:'center', zIndex:60, pointerEvents: 'auto' },
   dialogueBtn: { background:'#e0e0e0', border:'none', padding:'12px 24px', borderRadius:12, color:'#333', fontWeight:'bold', cursor:'pointer', fontSize:16, fontFamily:FF, boxShadow:'0 4px 0 rgba(0,0,0,0.1)', transition:'transform 0.1s' },
   
-  chatArea:    { position: 'absolute', bottom: 20, left: 20, zIndex: 5, width: 300, fontFamily: FF },
+  chatArea:    { position: 'absolute', bottom: 20, left: 20, zIndex: 5, width: 300, fontFamily: FF, pointerEvents: 'auto' },
   chatLog:     { background: 'rgba(0,0,0,0.4)', color: '#fff', padding: 15, borderRadius: 15, height: 160, overflowY: 'auto', marginBottom: 10, fontSize: 14, backdropFilter: 'blur(10px)', textShadow: '1px 1px 2px rgba(0,0,0,0.8)' },
   chatInput:   { width: '100%', background: 'rgba(255,255,255,0.95)', border: 'none', padding: 12, borderRadius: 10, boxSizing: 'border-box', outline: 'none', fontFamily: FF, color: '#333', fontSize: 16 }
 };
