@@ -18,6 +18,7 @@ import {
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
+import HUD from './HUD';
 
 // ─── Noise & Terrain Formula ─────────────────────────────────────────────────
 
@@ -37,10 +38,17 @@ const camState = { yaw: Math.PI, pitch: 0.4, locked: false };
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const CONFIG = {
-  FRICTION: 0.84,          // gentle, floaty deceleration
-  SPEED: 4.5,              // slow, relaxed pace
+  FRICTION: 0.88,          // soft stop
+  SPEED: 1.4,              // snail pace
   COLORS: {
-    player: '#f4a0b0', barnaby: '#6aaddb', luna: '#c07ed4', pip: '#f5c842',
+    player:  '#f4a0b0',
+    barnaby: '#6aaddb',
+    luna:    '#c07ed4',
+    pip:     '#f5c842',
+    coco:    '#c4813a',
+    rosie:   '#ff8fab',
+    maple:   '#ff7a1a',
+    bubbles: '#6ecfb5',
   },
   TIME_SPEED: 0.04,
 };
@@ -1066,6 +1074,7 @@ function Atmosphere() {
 function GameUI() {
   const { state, actions } = useContext(GameContext);
   const [locked, setLocked] = useState(false);
+
   useEffect(() => {
     const fn = () => setLocked(document.pointerLockElement != null);
     document.addEventListener('pointerlockchange', fn);
@@ -1074,33 +1083,37 @@ function GameUI() {
 
   if (state.ui === 'start') return (
     <div style={ST.overlay} onClick={() => { actions.setUI('play'); audio.init(); audio.playBGM(); }}>
-      <div style={{ fontSize:76 }}>🏝️</div>
-      <h1 style={{ fontSize:62, margin:'4px 0', textShadow:'4px 4px #ff69b4, 0 0 40px rgba(255,105,180,0.5)' }}>CANDY ISLAND</h1>
-      <p style={{ fontSize:20, fontWeight:'bold', margin:'6px 0 18px', opacity:0.9 }}>THE ULTIMATE EDITION</p>
-      <p style={{ fontSize:14, opacity:0.75, background:'rgba(0,0,0,0.2)', padding:'8px 20px', borderRadius:20 }}>Click to start — then click the world to enable mouse look</p>
+      <div style={{ fontSize: 76 }}>🏝️</div>
+      <h1 style={{ fontSize: 62, margin: '4px 0', textShadow: '4px 4px #ff69b4, 0 0 40px rgba(255,105,180,0.5)' }}>CANDY ISLAND</h1>
+      <p style={{ fontSize: 20, fontWeight: 'bold', margin: '6px 0 18px', opacity: 0.9 }}>THE ULTIMATE EDITION</p>
+      <p style={{ fontSize: 14, opacity: 0.75, background: 'rgba(0,0,0,0.2)', padding: '8px 20px', borderRadius: 20 }}>
+        Click to start — then click the world to enable mouse look
+      </p>
     </div>
   );
 
+  const handleDialogueNext = () => {
+    const d = state.dialogue;
+    if (!d) return;
+    if (d.step < d.texts.length - 1) {
+      actions.setDialogue({ ...d, step: d.step + 1 });
+      audio.sfx('talk');
+    } else {
+      actions.setDialogue(null);
+    }
+  };
+
   return (
     <>
-      <div style={ST.hud}>
-        <div style={ST.pill}>🔔 {state.bells.toLocaleString()}</div>
-        <div style={ST.pill}>🍎 {state.inventory.fruit}</div>
-        <div style={ST.pill}>{String(Math.floor(state.gameTime%12)||12).padStart(2,'0')}:00 {state.gameTime>=12?'PM':'AM'}</div>
-      </div>
       {locked && <div style={ST.cross}>+</div>}
-      {state.dialogue && (
-        <div style={ST.dialogue} onClick={() => {
-          const d = state.dialogue;
-          if (d.step < d.texts.length-1) { actions.setDialogue({...d, step:d.step+1}); audio.sfx('talk'); }
-          else actions.setDialogue(null);
-        }}>
-          <div style={{ background:state.dialogue.color, color:'#fff', padding:'5px 20px', display:'inline-block', borderRadius:'10px 10px 0 0', fontWeight:'bold', fontSize:15 }}>{state.dialogue.name}</div>
-          <div style={ST.dText}>{state.dialogue.texts[state.dialogue.step]}</div>
-          <div style={{ textAlign:'right', padding:'3px 16px 0', fontSize:12, opacity:0.4 }}>click to continue ▶</div>
-        </div>
-      )}
-      <div style={ST.help}>{locked ? 'WASD · Wander  |  ESC · Unlock mouse  |  Click NPC · Talk' : '🖱️ Click the world to enable mouse look'}</div>
+      <HUD
+        bells={state.bells}
+        fruit={state.inventory.fruit}
+        gameTime={state.gameTime}
+        dialogue={state.dialogue}
+        onDialogueNext={handleDialogueNext}
+        locked={locked}
+      />
     </>
   );
 }
@@ -1123,13 +1136,25 @@ export default function CandyIslandUltimate() {
             <CameraRig />
             <NPC name="Barnaby" color={CONFIG.COLORS.barnaby} creatureType="bear"
               home={{ x:-15, y:getTerrainY(-15,-10), z:-10 }}
-              dialogues={['Hey! Welcome to Candy Island!','I love exploring the forests.','Have you found all the fruit yet?']} />
+              dialogues={['Hey! Welcome to Candy Island!','I love strolling through the forest in the morning.','Have you found all the fruit scattered around?','The sunsets here are truly something special.']} />
             <NPC name="Luna" color={CONFIG.COLORS.luna} creatureType="cat"
               home={{ x:20, y:getTerrainY(20,10), z:10 }}
-              dialogues={['Meow~ The night sky here is gorgeous.','Did you find any fruit today?','Bells grow on trees… almost literally!']} />
+              dialogues={['Meow~ The night sky here is gorgeous.','Did you find any fruit today?','I like to sit by the water and just… breathe.','Bells grow on trees here, almost literally!']} />
             <NPC name="Pip" color={CONFIG.COLORS.pip} creatureType="bunny"
               home={{ x:0, y:getTerrainY(0,22), z:22 }}
-              dialogues={["I could hop around here all day!","The flowers smell amazing today.","Have you met Barnaby yet? He loves exploring!"]} />
+              dialogues={['I could hop around here all day!','The flowers smell amazing this time of year.','Have you met Barnaby yet? He gives great tours!','My favourite spot is near the big palm tree.']} />
+            <NPC name="Coco" color={CONFIG.COLORS.coco} creatureType="bear"
+              home={{ x:-5, y:getTerrainY(-5,-22), z:-22 }}
+              dialogues={['Oh! I was just collecting some thoughts.','Do you hear the waves? So soothing.','I baked some acorn bread earlier. Well, imaginary bread.','Every day here feels like a gentle hug.']} />
+            <NPC name="Rosie" color={CONFIG.COLORS.rosie} creatureType="bunny"
+              home={{ x:14, y:getTerrainY(14,-8), z:-8 }}
+              dialogues={["Hehe, I've been counting all the flowers!","There are SO many colours here, it's unreal.","I pressed a flower in my journal yesterday.","Pink flowers are obviously the best. Obviously."]} />
+            <NPC name="Maple" color={CONFIG.COLORS.maple} creatureType="cat"
+              home={{ x:-24, y:getTerrainY(-24,6), z:6 }}
+              dialogues={["*stretches* What a lovely afternoon.","I climbed that hill earlier. Took a whole nap up there.","The trees here whisper if you listen carefully.","I think I found a heart-shaped leaf today!"]} />
+            <NPC name="Bubbles" color={CONFIG.COLORS.bubbles} creatureType="bear"
+              home={{ x:10, y:getTerrainY(10,-18), z:-18 }}
+              dialogues={['The water here looks like it has no bottom!','I tried catching a cloud reflection today.','Everything moves so slowly. It is perfect.','Come back at night — the stars are incredible.']} />
             <Environment preset="sunset" />
             <EffectComposer multisampling={4}>
               <Bloom intensity={0.4} luminanceThreshold={0.88} luminanceSmoothing={0.4} />
@@ -1149,11 +1174,5 @@ export default function CandyIslandUltimate() {
 const FF = '"Comic Sans MS", cursive';
 const ST = {
   overlay: { position:'absolute', inset:0, zIndex:100, cursor:'pointer', background:'linear-gradient(150deg,#87ceeb 0%,#b8e896 60%,#f4d98a 100%)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'white', fontFamily:FF, textAlign:'center' },
-  hud:  { position:'absolute', top:22, left:22, display:'flex', gap:14, pointerEvents:'none', zIndex:10 },
-  pill: { background:'rgba(255,255,255,0.92)', padding:'7px 20px', borderRadius:50, border:'4px solid #8B4513', fontWeight:'bold', fontSize:17, fontFamily:FF },
-  btn:  { background:'#FF69B4', color:'white', border:'4px solid white', borderRadius:50, padding:'7px 20px', cursor:'pointer', pointerEvents:'auto', fontWeight:'bold', fontFamily:FF, fontSize:17 },
-  dialogue: { position:'absolute', bottom:46, left:'50%', transform:'translateX(-50%)', width:'66%', maxWidth:840, cursor:'pointer', fontFamily:FF, zIndex:10 },
-  dText: { background:'rgba(255,255,255,0.96)', padding:'22px 26px', borderRadius:'0 18px 18px 18px', border:'5px solid #333', fontSize:23, lineHeight:1.5 },
-  help:  { position:'absolute', bottom:12, left:'50%', transform:'translateX(-50%)', color:'white', fontSize:12, fontFamily:'Arial,sans-serif', background:'rgba(0,0,0,0.32)', padding:'5px 16px', borderRadius:20, whiteSpace:'nowrap', zIndex:10, userSelect:'none' },
-  cross: { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', color:'white', fontSize:22, pointerEvents:'none', opacity:0.55 },
+  cross:   { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', color:'white', fontSize:22, pointerEvents:'none', opacity:0.55, zIndex:10 },
 };
