@@ -4,10 +4,9 @@
  * - Canvas-generated terrain textures with noise variation and bump mapping
  * - Animated water with UV scrolling
  * - Rock clusters, palm trees, flower patches
- * - Buttery smooth WASD movement
- * - Faster, smoother Arrow Key Camera sweeps
+ * - Buttery smooth WASD movement + Flawless Arrow Key Camera
  * - Interactive Branching Dialogue System
- * - Dynamic Fishing Spots with swimming fish
+ * - Interactive Fishing Poles & Swimming Fish!
  */
 
 import React, {
@@ -43,11 +42,11 @@ const keyState = { prevE: false };
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const CONFIG = {
-  SPEED: 5.5,              // Fixed maximum walking speed
-  ACCEL: 12,               // How fast you reach top speed
-  DECEL: 15,               // How fast you slide to a stop
-  GRAVITY: 35,             // Pull down strength
-  JUMP_FORCE: 14,          // Upward velocity
+  SPEED: 5.5,              
+  ACCEL: 12,               
+  DECEL: 15,               
+  GRAVITY: 35,             
+  JUMP_FORCE: 14,          
   COLORS: {
     player:  '#f4a0b0',
     barnaby: '#6aaddb',
@@ -69,7 +68,7 @@ const useIslandStore = () => {
 
   const [state, setState] = useState({
     bells: 100,
-    inventory: { fruit: 0 },
+    inventory: { fruit: 0, fish: 0 },
     gameTime: 9.0,
     dialogue: null,
     ui: 'start',
@@ -217,6 +216,18 @@ class GameAudio {
       g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.07);
       osc.connect(g); g.connect(this.master);
       osc.start(); osc.stop(this.ctx.currentTime + 0.07);
+    }
+
+    if (type === 'splash') {
+      const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.3, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0; i<d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 2);
+      const src = this.ctx.createBufferSource(); src.buffer = buf;
+      const bpf = this.ctx.createBiquadFilter(); bpf.type = 'lowpass'; bpf.frequency.value = 600;
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(0.4, this.ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+      src.connect(bpf); bpf.connect(g); g.connect(this.master);
+      src.start();
     }
   }
 }
@@ -462,16 +473,6 @@ function Terrain() {
     return { geoBase: build(), geoGrass: build() };
   }, []);
 
-  const grassAlpha = useMemo(() => {
-    const pos = geoGrass.attributes.position;
-    const a = new Float32Array(pos.count);
-    for (let i = 0; i < pos.count; i++) {
-      a[i] = pos.getY(i) > 0.35 ? 1 : 0;
-    }
-    geoGrass.setAttribute('grassMask', new THREE.BufferAttribute(a, 1));
-    return a;
-  }, [geoGrass]);
-
   return (
     <group>
       <mesh geometry={geoBase} receiveShadow name="ground">
@@ -545,14 +546,11 @@ function DustEffect() {
   useEffect(() => {
     const handleLand = (e) => {
       const pos = e.detail;
-      // Spawn random dust particles when hitting ground
       for(let i=0; i<8; i++) {
          particles.current.push({
            pos: pos.clone().add(new THREE.Vector3((Math.random()-0.5)*0.8, 0.1, (Math.random()-0.5)*0.8)),
            vel: new THREE.Vector3((Math.random()-0.5)*2, Math.random()*2 + 1, (Math.random()-0.5)*2),
-           age: 0,
-           life: 0.3 + Math.random()*0.3,
-           scale: Math.random() * 0.3 + 0.2
+           age: 0, life: 0.3 + Math.random()*0.3, scale: Math.random() * 0.3 + 0.2
          });
       }
     };
@@ -566,16 +564,11 @@ function DustEffect() {
     for (let i = particles.current.length - 1; i >= 0; i--) {
       const p = particles.current[i];
       p.age += delta;
-      if (p.age >= p.life) {
-        particles.current.splice(i, 1);
-        continue;
-      }
+      if (p.age >= p.life) { particles.current.splice(i, 1); continue; }
       p.pos.addScaledVector(p.vel, delta);
       p.scale *= 0.88; 
-      dummy.position.copy(p.pos);
-      dummy.scale.setScalar(p.scale);
-      dummy.updateMatrix();
-      meshRef.current.setMatrixAt(count++, dummy.matrix);
+      dummy.position.copy(p.pos); dummy.scale.setScalar(p.scale);
+      dummy.updateMatrix(); meshRef.current.setMatrixAt(count++, dummy.matrix);
     }
     meshRef.current.count = count;
     meshRef.current.instanceMatrix.needsUpdate = true;
@@ -589,38 +582,77 @@ function DustEffect() {
   );
 }
 
+function SplashEffect() {
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const particles = useRef([]);
+  const meshRef = useRef();
+
+  useEffect(() => {
+    const handleSplash = (e) => {
+      const pos = e.detail; 
+      for(let i=0; i<15; i++) {
+         particles.current.push({
+           pos: pos.clone().add(new THREE.Vector3((Math.random()-0.5)*1.5, -0.5, (Math.random()-0.5)*1.5)), 
+           vel: new THREE.Vector3((Math.random()-0.5)*3, Math.random()*5 + 3, (Math.random()-0.5)*3),
+           age: 0, life: 0.3 + Math.random()*0.3, scale: Math.random() * 0.15 + 0.1
+         });
+      }
+    };
+    window.addEventListener('fish-caught', handleSplash);
+    return () => window.removeEventListener('fish-caught', handleSplash);
+  }, []);
+
+  useFrame((_, delta) => {
+    if (!meshRef.current) return;
+    let count = 0;
+    for (let i = particles.current.length - 1; i >= 0; i--) {
+      const p = particles.current[i];
+      p.age += delta;
+      if (p.age >= p.life) { particles.current.splice(i, 1); continue; }
+      p.vel.y -= 15 * delta; 
+      p.pos.addScaledVector(p.vel, delta);
+      p.scale *= 0.92;
+      dummy.position.copy(p.pos); dummy.scale.setScalar(p.scale);
+      dummy.updateMatrix(); meshRef.current.setMatrixAt(count++, dummy.matrix);
+    }
+    meshRef.current.count = count;
+    meshRef.current.instanceMatrix.needsUpdate = true;
+  });
+
+  return (
+    <instancedMesh ref={meshRef} args={[null, null, 60]}>
+      <sphereGeometry args={[1, 6, 6]} />
+      <meshStandardMaterial color="#00ddff" roughness={0.1} transparent opacity={0.8} />
+    </instancedMesh>
+  );
+}
+
 // ─── Camera ───────────────────────────────────────────────────────────────────
 
 function CameraRig() {
   const { playerGroupRef } = useContext(GameContext);
   const { camera } = useThree();
 
-  const _tgt = useMemo(() => new THREE.Vector3(), []);
-  
   useFrame((_, delta) => {
-    // INCREASED SPEED: Arrow Keys control Camera Yaw and Pitch much faster now
-    if (keyState['arrowleft'])  camState.yaw += 4.5 * delta;
-    if (keyState['arrowright']) camState.yaw -= 4.5 * delta;
-    if (keyState['arrowup'])    camState.pitch = Math.max(0.1, camState.pitch - 3.5 * delta);
-    if (keyState['arrowdown'])  camState.pitch = Math.min(1.4, camState.pitch + 3.5 * delta);
+    if (keyState['arrowleft'])  camState.yaw += 6.0 * delta;
+    if (keyState['arrowright']) camState.yaw -= 6.0 * delta;
+    if (keyState['arrowup'])    camState.pitch = Math.max(0.1, camState.pitch - 4.0 * delta);
+    if (keyState['arrowdown'])  camState.pitch = Math.min(1.4, camState.pitch + 4.0 * delta);
 
     const p = playerGroupRef.current;
     if (!p) return;
     
     const dist = 14;
-    const targetCamPos = new THREE.Vector3(
+    
+    // THE FIX: Directly setting the camera position instantly prevents the jittering/FPS drops.
+    // The player model is already perfectly smoothed, so the camera doesn't need its own lerp!
+    camera.position.set(
       p.position.x + Math.sin(camState.yaw) * dist * Math.cos(camState.pitch),
       p.position.y + dist * Math.sin(camState.pitch) + 1,
-      p.position.z + Math.cos(camState.yaw) * dist * Math.cos(camState.pitch),
+      p.position.z + Math.cos(camState.yaw) * dist * Math.cos(camState.pitch)
     );
     
-    // Safely clamped lerping for the camera to prevent violent shaking
-    camera.position.lerp(targetCamPos, Math.min(1, 10 * delta));
-    
-    // Smooth the look-at target so moving over hills doesn't snap the view
-    const targetLookAt = new THREE.Vector3(p.position.x, p.position.y + 1.1, p.position.z);
-    _tgt.lerp(targetLookAt, Math.min(1, 15 * delta));
-    camera.lookAt(_tgt);
+    camera.lookAt(p.position.x, p.position.y + 1.1, p.position.z);
   });
   return null;
 }
@@ -642,40 +674,56 @@ function PlayerController() {
     const g = playerGroupRef.current;
     if (!g || state.ui !== 'play') return;
     
-    // Check 'E' Interaction
+    // Check 'E' Interaction for BOTH NPCs and Fishing Poles
     if (keyState['e'] && !keyState.prevE) {
-      let closestNPC = null;
+      let closestInteractable = null;
       let minDist = 4.0;
+      
       scene.traverse(child => {
-        if (child.userData?.isNPC) {
+        if (child.userData?.isNPC || child.userData?.isFishingPole) {
           const dist = child.getWorldPosition(new THREE.Vector3()).distanceTo(g.position);
           if (dist < minDist) {
             minDist = dist;
-            closestNPC = child;
+            closestInteractable = child;
           }
         }
       });
 
-      if (closestNPC && !state.dialogue) {
-        actions.setDialogue({
-          name: closestNPC.userData.name,
-          color: closestNPC.userData.color,
-          nodes: closestNPC.userData.dialogues,
-          step: 0
-        });
-        audio.sfx('talk');
+      if (closestInteractable && !state.dialogue) {
+        if (closestInteractable.userData.isNPC) {
+          actions.setDialogue({
+            name: closestInteractable.userData.name,
+            color: closestInteractable.userData.color,
+            nodes: closestInteractable.userData.dialogues,
+            step: 0
+          });
+          audio.sfx('talk');
+        } 
+        else if (closestInteractable.userData.isFishingPole) {
+          const now = Date.now();
+          // 10 second fishing cooldown
+          if (now - closestInteractable.userData.lastFished > 10000) {
+            closestInteractable.userData.lastFished = now;
+            actions.addItem('fish');
+            actions.addBells(150);
+            audio.sfx('splash');
+            window.dispatchEvent(new CustomEvent('fish-caught', { detail: closestInteractable.getWorldPosition(new THREE.Vector3()) }));
+          } else {
+            actions.setDialogue({
+              name: "Fishing Pole", color: "#8B5A2B",
+              nodes: [{ text: "The fish are scared away. Give it a few seconds...", next: "end" }], step: 0
+            });
+          }
+        }
       }
     }
     keyState.prevE = keyState['e']; 
 
-    // Freeze player if talking to someone
     if (state.dialogue) return;
 
-    // Movement strictly restricted to W A S D
     const mx = (keyState['a'] ? -1 : 0) + (keyState['d'] ? 1 : 0);
     const mz = (keyState['w'] ? -1 : 0) + (keyState['s'] ? 1 : 0);
 
-    // Apply Clamped, Framerate-Independent Acceleration and Deceleration
     const accelFactor = Math.min(1, CONFIG.ACCEL * delta);
     const decelFactor = Math.min(1, CONFIG.DECEL * delta);
 
@@ -688,14 +736,12 @@ function PlayerController() {
       vel.current.z = THREE.MathUtils.lerp(vel.current.z, 0, decelFactor);
     }
 
-    // Apply Gravity
     vel.current.y -= CONFIG.GRAVITY * delta;
 
     g.position.x = Math.max(-56, Math.min(56, g.position.x + vel.current.x * delta));
     g.position.z = Math.max(-56, Math.min(56, g.position.z + vel.current.z * delta));
     g.position.y += vel.current.y * delta;
 
-    // Ground Detection
     raycaster.set(new THREE.Vector3(g.position.x, 20, g.position.z), downVec);
     const ground = scene.getObjectByName('ground');
     let isGrounded = false;
@@ -704,12 +750,11 @@ function PlayerController() {
       const hits = raycaster.intersectObject(ground);
       if (hits.length > 0) {
         const floorHeight = hits[0].point.y + 0.05;
-        const snapDist = 0.3; // helps walking down slopes smoothly
+        const snapDist = 0.3; 
         if (g.position.y <= floorHeight + snapDist && vel.current.y <= 0) {
           g.position.y = floorHeight;
           isGrounded = true;
 
-          // Dispatch Dust Particle Event on Hard Landings
           if (!prevGrounded.current && vel.current.y < -5) {
              window.dispatchEvent(new CustomEvent('player-land', { detail: g.position }));
           }
@@ -720,7 +765,6 @@ function PlayerController() {
 
     prevGrounded.current = isGrounded;
 
-    // Jumping Mechanics (Spacebar)
     if (keyState[' '] && isGrounded) {
       vel.current.y = CONFIG.JUMP_FORCE;
       isGrounded = false; 
@@ -729,7 +773,6 @@ function PlayerController() {
     const spd2D = Math.sqrt(vel.current.x ** 2 + vel.current.z ** 2);
     movingRef.current = spd2D > 0.5 && isGrounded; 
 
-    // Visual Walk Cycle - also safely clamped
     const rotSpeed = Math.min(1, 10 * delta);
     const bobSpeed = Math.min(1, 15 * delta);
     
@@ -789,7 +832,6 @@ function NPC({ name, color, home, dialogues, creatureType }) {
 
   const Creature = creatureType === 'bear' ? BearCreature : creatureType === 'bunny' ? BunnyCreature : CatCreature;
 
-  // Passing the complex dialogue structure in UserData
   return (
     <group ref={ref} position={[home.x, home.y, home.z]} userData={{ isNPC: true, name, color, dialogues }}>
       <Creature color={color} walkCycle={walkRef.current} isMoving={movingRef.current} />
@@ -799,6 +841,75 @@ function NPC({ name, color, home, dialogues, creatureType }) {
       <ContactShadows opacity={0.35} scale={3} blur={2} position={[0, 0.02, 0]} />
     </group>
   );
+}
+
+// ─── Fishing & Water Life ────────────────────────────────────────────────────
+
+const POLE_DATA = [
+  { x: 42, z: 0, rotY: -Math.PI/2 },
+  { x: -32, z: 32, rotY: Math.PI/4 },
+  { x: -10, z: -44, rotY: Math.PI + Math.PI/4 },
+].map(p => ({ ...p, y: getTerrainY(p.x, p.z) }));
+
+function FishingPoles() {
+  return (
+    <group>
+      {POLE_DATA.map((p, i) => (
+        // Added the userData payload here so the Raycaster sees them as interactable objects
+        <group key={i} position={[p.x, p.y, p.z]} rotation={[0, p.rotY, 0]} userData={{ isFishingPole: true, lastFished: 0 }}>
+          <mesh position={[0, 0.6, -1.0]} rotation={[0.7, 0, 0]} castShadow>
+            <cylinderGeometry args={[0.03, 0.06, 2.5]} />
+            <meshStandardMaterial color="#8B5A2B" roughness={0.8} />
+          </mesh>
+          <mesh position={[0, -0.1, -1.9]}>
+            <cylinderGeometry args={[0.005, 0.005, 2.5]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.4} />
+          </mesh>
+          <mesh position={[0, -1.18 - p.y, -1.9]}>
+            <sphereGeometry args={[0.08, 12, 12]} />
+            <meshStandardMaterial color="#ff3333" />
+          </mesh>
+          <mesh position={[0, -1.24 - p.y, -1.9]}>
+            <sphereGeometry args={[0.08, 12, 12]} />
+            <meshStandardMaterial color="#ffffff" />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+const FISH_DATA = Array.from({ length: 24 }).map((_, i) => ({
+  offset: Math.random() * Math.PI * 2,
+  r: 40 + Math.random() * 18,
+  speed: 0.15 + Math.random() * 0.2,
+  y: -1.4 - Math.random() * 0.3,
+  color: ['#ff7700', '#00ddff', '#ff3366'][Math.floor(Math.random() * 3)]
+}));
+
+function Fish({ r, speed, offset, y, color }) {
+  const ref = useRef();
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime * speed + offset;
+    ref.current.position.set(Math.cos(t) * r, y, Math.sin(t) * r);
+    ref.current.rotation.y = -t + Math.sin(clock.elapsedTime * 12) * 0.15;
+  });
+  return (
+    <group ref={ref}>
+      <mesh scale={[0.15, 0.2, 0.35]}>
+        <sphereGeometry args={[1, 12, 12]} />
+        <meshStandardMaterial color={color} roughness={0.3} metalness={0.1} />
+      </mesh>
+      <mesh position={[0, 0, -0.3]} rotation={[Math.PI/2, 0, 0]}>
+        <coneGeometry args={[0.12, 0.25, 4]} />
+        <meshStandardMaterial color={color} roughness={0.3} />
+      </mesh>
+    </group>
+  );
+}
+
+function FishLayer() {
+  return <group>{FISH_DATA.map((f, i) => <Fish key={i} {...f} />)}</group>;
 }
 
 // ─── World Data ───────────────────────────────────────────────────────────────
@@ -851,93 +962,13 @@ const FRUIT_DATA = (() => {
   return out;
 })();
 
-// Dynamically generate spots along the shore where terrain meets water
-const FISHING_DATA = (() => {
-  const rng = seededRand(88); const out = []; let att = 0;
-  while (out.length < 6 && att++ < 1000) {
-    const a = rng()*Math.PI*2, r = 25+rng()*20;
-    const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
-    // Find shoreline (just slightly above water level)
-    if (y > 0.05 && y < 0.6 && isClear(x,z, 5)) {
-       // Look out into the water from the shore
-       const waterX = x + Math.cos(a) * 5;
-       const waterZ = z + Math.sin(a) * 5;
-       const waterY = getTerrainY(waterX, waterZ);
-       // Ensure the spot out there is actually deep water
-       if (waterY < -0.5) { 
-         // Point rod toward the water
-         const angle = Math.atan2(waterX - x, waterZ - z); 
-         out.push({ pole: [x, y, z], water: [waterX, -1.0, waterZ], angle });
-       }
-    }
-  }
-  return out;
-})();
-
 const HOUSE_CFGS = [
   { pos: [-15, getTerrainY(-15,-15), -15], color: CONFIG.COLORS.barnaby },
   { pos: [ 20, getTerrainY( 20,  5),   5], color: CONFIG.COLORS.luna    },
   { pos: [  0, getTerrainY(  0, 25),  25], color: CONFIG.COLORS.pip     },
 ];
 
-// ─── Fishing & Collectibles ───────────────────────────────────────────────────
-
-function FishingSpot({ data }) {
-  const fishRef = useRef();
-  const floatRef = useRef();
-  
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime;
-    if (fishRef.current) {
-       // Make fish swim in a lively circle around the bobber
-       fishRef.current.position.x = data.water[0] + Math.sin(t * 2) * 1.5;
-       fishRef.current.position.z = data.water[2] + Math.cos(t * 2) * 1.5;
-       fishRef.current.rotation.y = t * 2 + Math.PI; // point forward
-       fishRef.current.position.y = data.water[1] + 0.1 + Math.sin(t * 3) * 0.1;
-    }
-    if (floatRef.current) {
-       // Bobbing motion for the float
-       floatRef.current.position.y = data.water[1] + 0.9 + Math.sin(t * 2.5) * 0.05;
-    }
-  });
-
-  return (
-    <group>
-      {/* Fishing Pole Stand on Shore */}
-      <group position={data.pole} rotation={[0, data.angle, 0]}>
-        {/* Rod tilting out towards the water */}
-        <mesh position={[0, 1.2, 1.5]} rotation={[-1.0, 0, 0]} castShadow>
-          <cylinderGeometry args={[0.03, 0.06, 4, 8]} />
-          <meshStandardMaterial color="#8B4513" roughness={0.8} />
-        </mesh>
-        {/* Little holder stake */}
-        <mesh position={[0, 0.3, 0]} rotation={[0.4, 0, 0]} castShadow>
-           <cylinderGeometry args={[0.04, 0.04, 0.8, 8]} />
-           <meshStandardMaterial color="#555" />
-        </mesh>
-      </group>
-      
-      {/* Magical Bobber / Float in Water */}
-      <mesh ref={floatRef} position={[data.water[0], data.water[1] + 0.9, data.water[2]]}>
-        <sphereGeometry args={[0.12, 12, 12]} />
-        <meshStandardMaterial color="#ff2222" roughness={0.2} />
-        <Sparkles count={3} scale={0.5} size={1.5} color="#ffffff" />
-      </mesh>
-
-      {/* Stylized Fish */}
-      <group ref={fishRef}>
-        <mesh rotation={[Math.PI/2, 0, 0]} castShadow>
-          <capsuleGeometry args={[0.12, 0.3, 8, 8]} />
-          <meshStandardMaterial color="#ff9900" roughness={0.3} />
-        </mesh>
-        <mesh position={[0, 0, -0.25]} rotation={[-Math.PI/2, 0, 0]} castShadow>
-          <coneGeometry args={[0.15, 0.3, 8]} />
-          <meshStandardMaterial color="#ff9900" />
-        </mesh>
-      </group>
-    </group>
-  );
-}
+// ─── FruitLayer ───────────────────────────────────────────────────────────────
 
 function FruitLayer() {
   const { actions, playerPosRef } = useContext(GameContext);
@@ -1046,14 +1077,12 @@ function StaticWorld() {
           </Instances>
         );
       })}
-
-      {FISHING_DATA.map((spot, i) => <FishingSpot key={`fish-${i}`} data={spot} />)}
     </group>
   );
 }
 
 function WorldAssets() {
-  return (<><StaticWorld /><FruitLayer /></>);
+  return (<><StaticWorld /><FruitLayer /><FishingPoles /><FishLayer /></>);
 }
 
 // ─── Atmosphere ───────────────────────────────────────────────────────────────
@@ -1087,12 +1116,11 @@ function GameUI() {
       <h1 style={{ fontSize: 62, margin: '4px 0', textShadow: '4px 4px #ff69b4, 0 0 40px rgba(255,105,180,0.5)' }}>CANDY ISLAND</h1>
       <p style={{ fontSize: 20, fontWeight: 'bold', margin: '6px 0 18px', opacity: 0.9 }}>THE ULTIMATE EDITION</p>
       <p style={{ fontSize: 14, opacity: 0.75, background: 'rgba(0,0,0,0.2)', padding: '8px 20px', borderRadius: 20 }}>
-        Click to Start — W,A,S,D to move, Arrows to look, Space to jump, E to talk
+        Click to Start — W,A,S,D to move, Arrows to look, Space to jump, E to talk or fish!
       </p>
     </div>
   );
 
-  // New Branching Dialogue Logic
   const d = state.dialogue;
   const currentNode = d ? d.nodes[d.step] : null;
 
@@ -1136,6 +1164,10 @@ function GameUI() {
           <div style={ST.bpItem}>
             <span style={{ fontSize: 20 }}>🍎</span>
             <span style={{ fontWeight: 'bold', color: '#333' }}>x {state.inventory.fruit}</span>
+          </div>
+          <div style={ST.bpItem}>
+            <span style={{ fontSize: 20 }}>🐟</span>
+            <span style={{ fontWeight: 'bold', color: '#00ddff' }}>x {state.inventory.fish}</span>
           </div>
           <div style={ST.bpItem}>
             <span style={{ fontSize: 20 }}>💰</span>
@@ -1185,6 +1217,7 @@ export default function CandyIslandUltimate() {
             <WorldAssets />
             <PlayerController />
             <DustEffect />
+            <SplashEffect />
             <CameraRig />
 
             <NPC name="Barnaby" color={CONFIG.COLORS.barnaby} creatureType="bear"
