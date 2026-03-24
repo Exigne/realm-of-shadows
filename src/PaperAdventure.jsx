@@ -1,11 +1,12 @@
 /**
  * 🏝️ CANDY ISLAND
- * - Canvas-generated terrain textures with noise variation and bump mapping
+ * - Dependency-Free Procedural Terrain (No external noise libraries required!)
  * - Animated water with UV scrolling
  * - Rock clusters, palm trees, flower patches
  * - Interactive Branching Dialogue System
  * - Smooth Gimbal Camera System (Velocity + Damping)
  * - Seamless Water Swimming & Floating Mechanics
+ * - Ultra-Stable Rendering (Fixed React State Loop)
  */
 
 import React, {
@@ -19,17 +20,17 @@ import {
 } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { createNoise2D } from 'simplex-noise';
 
-// ─── Noise & Terrain Formula ─────────────────────────────────────────────────
-
-const noise2D = createNoise2D();
-const GameContext = createContext();
+// ─── Pure Math Terrain Generation (No Simplex-Noise Needed) ──────────────────
 
 function getTerrainY(x, z) {
   const d = Math.sqrt(x * x + z * z);
   if (d > 55) return -2.5;
-  let h = noise2D(x * 0.04, z * 0.04) * 3 + noise2D(x * 0.1, z * 0.1) * 0.8;
+  // Wavy math to create natural-looking hills without external libraries
+  let h = (Math.sin(x * 0.1) * Math.cos(z * 0.1) * 2.0) + 
+          (Math.sin(x * 0.05 + z * 0.04) * 1.5) + 
+          (Math.cos(x * 0.2 + z * 0.2) * 0.5);
+  // Smoothly taper off the edges into the ocean
   return h * Math.max(0, 1 - Math.pow(d / 60, 4));
 }
 
@@ -54,11 +55,12 @@ const CONFIG = {
     rosie:   '#ff8fab',
     maple:   '#ff7a1a',
     bubbles: '#6ecfb5',
-  },
-  TIME_SPEED: 0.04,
+  }
 };
 
 // ─── Store ────────────────────────────────────────────────────────────────────
+
+const GameContext = createContext();
 
 const useIslandStore = () => {
   const playerPosRef   = useRef(new THREE.Vector3(0, 1, 0));
@@ -77,7 +79,7 @@ const useIslandStore = () => {
     addBells:    (n)  => setState(s => ({ ...s, bells: s.bells + n })),
     addItem:     (t, n=1) => setState(s => ({ ...s, inventory: { ...s.inventory, [t]: (s.inventory[t]||0) + n } })),
     setDialogue: (d)  => setState(s => ({ ...s, dialogue: d })),
-    updateTime:  (dt) => setState(s => ({ ...s, gameTime: (s.gameTime + dt) % 24 })),
+    tickTime:    ()   => setState(s => ({ ...s, gameTime: (s.gameTime + 0.05) % 24 })), // Safe 1-second increment
   }), []);
 
   return { state, actions, playerPosRef, playerGroupRef };
@@ -415,11 +417,7 @@ function Terrain() {
       const pos = g.attributes.position;
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i), z = pos.getZ(i);
-        const d = Math.sqrt(x * x + z * z);
-        let h = noise2D(x * 0.04, z * 0.04) * 3 + noise2D(x * 0.1, z * 0.1) * 0.8;
-        h *= Math.max(0, 1 - Math.pow(d / 60, 4));
-        if (d > 55) h = -2.5;
-        pos.setY(i, h);
+        pos.setY(i, getTerrainY(x, z));
       }
       g.computeVertexNormals();
       return g;
@@ -882,29 +880,22 @@ function WorldAssets() {
   return (<><StaticWorld /><FruitLayer /></>);
 }
 
-// ─── Atmosphere ───────────────────────────────────────────────────────────────
+// ─── Atmosphere & Lighting ────────────────────────────────────────────────────
 
 function Atmosphere() {
   const { state, actions } = useContext(GameContext);
   
-  // Safe time update loop
+  // SAFE TICK: Only update React state 1 time per second, eliminating white screens!
   useEffect(() => {
-    let frameId;
-    let lastTime = performance.now();
-    const loop = (t) => {
-      const dt = (t - lastTime) / 1000;
-      lastTime = t;
-      actions.updateTime(dt * CONFIG.TIME_SPEED);
-      frameId = requestAnimationFrame(loop);
-    };
-    frameId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(frameId);
+    const timer = setInterval(() => actions.tickTime(), 1000);
+    return () => clearInterval(timer);
   }, [actions]);
 
   const sunAngle = ((state.gameTime - 6) / 12) * Math.PI - Math.PI;
   const sunPos   = [Math.cos(sunAngle)*80, Math.max(Math.sin(-sunAngle)*80, -10), 20];
   const isNight  = state.gameTime < 6 || state.gameTime > 18;
   const dusk     = state.gameTime > 16 && state.gameTime < 20;
+  
   return (
     <>
       <Sky sunPosition={sunPos} turbidity={dusk?6:0.4} rayleigh={dusk?4:1.5} mieCoefficient={0.005} />
@@ -918,11 +909,11 @@ function Atmosphere() {
 
 // ─── UI ───────────────────────────────────────────────────────────────────────
 
-function InlinedHUD({ bells, fruit, gameTime }) {
+function InlinedHUD({ gameTime }) {
   const timeStr = `${Math.floor(gameTime)}:${Math.floor((gameTime%1)*60).toString().padStart(2,'0')}`;
   return (
     <div style={{ position: 'absolute', top: 20, left: 20, pointerEvents: 'none', fontFamily: '"Comic Sans MS", cursive', zIndex: 10 }}>
-      <div style={{ background:'rgba(255,255,255,0.8)', padding:'10px 20px', borderRadius:20, fontSize:18, fontWeight:'bold', border:'3px solid #fff', color: '#333' }}>
+      <div style={{ background:'rgba(255,255,255,0.8)', padding:'10px 20px', borderRadius:20, fontSize:18, fontWeight:'bold', border:'3px solid #fff', color: '#333', boxShadow:'0 4px 10px rgba(0,0,0,0.1)' }}>
         🕒 {timeStr}
       </div>
     </div>
@@ -992,7 +983,7 @@ function GameUI() {
         </div>
       </div>
 
-      <InlinedHUD bells={state.bells} fruit={state.inventory.fruit} gameTime={state.gameTime} />
+      <InlinedHUD gameTime={state.gameTime} />
     </>
   );
 }
@@ -1026,7 +1017,7 @@ export default function CandyIslandUltimate() {
       <GameContext.Provider value={store}>
         <Canvas shadows dpr={[1,2]} camera={{ fov:46, position:[0,12,18] }}
           gl={{ antialias:true, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.1 }}>
-          <Suspense fallback={<Html center><h2 style={{fontFamily:'sans-serif', color:'white'}}>Loading Island...</h2></Html>}>
+          <Suspense fallback={<Html center><div style={{fontFamily:'sans-serif', color:'white', background:'rgba(0,0,0,0.5)', padding:'10px 20px', borderRadius:20}}>Loading Island...</div></Html>}>
             <Atmosphere />
             <Terrain />
             <Water />
