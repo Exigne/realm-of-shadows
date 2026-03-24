@@ -4,8 +4,10 @@
  * - Canvas-generated terrain textures with noise variation and bump mapping
  * - Animated water with UV scrolling
  * - Rock clusters, palm trees, flower patches
- * - Buttery smooth WASD movement + Arrow Key Camera (Clamped Physics!)
+ * - Buttery smooth WASD movement
+ * - Faster, smoother Arrow Key Camera sweeps
  * - Interactive Branching Dialogue System
+ * - Dynamic Fishing Spots with swimming fish
  */
 
 import React, {
@@ -596,11 +598,11 @@ function CameraRig() {
   const _tgt = useMemo(() => new THREE.Vector3(), []);
   
   useFrame((_, delta) => {
-    // Arrow Keys control Camera Yaw and Pitch
-    if (keyState['arrowleft'])  camState.yaw += 2.5 * delta;
-    if (keyState['arrowright']) camState.yaw -= 2.5 * delta;
-    if (keyState['arrowup'])    camState.pitch = Math.max(0.1, camState.pitch - 2.0 * delta);
-    if (keyState['arrowdown'])  camState.pitch = Math.min(1.4, camState.pitch + 2.0 * delta);
+    // INCREASED SPEED: Arrow Keys control Camera Yaw and Pitch much faster now
+    if (keyState['arrowleft'])  camState.yaw += 4.5 * delta;
+    if (keyState['arrowright']) camState.yaw -= 4.5 * delta;
+    if (keyState['arrowup'])    camState.pitch = Math.max(0.1, camState.pitch - 3.5 * delta);
+    if (keyState['arrowdown'])  camState.pitch = Math.min(1.4, camState.pitch + 3.5 * delta);
 
     const p = playerGroupRef.current;
     if (!p) return;
@@ -849,13 +851,93 @@ const FRUIT_DATA = (() => {
   return out;
 })();
 
+// Dynamically generate spots along the shore where terrain meets water
+const FISHING_DATA = (() => {
+  const rng = seededRand(88); const out = []; let att = 0;
+  while (out.length < 6 && att++ < 1000) {
+    const a = rng()*Math.PI*2, r = 25+rng()*20;
+    const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
+    // Find shoreline (just slightly above water level)
+    if (y > 0.05 && y < 0.6 && isClear(x,z, 5)) {
+       // Look out into the water from the shore
+       const waterX = x + Math.cos(a) * 5;
+       const waterZ = z + Math.sin(a) * 5;
+       const waterY = getTerrainY(waterX, waterZ);
+       // Ensure the spot out there is actually deep water
+       if (waterY < -0.5) { 
+         // Point rod toward the water
+         const angle = Math.atan2(waterX - x, waterZ - z); 
+         out.push({ pole: [x, y, z], water: [waterX, -1.0, waterZ], angle });
+       }
+    }
+  }
+  return out;
+})();
+
 const HOUSE_CFGS = [
   { pos: [-15, getTerrainY(-15,-15), -15], color: CONFIG.COLORS.barnaby },
   { pos: [ 20, getTerrainY( 20,  5),   5], color: CONFIG.COLORS.luna    },
   { pos: [  0, getTerrainY(  0, 25),  25], color: CONFIG.COLORS.pip     },
 ];
 
-// ─── FruitLayer ───────────────────────────────────────────────────────────────
+// ─── Fishing & Collectibles ───────────────────────────────────────────────────
+
+function FishingSpot({ data }) {
+  const fishRef = useRef();
+  const floatRef = useRef();
+  
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    if (fishRef.current) {
+       // Make fish swim in a lively circle around the bobber
+       fishRef.current.position.x = data.water[0] + Math.sin(t * 2) * 1.5;
+       fishRef.current.position.z = data.water[2] + Math.cos(t * 2) * 1.5;
+       fishRef.current.rotation.y = t * 2 + Math.PI; // point forward
+       fishRef.current.position.y = data.water[1] + 0.1 + Math.sin(t * 3) * 0.1;
+    }
+    if (floatRef.current) {
+       // Bobbing motion for the float
+       floatRef.current.position.y = data.water[1] + 0.9 + Math.sin(t * 2.5) * 0.05;
+    }
+  });
+
+  return (
+    <group>
+      {/* Fishing Pole Stand on Shore */}
+      <group position={data.pole} rotation={[0, data.angle, 0]}>
+        {/* Rod tilting out towards the water */}
+        <mesh position={[0, 1.2, 1.5]} rotation={[-1.0, 0, 0]} castShadow>
+          <cylinderGeometry args={[0.03, 0.06, 4, 8]} />
+          <meshStandardMaterial color="#8B4513" roughness={0.8} />
+        </mesh>
+        {/* Little holder stake */}
+        <mesh position={[0, 0.3, 0]} rotation={[0.4, 0, 0]} castShadow>
+           <cylinderGeometry args={[0.04, 0.04, 0.8, 8]} />
+           <meshStandardMaterial color="#555" />
+        </mesh>
+      </group>
+      
+      {/* Magical Bobber / Float in Water */}
+      <mesh ref={floatRef} position={[data.water[0], data.water[1] + 0.9, data.water[2]]}>
+        <sphereGeometry args={[0.12, 12, 12]} />
+        <meshStandardMaterial color="#ff2222" roughness={0.2} />
+        <Sparkles count={3} scale={0.5} size={1.5} color="#ffffff" />
+      </mesh>
+
+      {/* Stylized Fish */}
+      <group ref={fishRef}>
+        <mesh rotation={[Math.PI/2, 0, 0]} castShadow>
+          <capsuleGeometry args={[0.12, 0.3, 8, 8]} />
+          <meshStandardMaterial color="#ff9900" roughness={0.3} />
+        </mesh>
+        <mesh position={[0, 0, -0.25]} rotation={[-Math.PI/2, 0, 0]} castShadow>
+          <coneGeometry args={[0.15, 0.3, 8]} />
+          <meshStandardMaterial color="#ff9900" />
+        </mesh>
+      </group>
+    </group>
+  );
+}
 
 function FruitLayer() {
   const { actions, playerPosRef } = useContext(GameContext);
@@ -964,6 +1046,8 @@ function StaticWorld() {
           </Instances>
         );
       })}
+
+      {FISHING_DATA.map((spot, i) => <FishingSpot key={`fish-${i}`} data={spot} />)}
     </group>
   );
 }
@@ -1103,7 +1187,6 @@ export default function CandyIslandUltimate() {
             <DustEffect />
             <CameraRig />
 
-            {/* BARNABY NOW HAS A BRANCHING DIALOGUE */}
             <NPC name="Barnaby" color={CONFIG.COLORS.barnaby} creatureType="bear"
               home={{ x:-15, y:getTerrainY(-15,-10), z:-10 }}
               dialogues={[
