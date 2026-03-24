@@ -1,15 +1,13 @@
 /**
- * 🎤 WHERE'S ROBBIE? — Cartoon Edition
+ * 🎤 WHERE'S ROBBIE? — Cartoon Multiplayer Edition
  *
  * Changes from original:
- *  - Cartoon / Cel-shading via MeshToonMaterial + BackSide outlines
- *  - Robbie Williams RUNS from you (flee AI with speed boost)
- *  - Concert Stage landmark (towers, backdrop, coloured spotlights)
- *  - Gig Finale overlay when you finally catch him
- *  - "ROBBIE SPOTTED! 👀" pulse warning HUD
- *  - Proximity radar in corner
- *  - Brighter pop-art colour palette
- *  - Multiplayer removed (no server needed)
+ * - RESTORED: Full Socket.io Multiplayer Sync
+ * - RESTORED: Real-time Chat UI
+ * - FIXED: Missing Drei/Postprocessing imports causing White Screen
+ * - Cartoon / Cel-shading via MeshToonMaterial + BackSide outlines
+ * - Robbie Williams RUNS from you (flee AI with speed boost)
+ * - Concert Stage landmark & Gig Finale
  */
 
 import React, {
@@ -17,94 +15,48 @@ import React, {
   Suspense, createContext, useContext,
 } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Sky, ContactShadows, Stars, Html } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
+// FIX: Restored Instance and Instances for the trees/rocks!
+import { Sky, ContactShadows, Stars, Html, Instance, Instances } from '@react-three/drei';
+// FIX: Restored ChromaticAberration for the camera effects!
+import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 
 // ─── Multiplayer Config ───────────────────────────────────────────────────────
-const SOCKET_URL = "http://192.168.1.129:3001"; // <-- Replace with your NAS IP/hostname
+const SOCKET_URL = "http://192.168.1.129:3001"; // Your NAS IP
 let socket;
 
 // ─── Inject fonts & keyframes ─────────────────────────────────────────────────
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@700;900&display=swap');
 
-  @keyframes spotSweepL {
-    0%,100% { transform: rotate(-25deg); opacity: 0.7; }
-    50%      { transform: rotate(10deg);  opacity: 1; }
-  }
-  @keyframes spotSweepR {
-    0%,100% { transform: rotate(25deg);  opacity: 0.7; }
-    50%      { transform: rotate(-10deg); opacity: 1; }
-  }
-  @keyframes crowdBob {
-    0%,100% { transform: translateY(0) scaleY(1); }
-    50%      { transform: translateY(-14px) scaleY(0.9); }
-  }
-  @keyframes confettiFall {
-    0%   { transform: translateY(-60px) rotate(0deg); opacity: 1; }
-    100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
-  }
-  @keyframes gigPulse {
-    0%,100% { text-shadow: 0 0 20px #ff00ff, 0 0 40px #ff00ff; }
-    50%      { text-shadow: 0 0 60px #ff00ff, 0 0 120px #ff00ff, 0 0 4px #fff; }
-  }
-  @keyframes spottedPulse {
-    0%,100% { box-shadow: 0 0 0 0 rgba(255,30,30,0.9); }
-    50%      { box-shadow: 0 0 0 18px rgba(255,30,30,0); }
-  }
-  @keyframes radarSpin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-  }
-  @keyframes slideUp {
-    from { transform: translateY(60px); opacity: 0; }
-    to   { transform: translateY(0);    opacity: 1; }
-  }
+  @keyframes spotSweepL { 0%,100% { transform: rotate(-25deg); opacity: 0.7; } 50% { transform: rotate(10deg); opacity: 1; } }
+  @keyframes spotSweepR { 0%,100% { transform: rotate(25deg); opacity: 0.7; } 50% { transform: rotate(-10deg); opacity: 1; } }
+  @keyframes crowdBob { 0%,100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-14px) scaleY(0.9); } }
+  @keyframes confettiFall { 0% { transform: translateY(-60px) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } }
+  @keyframes gigPulse { 0%,100% { text-shadow: 0 0 20px #ff00ff, 0 0 40px #ff00ff; } 50% { text-shadow: 0 0 60px #ff00ff, 0 0 120px #ff00ff, 0 0 4px #fff; } }
+  @keyframes spottedPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,30,30,0.9); } 50% { box-shadow: 0 0 0 18px rgba(255,30,30,0); } }
+  @keyframes radarSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes slideUp { from { transform: translateY(60px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 `;
 
 // ─── Toon material system ─────────────────────────────────────────────────────
 
 const toonGrad = (() => {
-  const c = document.createElement('canvas');
-  c.width = 4; c.height = 1;
-  const ctx = c.getContext('2d');
-  // 4 stepped bands: deep shadow → shadow → base → highlight
-  ['#333', '#777', '#ccc', '#fff'].forEach((col, i) => {
-    ctx.fillStyle = col; ctx.fillRect(i, 0, 1, 1);
-  });
-  const t = new THREE.CanvasTexture(c);
-  t.minFilter = t.magFilter = THREE.NearestFilter;
-  return t;
+  const c = document.createElement('canvas'); c.width = 4; c.height = 1; const ctx = c.getContext('2d');
+  ['#333', '#777', '#ccc', '#fff'].forEach((col, i) => { ctx.fillStyle = col; ctx.fillRect(i, 0, 1, 1); });
+  const t = new THREE.CanvasTexture(c); t.minFilter = t.magFilter = THREE.NearestFilter; return t;
 })();
 
 const _matCache = {};
 function toonMat(col) {
-  if (!_matCache[col]) {
-    _matCache[col] = new THREE.MeshToonMaterial({ color: col, gradientMap: toonGrad });
-  }
+  if (!_matCache[col]) _matCache[col] = new THREE.MeshToonMaterial({ color: col, gradientMap: toonGrad });
   return _matCache[col];
 }
 
 const matSkin  = toonMat('#ffcdb2');
 const matBlack = new THREE.MeshBasicMaterial({ color: '#111' });
 const matOutline = new THREE.MeshBasicMaterial({ color: '#1a0800', side: THREE.BackSide });
-
-// Box with cartoon outline (BackSide trick)
-function ToonBox({ args, color, castShadow, position, rotation, scale, outlineScale = 1.12 }) {
-  const mat = toonMat(color);
-  return (
-    <group position={position} rotation={rotation} scale={scale}>
-      <mesh material={mat} castShadow={castShadow}>
-        <boxGeometry args={args} />
-      </mesh>
-      <mesh scale={outlineScale} material={matOutline}>
-        <boxGeometry args={args} />
-      </mesh>
-    </group>
-  );
-}
 
 // ─── Terrain ─────────────────────────────────────────────────────────────────
 
@@ -121,10 +73,10 @@ function getTerrainY(x, z) {
 
 const CONFIG = {
   SPEED: 6.5, ACCEL: 12, DECEL: 15, GRAVITY: 35, JUMP_FORCE: 14,
-  ROBBIE_DETECT_DIST: 16,   // Robbie sees player at this range
-  ROBBIE_FLEE_SPEED:  8.5,  // Much faster than player when fleeing
+  ROBBIE_DETECT_DIST: 16,  
+  ROBBIE_FLEE_SPEED:  8.5, 
   ROBBIE_WANDER_SPEED: 1.8,
-  ROBBIE_SAFE_DIST:   22,   // Robbie relaxes once this far away
+  ROBBIE_SAFE_DIST:   22,  
   COLORS: {
     gary: '#2c2c54', mark: '#ff6b6b', howard: '#26de81', jason: '#fd9644',
     robbie: '#e74c3c', fan1: '#ff8fab', fan2: '#6ecfb5', fan3: '#c07ed4',
@@ -146,7 +98,7 @@ const GameContext = createContext();
 function useIslandStore() {
   const playerPosRef   = useRef(new THREE.Vector3(0, 1, 0));
   const playerGroupRef = useRef();
-  const robbieDistRef  = useRef(999); // updated each frame by RobbieNPC
+  const robbieDistRef  = useRef(999); 
 
   const [state, setState] = useState({
     bells: 0,
@@ -159,15 +111,19 @@ function useIslandStore() {
       name: '', member: 'Gary',
       colors: { jacket: CONFIG.COLORS.gary, pants: '#111' },
     },
+    onlinePlayers: {}, // RESTORED MULTIPLAYER STATE
+    chatMessages: [],  // RESTORED CHAT STATE
   });
 
   const actions = useMemo(() => ({
-    setUI:           v   => setState(s => ({ ...s, ui: v })),
-    setDialogue:     d   => setState(s => ({ ...s, dialogue: d })),
-    tickTime:        ()  => setState(s => ({ ...s, gameTime: (s.gameTime + 0.05) % 24 })),
+    setUI:           v  => setState(s => ({ ...s, ui: v })),
+    setDialogue:     d  => setState(s => ({ ...s, dialogue: d })),
+    tickTime:        () => setState(s => ({ ...s, gameTime: (s.gameTime + 0.05) % 24 })),
     setPlayerConfig: cfg => setState(s => ({ ...s, playerConfig: { ...s.playerConfig, ...cfg } })),
     setRobbieSpotted: v  => setState(s => ({ ...s, robbieSpotted: v })),
-    setRobbieFound:  v   => setState(s => ({ ...s, robbieFound: v })),
+    setRobbieFound:  v  => setState(s => ({ ...s, robbieFound: v })),
+    setOnlinePlayers: p  => setState(s => ({ ...s, onlinePlayers: p })),
+    addChatMessage:   m  => setState(s => ({ ...s, chatMessages: [...s.chatMessages.slice(-8), m] })),
   }), []);
 
   return { state, actions, playerPosRef, playerGroupRef, robbieDistRef };
@@ -227,7 +183,6 @@ class GameAudio {
       osc.connect(g); g.connect(this.master); osc.start(); osc.stop(this.ctx.currentTime + 0.07);
     }
     if (type === 'win') {
-      // Triumphant ascending fanfare
       [[440,0],[550,0.12],[660,0.24],[880,0.38],[1100,0.55]].forEach(([freq, t]) => {
         const osc = this.ctx.createOscillator(); const g = this.ctx.createGain();
         osc.type = 'sine'; osc.frequency.value = freq;
@@ -426,7 +381,6 @@ function ConcertStage() {
 
   return (
     <group position={[STAGE_X, y, STAGE_Z]}>
-
       {/* ── Stage Platform ── */}
       <mesh position={[0, 0.45, 0]} castShadow receiveShadow material={blackStage}>
         <boxGeometry args={[22, 0.9, 12]} />
@@ -472,13 +426,11 @@ function ConcertStage() {
       {/* ── Left Tower ── */}
       <group position={[-11, 0, -3]}>
         <mesh material={greyTower} castShadow><boxGeometry args={[0.55, 16, 0.55]} /></mesh>
-        {/* Cross braces */}
         {[0, 4, 8].map(yy => (
           <mesh key={yy} material={toonMat('#444')} position={[0, yy, 0]} rotation={[0, 0, Math.PI/4]} castShadow>
             <boxGeometry args={[2.5, 0.25, 0.25]} />
           </mesh>
         ))}
-        {/* Light box on top */}
         <mesh material={toonMat('#ff44ff')} position={[0, 8.4, 1]}>
           <boxGeometry args={[1.2, 0.5, 1.2]} />
         </mesh>
@@ -650,8 +602,9 @@ function PlayerController() {
   const downVec    = useMemo(() => new THREE.Vector3(0,-1,0), []);
   const { scene }  = useThree();
   const lastStep   = useRef(0);
+  const lastSend   = useRef(0); // For Multiplayer network tick
 
-  useFrame((_, delta) => {
+  useFrame(({ clock }, delta) => {
     const g = playerGroupRef.current;
     if (!g || state.ui !== 'play') return;
 
@@ -721,6 +674,17 @@ function PlayerController() {
       if (lastStep.current > 1.4) { audio.sfx('step'); lastStep.current = 0; }
     }
     playerPosRef.current.copy(g.position);
+
+    // MULTIPLAYER BROADCAST
+    if (socket && clock.elapsedTime - lastSend.current > 0.05) {
+      socket.emit('move', {
+        position: g.position,
+        rotation: { y: g.rotation.y },
+        isMoving: movingRef.current,
+        isSwimming: swimRef.current
+      });
+      lastSend.current = clock.elapsedTime;
+    }
   });
 
   return (
@@ -730,6 +694,34 @@ function PlayerController() {
     </group>
   );
 }
+
+// ─── Network Player (RESTORED MULTIPLAYER) ───────────────────────────────────
+
+function NetworkPlayer({ data }) {
+  const ref = useRef();
+  const movingRef = useRef(false);
+  const swimRef = useRef(false);
+
+  useFrame((_, delta) => {
+    if (!ref.current) return;
+    ref.current.position.lerp(new THREE.Vector3(data.position.x, data.position.y, data.position.z), 10 * delta);
+    ref.current.rotation.y = THREE.MathUtils.lerp(ref.current.rotation.y, data.rotation.y, 10 * delta);
+    movingRef.current = data.isMoving;
+    swimRef.current = data.isSwimming;
+  });
+
+  return (
+    <group ref={ref}>
+      <BoybandRig colors={data.colors} isNPC={true} npcMovingRef={movingRef} isSwimmingRef={swimRef} />
+      <Html position={[0, 2.8, 0]} center>
+        <div style={{ background:'rgba(0,0,0,0.6)', color:'white', padding:'2px 8px', borderRadius:10, fontSize:12, fontWeight:'bold', border:`2px solid ${data.colors?.jacket || '#fff'}`, whiteSpace:'nowrap', fontFamily:"'Fredoka One', sans-serif" }}>
+          {data.name} ({data.member})
+        </div>
+      </Html>
+    </group>
+  );
+}
+
 
 // ─── Regular NPC ─────────────────────────────────────────────────────────────
 
@@ -788,7 +780,6 @@ function RobbieNPC({ spawnLoc }) {
     const pPos = playerPosRef.current;
     const dist = pos.distanceTo(pPos);
 
-    // Update shared dist ref so HUD can read it
     robbieDistRef.current = dist;
 
     // ── Flee logic ──
@@ -801,7 +792,6 @@ function RobbieNPC({ spawnLoc }) {
           audio.sfx('spotted');
         }
       }
-      // Flee direction = away from player, with slight random jink
       const jink  = (Math.random() - 0.5) * 0.4;
       const dx    = pos.x - pPos.x + jink;
       const dz    = pos.z - pPos.z + jink;
@@ -834,7 +824,6 @@ function RobbieNPC({ spawnLoc }) {
       movingRef.current = true;
     } else {
       movingRef.current = false;
-      // ── Wander when calm ──
       if (!isFleeRef.current) {
         wanderTimer.current -= delta;
         if (wanderTimer.current <= 0) {
@@ -853,32 +842,20 @@ function RobbieNPC({ spawnLoc }) {
   });
 
   const ROBBIE_DIALOGUES = [
-    {
-      text: "BLIMEY! You actually found me! 🎤",
-      options: [{ label: "Get back on stage, Robbie!", next: 1 }]
-    },
-    {
-      text: "Alright, ALRIGHT. I'll do the reunion. But I'm keeping my rider — three bowls of M&Ms, no brown ones!",
-      options: [{ label: "Deal! Let's put on a show!", next: 2 }]
-    },
-    {
-      text: "LET ME ENTERTAIN YOU! 🎶 Take That are BACK!",
-      options: [{ label: "⭐ TO THE STAGE! ⭐", next: 'gig' }]
-    },
+    { text: "BLIMEY! You actually found me! 🎤", options: [{ label: "Get back on stage, Robbie!", next: 1 }] },
+    { text: "Alright, ALRIGHT. I'll do the reunion. But I'm keeping my rider — three bowls of M&Ms, no brown ones!", options: [{ label: "Deal! Let's put on a show!", next: 2 }] },
+    { text: "LET ME ENTERTAIN YOU! 🎶 Take That are BACK!", options: [{ label: "⭐ TO THE STAGE! ⭐", next: 'gig' }] },
   ];
 
   return (
     <group ref={ref} position={[spawnLoc.x, spawnLoc.y, spawnLoc.z]}
       userData={{ isNPC:true, name:'Robbie', color: CONFIG.COLORS.robbie, dialogues: ROBBIE_DIALOGUES }}>
       <BoybandRig colors={{ jacket: CONFIG.COLORS.robbie, pants: '#222' }} isNPC npcMovingRef={movingRef} />
-      {/* Robbie label with question marks when fleeing */}
       <Html position={[0, 2.9, 0]} center occlude>
         <div style={{
-          background: '#e74c3c', color: '#fff',
-          padding: '3px 12px', borderRadius: 12,
+          background: '#e74c3c', color: '#fff', padding: '3px 12px', borderRadius: 12,
           fontSize: 13, fontWeight: 'bold', border: '3px solid #fff',
-          pointerEvents: 'none', whiteSpace: 'nowrap',
-          fontFamily: "'Fredoka One', sans-serif",
+          pointerEvents: 'none', whiteSpace: 'nowrap', fontFamily: "'Fredoka One', sans-serif",
           boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
         }}>
           ??? 
@@ -894,15 +871,11 @@ function RobbieNPC({ spawnLoc }) {
 function SpottedWarning() {
   return (
     <div style={{
-      position: 'absolute', top: '50%', left: '50%',
-      transform: 'translate(-50%, -50%)',
-      background: 'rgba(231,76,60,0.9)',
-      color: '#fff', padding: '14px 36px',
-      borderRadius: 20, fontFamily: "'Fredoka One', sans-serif",
-      fontSize: 28, fontWeight: 900, border: '4px solid #fff',
-      animation: 'spottedPulse 0.6s ease-in-out infinite, slideUp 0.3s ease-out',
-      zIndex: 80, pointerEvents: 'none', letterSpacing: 2,
-      textShadow: '0 2px 4px rgba(0,0,0,0.5)',
+      position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+      background: 'rgba(231,76,60,0.9)', color: '#fff', padding: '14px 36px',
+      borderRadius: 20, fontFamily: "'Fredoka One', sans-serif", fontSize: 28, fontWeight: 900, 
+      border: '4px solid #fff', animation: 'spottedPulse 0.6s ease-in-out infinite, slideUp 0.3s ease-out',
+      zIndex: 80, pointerEvents: 'none', letterSpacing: 2, textShadow: '0 2px 4px rgba(0,0,0,0.5)',
     }}>
       👀 ROBBIE SPOTTED — He's running!
     </div>
@@ -917,42 +890,31 @@ function ProximityRadar({ distRef }) {
       const ctx = canvas.getContext('2d');
       const W = canvas.width, H = canvas.height, cx = W/2, cy = H/2, R = W/2 - 4;
       ctx.clearRect(0,0,W,H);
-      // Background
       ctx.fillStyle = 'rgba(0,20,40,0.85)'; ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
-      // Rings
       [0.33,0.66,1].forEach(f => {
         ctx.strokeStyle = `rgba(0,255,128,${0.2+f*0.2})`; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.arc(cx,cy,R*f,0,Math.PI*2); ctx.stroke();
       });
-      // Crosshairs
       ctx.strokeStyle = 'rgba(0,255,128,0.25)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.stroke();
-      // Player dot (centre)
-      ctx.fillStyle = '#44ffff';
-      ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2); ctx.fill();
-      // Robbie blip (position estimated from dist + a rotating angle sim)
+      ctx.fillStyle = '#44ffff'; ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2); ctx.fill();
       const dist = distRef.current;
       if (dist < 120) {
-        const t = Date.now() / 1000;
-        const angle = t * 0.8;
+        const t = Date.now() / 1000; const angle = t * 0.8;
         const mapDist = Math.min(dist, 80) / 80 * R * 0.9;
-        const bx = cx + Math.cos(angle)*mapDist;
-        const by = cy + Math.sin(angle)*mapDist;
+        const bx = cx + Math.cos(angle)*mapDist; const by = cy + Math.sin(angle)*mapDist;
         const pulse = 0.5 + 0.5*Math.sin(t*6);
         ctx.fillStyle = `rgba(231,76,60,${0.7+pulse*0.3})`;
         ctx.beginPath(); ctx.arc(bx,by,5+pulse*3,0,Math.PI*2); ctx.fill();
         ctx.strokeStyle = '#e74c3c'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(bx,by,8+pulse*4,0,Math.PI*2); ctx.stroke();
       }
-      // Sweep line
       const sweep = (Date.now()/1000*1.5) % (Math.PI*2);
       const grad = ctx.createLinearGradient(cx,cy,cx+Math.cos(sweep)*R,cy+Math.sin(sweep)*R);
-      grad.addColorStop(0,'rgba(0,255,128,0.4)');
-      grad.addColorStop(1,'rgba(0,255,128,0)');
+      grad.addColorStop(0,'rgba(0,255,128,0.4)'); grad.addColorStop(1,'rgba(0,255,128,0)');
       ctx.strokeStyle = grad; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(sweep)*R, cy+Math.sin(sweep)*R); ctx.stroke();
-      // Border
       ctx.strokeStyle = 'rgba(0,255,128,0.6)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.stroke();
     }, 50);
@@ -970,115 +932,66 @@ function ProximityRadar({ distRef }) {
 
 const CONFETTI_COLORS = ['#ff44ff','#44ffff','#ffdd44','#ff4466','#44ff88','#ff8844'];
 const confettiPieces  = Array.from({ length: 60 }, (_, i) => ({
-  left: `${Math.random()*100}%`,
-  delay: `${Math.random()*2}s`,
-  duration: `${2+Math.random()*2}s`,
-  color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-  size: `${8+Math.random()*12}px`,
-  rotate: `${Math.random()*360}deg`,
+  left: `${Math.random()*100}%`, delay: `${Math.random()*2}s`, duration: `${2+Math.random()*2}s`,
+  color: CONFETTI_COLORS[i % CONFETTI_COLORS.length], size: `${8+Math.random()*12}px`, rotate: `${Math.random()*360}deg`,
 }));
 
 function GigFinale() {
   const crowdPeople = Array.from({ length: 28 });
   return (
     <div style={{
-      position:'absolute', inset:0, zIndex:200,
-      background:'linear-gradient(180deg, #0a0015 0%, #1a004a 40%, #2a0060 100%)',
+      position:'absolute', inset:0, zIndex:200, background:'linear-gradient(180deg, #0a0015 0%, #1a004a 40%, #2a0060 100%)',
       display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
       fontFamily:"'Fredoka One', Impact, sans-serif", overflow:'hidden',
     }}>
-      {/* Confetti */}
       {confettiPieces.map((p,i) => (
         <div key={i} style={{
-          position:'absolute', top:0, left:p.left,
-          width:p.size, height:p.size, background:p.color,
-          borderRadius: i%3===0 ? '50%' : '2px',
-          transform: `rotate(${p.rotate})`,
+          position:'absolute', top:0, left:p.left, width:p.size, height:p.size, background:p.color,
+          borderRadius: i%3===0 ? '50%' : '2px', transform: `rotate(${p.rotate})`,
           animation: `confettiFall ${p.duration} ${p.delay} ease-in forwards`,
         }} />
       ))}
+      <div style={{ position:'absolute', top:0, left:'20%', width:4, height:'70%', background:'linear-gradient(180deg, rgba(255,100,255,0.8) 0%, rgba(255,100,255,0) 100%)', transformOrigin:'top center', animation:'spotSweepL 3s ease-in-out infinite', borderRadius:4 }} />
+      <div style={{ position:'absolute', top:0, right:'20%', width:4, height:'70%', background:'linear-gradient(180deg, rgba(100,200,255,0.8) 0%, rgba(100,200,255,0) 100%)', transformOrigin:'top center', animation:'spotSweepR 3s ease-in-out infinite 0.5s', borderRadius:4 }} />
+      <div style={{ position:'absolute', top:0, left:'50%', width:4, height:'70%', background:'linear-gradient(180deg, rgba(255,220,50,0.7) 0%, rgba(255,220,50,0) 100%)', transformOrigin:'top center', animation:'spotSweepL 4s ease-in-out infinite 1s', borderRadius:4 }} />
 
-      {/* Spotlights */}
-      <div style={{ position:'absolute', top:0, left:'20%', width:4, height:'70%',
-        background:'linear-gradient(180deg, rgba(255,100,255,0.8) 0%, rgba(255,100,255,0) 100%)',
-        transformOrigin:'top center', animation:'spotSweepL 3s ease-in-out infinite', borderRadius:4 }} />
-      <div style={{ position:'absolute', top:0, right:'20%', width:4, height:'70%',
-        background:'linear-gradient(180deg, rgba(100,200,255,0.8) 0%, rgba(100,200,255,0) 100%)',
-        transformOrigin:'top center', animation:'spotSweepR 3s ease-in-out infinite 0.5s', borderRadius:4 }} />
-      <div style={{ position:'absolute', top:0, left:'50%', width:4, height:'70%',
-        background:'linear-gradient(180deg, rgba(255,220,50,0.7) 0%, rgba(255,220,50,0) 100%)',
-        transformOrigin:'top center', animation:'spotSweepL 4s ease-in-out infinite 1s', borderRadius:4 }} />
-
-      {/* Stage neon bars */}
       <div style={{ position:'absolute', bottom:140, left:0, right:0, display:'flex', justifyContent:'center', gap:16 }}>
         {CONFETTI_COLORS.map((c,i) => (
-          <div key={i} style={{
-            width:60, height:8, background:c, borderRadius:4,
-            boxShadow:`0 0 12px ${c}, 0 0 24px ${c}`,
-            animation:`crowdBob ${0.8+i*0.1}s ease-in-out infinite alternate`,
-          }} />
+          <div key={i} style={{ width:60, height:8, background:c, borderRadius:4, boxShadow:`0 0 12px ${c}, 0 0 24px ${c}`, animation:`crowdBob ${0.8+i*0.1}s ease-in-out infinite alternate`, }} />
         ))}
       </div>
 
-      {/* Title */}
       <div style={{ textAlign:'center', marginBottom:16, zIndex:10 }}>
         <div style={{ fontSize:72, animation:'gigPulse 1.5s ease-in-out infinite', marginBottom:4 }}>🎤</div>
-        <h1 style={{ fontSize:clamp(24,7,56), margin:'0 0 6px', color:'#fff', letterSpacing:4,
-          textShadow:'0 0 20px #ff00ff, 0 0 50px #ff00ff, 0 0 3px #fff',
-          animation:'gigPulse 2s ease-in-out infinite' }}>
-          TAKE THAT LIVE
-        </h1>
-        <h2 style={{ fontSize:clamp(14,4,28), margin:'0 0 20px', color:'#ffdd44', letterSpacing:3,
-          textShadow:'0 0 10px #ffdd44' }}>
-          THE REUNION TOUR — YOU DID IT!
-        </h2>
-        <p style={{ fontSize:clamp(12,3.5,22), color:'#ccc', margin:'0 0 6px', fontFamily:'Nunito, sans-serif' }}>
-          You found Robbie Williams!
-        </p>
-        <p style={{ fontSize:clamp(10,2.5,18), color:'rgba(200,200,200,0.7)', fontFamily:'Nunito, sans-serif' }}>
-          🎵 Now performing: Back For Good, Shine, Never Forget 🎵
-        </p>
+        <h1 style={{ fontSize:clamp(24,7,56), margin:'0 0 6px', color:'#fff', letterSpacing:4, textShadow:'0 0 20px #ff00ff, 0 0 50px #ff00ff, 0 0 3px #fff', animation:'gigPulse 2s ease-in-out infinite' }}>TAKE THAT LIVE</h1>
+        <h2 style={{ fontSize:clamp(14,4,28), margin:'0 0 20px', color:'#ffdd44', letterSpacing:3, textShadow:'0 0 10px #ffdd44' }}>THE REUNION TOUR — YOU DID IT!</h2>
+        <p style={{ fontSize:clamp(12,3.5,22), color:'#ccc', margin:'0 0 6px', fontFamily:'Nunito, sans-serif' }}>You found Robbie Williams!</p>
+        <p style={{ fontSize:clamp(10,2.5,18), color:'rgba(200,200,200,0.7)', fontFamily:'Nunito, sans-serif' }}>🎵 Now performing: Back For Good, Shine, Never Forget 🎵</p>
       </div>
 
-      {/* Crowd */}
       <div style={{ display:'flex', gap:4, marginBottom:24, zIndex:10 }}>
-        {crowdPeople.map((_,i) => (
-          <div key={i} style={{
-            fontSize: clamp(14,2.5,20), lineHeight:1,
-            animation: `crowdBob ${0.6+Math.random()*0.6}s ease-in-out ${i*0.08}s infinite`,
-            filter:`hue-rotate(${i*13}deg)`,
-          }}>🙋</div>
-        ))}
+        {crowdPeople.map((_,i) => (<div key={i} style={{ fontSize: clamp(14,2.5,20), lineHeight:1, animation: `crowdBob ${0.6+Math.random()*0.6}s ease-in-out ${i*0.08}s infinite`, filter:`hue-rotate(${i*13}deg)`, }}>🙋</div>))}
       </div>
 
-      <button
-        onClick={() => window.location.reload()}
+      <button onClick={() => window.location.reload()}
         style={{
-          background:'linear-gradient(135deg, #ff4466, #ff00ff)',
-          border:'none', color:'#fff', padding:'16px 48px',
-          borderRadius:50, fontSize:22, fontWeight:900,
-          cursor:'pointer', fontFamily:"'Fredoka One', sans-serif",
-          boxShadow:'0 8px 20px rgba(255,0,255,0.5)',
-          letterSpacing:2, zIndex:10,
-          transition:'transform 0.15s',
-        }}
-        onMouseEnter={e => e.target.style.transform='scale(1.08)'}
-        onMouseLeave={e => e.target.style.transform='scale(1)'}
-      >
+          background:'linear-gradient(135deg, #ff4466, #ff00ff)', border:'none', color:'#fff', padding:'16px 48px',
+          borderRadius:50, fontSize:22, fontWeight:900, cursor:'pointer', fontFamily:"'Fredoka One', sans-serif",
+          boxShadow:'0 8px 20px rgba(255,0,255,0.5)', letterSpacing:2, zIndex:10, transition:'transform 0.15s',
+        }} onMouseEnter={e => e.target.style.transform='scale(1.08)'} onMouseLeave={e => e.target.style.transform='scale(1)'}>
         🔄 PLAY AGAIN
       </button>
     </div>
   );
 }
 
-function clamp(min, vw, max) {
-  return `clamp(${min}px, ${vw}vw, ${max}px)`;
-}
+function clamp(min, vw, max) { return `clamp(${min}px, ${vw}vw, ${max}px)`; }
 
 // ─── Main UI ──────────────────────────────────────────────────────────────────
 
 function GameUI() {
   const { state, actions, robbieDistRef } = useContext(GameContext);
+  const [chatText, setChatText] = useState("");
 
   // Start screen
   if (state.ui === 'start') return (
@@ -1126,7 +1039,6 @@ function GameUI() {
         <button style={ST.startBtn} onClick={() => {
           if (!state.playerConfig.name) return alert('Enter your name first!');
 
-          // ── Multiplayer connect ──────────────────────────────
           socket = io(SOCKET_URL);
           socket.emit('join', state.playerConfig);
           socket.on('currentPlayers', p  => actions.setOnlinePlayers(p));
@@ -1137,7 +1049,6 @@ function GameUI() {
               const n = { ...prev }; delete n[id]; return n;
             });
           });
-          // ────────────────────────────────────────────────────
 
           audio.init(); audio.playBGM(); actions.setUI('play');
         }}>
@@ -1147,13 +1058,10 @@ function GameUI() {
     </div>
   );
 
-  // Gig finale
   if (state.ui === 'gig') return <GigFinale />;
 
-  // HUD
   const d = state.dialogue;
   const currentNode = d ? d.nodes[d.step] : null;
-  const isTextOnly = currentNode && !currentNode.options;
 
   return (
     <>
@@ -1187,13 +1095,25 @@ function GameUI() {
         </div>
       )}
 
-      {/* Spotted warning */}
-      {state.robbieSpotted && !state.robbieFound && !d && <SpottedWarning />}
+      {/* CHAT AREA (RESTORED) */}
+      <div style={ST.chatArea}>
+        <div style={ST.chatLog}>
+          {state.chatMessages.map((m, i) => <div key={i}><b style={{ color: m.color }}>{m.name}:</b> {m.text}</div>)}
+        </div>
+        <input style={ST.chatInput} placeholder="Chat with bandmates..." value={chatText} onChange={e => setChatText(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && chatText.trim()) {
+              const msg = { name: state.playerConfig.name, color: state.playerConfig.colors.jacket, text: chatText };
+              actions.addChatMessage(msg);
+              if (socket) socket.emit('chat', chatText);
+              setChatText("");
+            }
+          }} />
+      </div>
 
-      {/* Radar */}
+      {state.robbieSpotted && !state.robbieFound && !d && <SpottedWarning />}
       <ProximityRadar distRef={robbieDistRef} />
 
-      {/* Goal box */}
       <div style={ST.goalBox}>
         <div style={{ fontSize:18, fontFamily:"'Fredoka One', sans-serif", color:'#e74c3c', marginBottom:2 }}>🎯 MISSION</div>
         {state.robbieFound
@@ -1213,12 +1133,9 @@ function GameUI() {
 export default function WhereIsRobbie() {
   const store = useIslandStore();
 
-  // Inject global CSS
   useEffect(() => {
-    const el = document.createElement('style');
-    el.textContent = GLOBAL_CSS;
-    document.head.appendChild(el);
-    return () => document.head.removeChild(el);
+    const el = document.createElement('style'); el.textContent = GLOBAL_CSS;
+    document.head.appendChild(el); return () => document.head.removeChild(el);
   }, []);
 
   const robbieLoc = useMemo(() => {
@@ -1241,15 +1158,8 @@ export default function WhereIsRobbie() {
   return (
     <div style={{ width:'100vw', height:'100vh', position:'relative', background:'#87ceeb', overflow:'hidden' }}>
       <GameContext.Provider value={store}>
-        <Canvas shadows dpr={[1,2]} camera={{ fov:46, position:[0,12,18] }}
-          gl={{ antialias:true, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.15 }}>
-          <Suspense fallback={
-            <Html center>
-              <div style={{ fontFamily:'sans-serif', color:'white', background:'rgba(0,0,0,0.6)', padding:'12px 24px', borderRadius:20 }}>
-                🎤 Loading the Tour...
-              </div>
-            </Html>
-          }>
+        <Canvas shadows dpr={[1,2]} camera={{ fov:46, position:[0,12,18] }} gl={{ antialias:true, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.15 }}>
+          <Suspense fallback={<Html center><div style={{ fontFamily:'sans-serif', color:'white', background:'rgba(0,0,0,0.6)', padding:'12px 24px', borderRadius:20 }}>🎤 Loading the Tour...</div></Html>}>
             <Atmosphere />
             <Terrain />
             <Water />
@@ -1258,10 +1168,11 @@ export default function WhereIsRobbie() {
 
             {store.state.ui === 'play' || store.state.ui === 'gig' ? <PlayerController /> : null}
 
-            {/* Robbie (the fugitive) */}
+            {/* RENDER NETWORK PLAYERS */}
+            {Object.values(store.state.onlinePlayers).map(p => socket && p.id !== socket.id && <NetworkPlayer key={p.id} data={p} />)}
+
             <RobbieNPC spawnLoc={robbieLoc} />
 
-            {/* Superfans with clues */}
             <NPC name="Superfan Sarah" color={CONFIG.COLORS.fan1}
               home={{ x:-15, y:Math.max(0,getTerrainY(-15,-10))+0.05, z:-10 }}
               dialogues={[{ text:"I spotted Robbie heading toward the EDGES of the island — he's trying to avoid the fans! Check the far corners!", next:'end' }]} />
@@ -1278,6 +1189,7 @@ export default function WhereIsRobbie() {
             <EffectComposer multisampling={4}>
               <Bloom intensity={0.5} luminanceThreshold={0.85} luminanceSmoothing={0.5} />
               <Vignette darkness={0.35} offset={0.4} />
+              <ChromaticAberration offset={[0.0004, 0.0004]} />
             </EffectComposer>
           </Suspense>
         </Canvas>
@@ -1305,4 +1217,7 @@ const ST = {
   dialogueBox:{ position:'absolute', bottom:30, left:'50%', transform:'translateX(-50%)', width:'min(90vw,520px)', background:'rgba(255,255,255,0.97)', padding:24, borderRadius:22, border:'4px solid #e74c3c', boxShadow:'0 12px 40px rgba(0,0,0,0.3)', zIndex:60, pointerEvents:'auto' },
   dialogueBtn:{ background:'#f0f0f0', border:'3px solid #ddd', padding:'11px 22px', borderRadius:12, color:'#333', fontWeight:900, cursor:'pointer', fontSize:15, fontFamily:FF, transition:'transform 0.1s', boxShadow:'0 4px 0 rgba(0,0,0,0.1)' },
   kbd:        { background:'#333', color:'#fff', borderRadius:5, padding:'1px 6px', fontFamily:'monospace', fontSize:12 },
+  chatArea:   { position: 'absolute', bottom: 20, left: 20, zIndex: 55, width: 300, fontFamily: 'Nunito, sans-serif', pointerEvents: 'auto' },
+  chatLog:    { background: 'rgba(0,0,0,0.7)', color: '#fff', padding: 15, borderRadius: 15, height: 160, overflowY: 'auto', marginBottom: 10, fontSize: 14, backdropFilter: 'blur(10px)', border: '2px solid rgba(255,255,255,0.1)' },
+  chatInput:  { width: '100%', background: 'rgba(255,255,255,0.95)', border: 'none', padding: 12, borderRadius: 10, boxSizing: 'border-box', outline: 'none', fontFamily: 'Nunito, sans-serif', color: '#333', fontSize: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }
 };
