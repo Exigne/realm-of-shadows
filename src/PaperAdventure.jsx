@@ -4,8 +4,8 @@
  * - Canvas-generated terrain textures with noise variation and bump mapping
  * - Animated water with UV scrolling
  * - Rock clusters, palm trees, flower patches
- * - Buttery smooth WASD movement + Arrow Key Camera
- * - Interactive Branching Dialogue System!
+ * - Buttery smooth WASD movement + Arrow Key Camera (Clamped Physics!)
+ * - Interactive Branching Dialogue System
  */
 
 import React, {
@@ -42,7 +42,7 @@ const keyState = { prevE: false };
 
 const CONFIG = {
   SPEED: 5.5,              // Fixed maximum walking speed
-  ACCEL: 12,               // How fast you reach top speed (smooths movement)
+  ACCEL: 12,               // How fast you reach top speed
   DECEL: 15,               // How fast you slide to a stop
   GRAVITY: 35,             // Pull down strength
   JUMP_FORCE: 14,          // Upward velocity
@@ -594,8 +594,7 @@ function CameraRig() {
   const { camera } = useThree();
 
   const _tgt = useMemo(() => new THREE.Vector3(), []);
-  const _cam = useMemo(() => new THREE.Vector3(), []);
-
+  
   useFrame((_, delta) => {
     // Arrow Keys control Camera Yaw and Pitch
     if (keyState['arrowleft'])  camState.yaw += 2.5 * delta;
@@ -605,14 +604,20 @@ function CameraRig() {
 
     const p = playerGroupRef.current;
     if (!p) return;
+    
     const dist = 14;
-    _cam.set(
+    const targetCamPos = new THREE.Vector3(
       p.position.x + Math.sin(camState.yaw) * dist * Math.cos(camState.pitch),
       p.position.y + dist * Math.sin(camState.pitch) + 1,
       p.position.z + Math.cos(camState.yaw) * dist * Math.cos(camState.pitch),
     );
-    camera.position.lerp(_cam, 0.1);
-    _tgt.set(p.position.x, p.position.y + 1.1, p.position.z);
+    
+    // Safely clamped lerping for the camera to prevent violent shaking
+    camera.position.lerp(targetCamPos, Math.min(1, 10 * delta));
+    
+    // Smooth the look-at target so moving over hills doesn't snap the view
+    const targetLookAt = new THREE.Vector3(p.position.x, p.position.y + 1.1, p.position.z);
+    _tgt.lerp(targetLookAt, Math.min(1, 15 * delta));
     camera.lookAt(_tgt);
   });
   return null;
@@ -668,14 +673,17 @@ function PlayerController() {
     const mx = (keyState['a'] ? -1 : 0) + (keyState['d'] ? 1 : 0);
     const mz = (keyState['w'] ? -1 : 0) + (keyState['s'] ? 1 : 0);
 
-    // Apply Framerate-Independent Acceleration and Deceleration
+    // Apply Clamped, Framerate-Independent Acceleration and Deceleration
+    const accelFactor = Math.min(1, CONFIG.ACCEL * delta);
+    const decelFactor = Math.min(1, CONFIG.DECEL * delta);
+
     if (mx !== 0 || mz !== 0) {
       const angle = Math.atan2(mx, mz) + camState.yaw;
-      vel.current.x = THREE.MathUtils.lerp(vel.current.x, Math.sin(angle) * CONFIG.SPEED, CONFIG.ACCEL * delta);
-      vel.current.z = THREE.MathUtils.lerp(vel.current.z, Math.cos(angle) * CONFIG.SPEED, CONFIG.ACCEL * delta);
+      vel.current.x = THREE.MathUtils.lerp(vel.current.x, Math.sin(angle) * CONFIG.SPEED, accelFactor);
+      vel.current.z = THREE.MathUtils.lerp(vel.current.z, Math.cos(angle) * CONFIG.SPEED, accelFactor);
     } else {
-      vel.current.x = THREE.MathUtils.lerp(vel.current.x, 0, CONFIG.DECEL * delta);
-      vel.current.z = THREE.MathUtils.lerp(vel.current.z, 0, CONFIG.DECEL * delta);
+      vel.current.x = THREE.MathUtils.lerp(vel.current.x, 0, decelFactor);
+      vel.current.z = THREE.MathUtils.lerp(vel.current.z, 0, decelFactor);
     }
 
     // Apply Gravity
@@ -719,15 +727,19 @@ function PlayerController() {
     const spd2D = Math.sqrt(vel.current.x ** 2 + vel.current.z ** 2);
     movingRef.current = spd2D > 0.5 && isGrounded; 
 
+    // Visual Walk Cycle - also safely clamped
+    const rotSpeed = Math.min(1, 10 * delta);
+    const bobSpeed = Math.min(1, 15 * delta);
+    
     if (movingRef.current) {
       walkRef.current += delta * 7.5;
-      g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), 0.14);
+      g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), rotSpeed);
       if (bodyRef.current) {
-        bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, Math.sin(walkRef.current) * 0.03, 0.2);
+        bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, Math.sin(walkRef.current) * 0.03, bobSpeed);
       }
     } else {
       if (bodyRef.current) {
-        bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, 0, 0.08);
+        bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, 0, bobSpeed);
       }
     }
     playerPosRef.current.copy(g.position);
@@ -1048,7 +1060,6 @@ function GameUI() {
         </div>
       </div>
 
-      {/* We stop passing dialogue here to avoid conflicting with your hidden HUD file */}
       <HUD bells={state.bells} fruit={state.inventory.fruit} gameTime={state.gameTime} />
     </>
   );
