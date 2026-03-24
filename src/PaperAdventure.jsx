@@ -37,8 +37,8 @@ const camState = { yaw: Math.PI, pitch: 0.4, locked: false };
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const CONFIG = {
-  FRICTION: 0.80,
-  SPEEDS: { walk: 14, run: 25, ride: 42 },
+  FRICTION: 0.84,          // gentle, floaty deceleration
+  SPEED: 4.5,              // slow, relaxed pace
   COLORS: {
     player: '#f4a0b0', barnaby: '#6aaddb', luna: '#c07ed4', pip: '#f5c842',
   },
@@ -54,7 +54,6 @@ const useIslandStore = () => {
   const [state, setState] = useState({
     bells: 100,
     inventory: { fruit: 0 },
-    activeBoard: false,
     gameTime: 9.0,
     dialogue: null,
     ui: 'start',
@@ -64,7 +63,6 @@ const useIslandStore = () => {
     setUI:       (v)  => setState(s => ({ ...s, ui: v })),
     addBells:    (n)  => setState(s => ({ ...s, bells: s.bells + n })),
     addItem:     (t, n=1) => setState(s => ({ ...s, inventory: { ...s.inventory, [t]: (s.inventory[t]||0) + n } })),
-    toggleBoard: ()   => setState(s => ({ ...s, activeBoard: !s.activeBoard })),
     setDialogue: (d)  => setState(s => ({ ...s, dialogue: d })),
     updateTime:  (dt) => setState(s => ({ ...s, gameTime: (s.gameTime + dt) % 24 })),
   }), []);
@@ -76,48 +74,174 @@ const useIslandStore = () => {
 
 class GameAudio {
   constructor() { this.ctx = null; this.master = null; this.bgm = false; }
+
   init() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.07;
+    this.master.gain.value = 0.14;
     this.master.connect(this.ctx.destination);
   }
+
+  // Cute glockenspiel-style melody — Animal Crossing inspired, loops forever
   playBGM() {
     if (this.bgm || !this.ctx) return;
     this.bgm = true;
-    const notes = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63];
-    let i = 0;
-    const loop = () => {
-      const osc = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = notes[i % notes.length];
-      g.gain.setValueAtTime(0.015, this.ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.8);
-      osc.connect(g); g.connect(this.master);
-      osc.start(); osc.stop(this.ctx.currentTime + 1.8);
-      i++; setTimeout(loop, 2200);
+
+    // Reverb for warmth
+    const convLen = this.ctx.sampleRate * 1.2;
+    const convBuf = this.ctx.createBuffer(2, convLen, this.ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = convBuf.getChannelData(c);
+      for (let i = 0; i < convLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / convLen, 2.5);
+    }
+    const reverb = this.ctx.createConvolver();
+    reverb.buffer = convBuf;
+    const reverbGain = this.ctx.createGain();
+    reverbGain.gain.value = 0.22;
+    reverb.connect(reverbGain);
+    reverbGain.connect(this.master);
+
+    // Melody: two 8-bar phrases that loop — C major, bright & cosy
+    //   freq, beat offset, duration in beats
+    const BPM   = 96;
+    const BEAT  = 60 / BPM;
+    const phrase = [
+      // Phrase A — wandering melody
+      [523.25, 0,    0.9],  // C5
+      [587.33, 1,    0.9],  // D5
+      [659.25, 2,    0.9],  // E5
+      [523.25, 3,    0.9],  // C5
+      [698.46, 4,    0.9],  // F5
+      [659.25, 5,    0.9],  // E5
+      [587.33, 6,    1.8],  // D5 (held)
+      // Phrase B — answer phrase
+      [392.00, 8,    0.9],  // G4
+      [440.00, 9,    0.9],  // A4
+      [523.25, 10,   0.9],  // C5
+      [587.33, 11,   0.9],  // D5
+      [523.25, 12,   0.9],  // C5
+      [493.88, 13,   0.9],  // B4
+      [440.00, 14,   1.8],  // A4 (held)
+      // Phrase C — higher, sparkly
+      [783.99, 16,   0.9],  // G5
+      [698.46, 17,   0.9],  // F5
+      [659.25, 18,   0.9],  // E5
+      [587.33, 19,   0.9],  // D5
+      [659.25, 20,   0.9],  // E5
+      [587.33, 21,   0.9],  // D5
+      [523.25, 22,   1.8],  // C5 (held)
+      // Phrase D — gentle descent home
+      [587.33, 24,   0.9],  // D5
+      [523.25, 25,   0.9],  // C5
+      [493.88, 26,   0.9],  // B4
+      [440.00, 27,   0.9],  // A4
+      [392.00, 28,   0.9],  // G4
+      [349.23, 29,   0.9],  // F4
+      [261.63, 30,   1.8],  // C4 (resolve)
+    ];
+
+    // Bass notes (simple root notes, half-time)
+    const bass = [
+      [130.81, 0,  1.6],   // C3
+      [174.61, 4,  1.6],   // F3
+      [146.83, 8,  1.6],   // D3
+      [130.81, 12, 1.6],   // C3
+      [130.81, 16, 1.6],   // C3
+      [146.83, 20, 1.6],   // D3
+      [174.61, 24, 1.6],   // F3
+      [130.81, 28, 1.6],   // C3
+    ];
+
+    const totalBeats = 32;
+    const loopDur    = totalBeats * BEAT;
+
+    const playNote = (freq, beatOffset, durBeats, startTime, vol = 0.06, type = 'sine') => {
+      const osc  = this.ctx.createOscillator();
+      const env  = this.ctx.createGain();
+      const t0   = startTime + beatOffset * BEAT;
+      const dur  = durBeats * BEAT;
+
+      osc.type = type;
+      osc.frequency.value = freq;
+
+      // Bell-like envelope: fast attack, long gentle decay
+      env.gain.setValueAtTime(0.001,       t0);
+      env.gain.linearRampToValueAtTime(vol, t0 + 0.018);
+      env.gain.exponentialRampToValueAtTime(vol * 0.4, t0 + dur * 0.35);
+      env.gain.exponentialRampToValueAtTime(0.0001,    t0 + dur * 0.95);
+
+      osc.connect(env);
+      env.connect(this.master);
+      env.connect(reverb);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.05);
     };
-    loop();
+
+    const scheduleLoop = (startTime) => {
+      phrase.forEach(([f, b, d])  => playNote(f, b, d, startTime, 0.055, 'sine'));
+      bass.forEach(  ([f, b, d])  => playNote(f, b, d, startTime, 0.038, 'triangle'));
+
+      // Gentle chime accent on beats 4, 8, 12 etc.
+      [4, 8, 12, 16, 20, 24, 28].forEach(beat => {
+        playNote(1046.5, beat, 0.5, startTime, 0.022, 'sine'); // C6 chime
+      });
+
+      // Queue the next loop slightly before this one ends to prevent gaps
+      const nextStart = startTime + loopDur;
+      const scheduleAhead = (nextStart - this.ctx.currentTime - 0.5) * 1000;
+      setTimeout(() => { if (this.bgm) scheduleLoop(nextStart); }, Math.max(0, scheduleAhead));
+    };
+
+    scheduleLoop(this.ctx.currentTime + 0.1);
   }
+
   sfx(type) {
     if (!this.ctx) return;
-    const osc = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    osc.connect(g); g.connect(this.master);
-    if (type === 'pop') {
-      osc.frequency.setValueAtTime(380, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(860, this.ctx.currentTime + 0.12);
-      g.gain.setValueAtTime(0.12, this.ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.18);
-      osc.start(); osc.stop(this.ctx.currentTime + 0.2);
+
+    if (type === 'munch') {
+      // Soft layered munch — three quick bite sounds in quick succession
+      [0, 0.07, 0.15].forEach((delay, i) => {
+        const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.08, this.ctx.sampleRate);
+        const d   = buf.getChannelData(0);
+        // Crunchy filtered noise burst
+        for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * Math.pow(1 - j / d.length, 1.5);
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const bpf = this.ctx.createBiquadFilter();
+        bpf.type = 'bandpass';
+        bpf.frequency.value = 900 + i * 180;
+        bpf.Q.value = 2.5;
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(0.18, this.ctx.currentTime + delay);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + delay + 0.07);
+        src.connect(bpf); bpf.connect(g); g.connect(this.master);
+        src.start(this.ctx.currentTime + delay);
+        src.stop(this.ctx.currentTime  + delay + 0.1);
+      });
+
+      // Sweet little reward chime after the crunch
+      const osc = this.ctx.createOscillator();
+      const og  = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, this.ctx.currentTime + 0.22);
+      osc.frequency.setValueAtTime(1046.5, this.ctx.currentTime + 0.30);
+      og.gain.setValueAtTime(0.001, this.ctx.currentTime + 0.22);
+      og.gain.linearRampToValueAtTime(0.07, this.ctx.currentTime + 0.24);
+      og.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.55);
+      osc.connect(og); og.connect(this.master);
+      osc.start(this.ctx.currentTime + 0.22);
+      osc.stop( this.ctx.currentTime + 0.6);
     }
+
     if (type === 'talk') {
+      const osc = this.ctx.createOscillator();
+      const g   = this.ctx.createGain();
       osc.type = 'square';
       osc.frequency.value = 500 + Math.random() * 300;
       g.gain.setValueAtTime(0.025, this.ctx.currentTime);
       g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.07);
+      osc.connect(g); g.connect(this.master);
       osc.start(); osc.stop(this.ctx.currentTime + 0.07);
     }
   }
@@ -142,54 +266,94 @@ function CatCreature({ color, walkCycle = 0, isMoving = false }) {
   const innerCol = color === CONFIG.COLORS.player ? '#ffccd8' : '#e8c0f0';
   const innerMat = useMemo(() => stdMat(innerCol), [innerCol]);
 
+  // Leg swing angles — alternating pairs, gentle arc
+  const fL = isMoving ? Math.sin(walkCycle)            * 0.42 : 0;  // front-left
+  const fR = isMoving ? Math.sin(walkCycle + Math.PI)  * 0.42 : 0;  // front-right
+  const bL = isMoving ? Math.sin(walkCycle + Math.PI)  * 0.35 : 0;  // back-left
+  const bR = isMoving ? Math.sin(walkCycle)            * 0.35 : 0;  // back-right
+  const bodyBob    = isMoving ? Math.abs(Math.sin(walkCycle * 2)) * 0.04 : 0;
+  const bodySway   = isMoving ? Math.sin(walkCycle) * 0.025 : 0;
+  const headNod    = isMoving ? Math.sin(walkCycle * 2) * 0.06 : 0;
+  const tailWag    = Math.sin(walkCycle * 1.5) * 0.18;
+
   return (
     <group>
-      {/* Body */}
-      <mesh castShadow position={[0, 0.55, 0]} scale={[1, 1.05, 0.95]} material={bodyMat}>
+      {/* Body with gentle bob */}
+      <mesh castShadow position={[0, 0.55 + bodyBob, 0]} rotation={[0, 0, bodySway]} scale={[1, 1.05, 0.95]} material={bodyMat}>
         <sphereGeometry args={[0.52, 18, 14]} />
       </mesh>
-      {/* Head */}
-      <mesh castShadow position={[0, 1.22, 0.08]} material={bodyMat}>
+      {/* Head with nod */}
+      <mesh castShadow position={[0, 1.22 + bodyBob, 0.08]} rotation={[headNod, 0, bodySway]} material={bodyMat}>
         <sphereGeometry args={[0.4, 18, 14]} />
       </mesh>
       {/* Muzzle */}
-      <mesh position={[0, 1.12, 0.41]} material={innerMat}>
+      <mesh position={[0, 1.12 + bodyBob, 0.41]} rotation={[headNod, 0, 0]} material={innerMat}>
         <sphereGeometry args={[0.18, 12, 10]} />
       </mesh>
-      {/* Ears */}
-      <mesh castShadow position={[-0.24, 1.61, 0.05]} rotation={[0, 0, -0.28]} material={bodyMat}>
+      {/* Ears — attached to head */}
+      <mesh castShadow position={[-0.24, 1.61 + bodyBob, 0.05]} rotation={[headNod, 0, -0.28]} material={bodyMat}>
         <coneGeometry args={[0.1, 0.28, 7]} />
       </mesh>
-      <mesh position={[-0.24, 1.61, 0.1]} rotation={[0, 0, -0.28]} material={innerMat}>
+      <mesh position={[-0.24, 1.61 + bodyBob, 0.1]} rotation={[headNod, 0, -0.28]} material={innerMat}>
         <coneGeometry args={[0.055, 0.2, 7]} />
       </mesh>
-      <mesh castShadow position={[0.24, 1.61, 0.05]} rotation={[0, 0, 0.28]} material={bodyMat}>
+      <mesh castShadow position={[0.24, 1.61 + bodyBob, 0.05]} rotation={[headNod, 0, 0.28]} material={bodyMat}>
         <coneGeometry args={[0.1, 0.28, 7]} />
       </mesh>
-      <mesh position={[0.24, 1.61, 0.1]} rotation={[0, 0, 0.28]} material={innerMat}>
+      <mesh position={[0.24, 1.61 + bodyBob, 0.1]} rotation={[headNod, 0, 0.28]} material={innerMat}>
         <coneGeometry args={[0.055, 0.2, 7]} />
       </mesh>
       {/* Eyes */}
-      <mesh position={[-0.14, 1.26, 0.37]} material={matBlack}><sphereGeometry args={[0.07, 9, 9]} /></mesh>
-      <mesh position={[ 0.14, 1.26, 0.37]} material={matBlack}><sphereGeometry args={[0.07, 9, 9]} /></mesh>
-      <mesh position={[-0.11, 1.28, 0.43]} material={matWhite}><sphereGeometry args={[0.025, 6, 6]} /></mesh>
-      <mesh position={[ 0.17, 1.28, 0.43]} material={matWhite}><sphereGeometry args={[0.025, 6, 6]} /></mesh>
+      <mesh position={[-0.14, 1.26 + bodyBob, 0.37]} rotation={[headNod,0,0]} material={matBlack}><sphereGeometry args={[0.07, 9, 9]} /></mesh>
+      <mesh position={[ 0.14, 1.26 + bodyBob, 0.37]} rotation={[headNod,0,0]} material={matBlack}><sphereGeometry args={[0.07, 9, 9]} /></mesh>
+      <mesh position={[-0.11, 1.28 + bodyBob, 0.43]} material={matWhite}><sphereGeometry args={[0.025, 6, 6]} /></mesh>
+      <mesh position={[ 0.17, 1.28 + bodyBob, 0.43]} material={matWhite}><sphereGeometry args={[0.025, 6, 6]} /></mesh>
       {/* Nose */}
-      <mesh position={[0, 1.14, 0.46]} material={matPink}><sphereGeometry args={[0.036, 7, 7]} /></mesh>
-      {/* Tail */}
-      <mesh castShadow position={[-0.26, 0.78, -0.46]} rotation={[0.55, 0, 0.32]} material={bodyMat}>
+      <mesh position={[0, 1.14 + bodyBob, 0.46]} material={matPink}><sphereGeometry args={[0.036, 7, 7]} /></mesh>
+      {/* Tail — wags when moving */}
+      <mesh castShadow position={[-0.26, 0.78, -0.46]} rotation={[0.55, tailWag, 0.32]} material={bodyMat}>
         <cylinderGeometry args={[0.07, 0.11, 0.7, 8]} />
       </mesh>
-      <mesh castShadow position={[-0.16, 1.08, -0.66]} material={innerMat}>
+      <mesh castShadow position={[-0.16 + tailWag*0.3, 1.08, -0.66]} material={innerMat}>
         <sphereGeometry args={[0.1, 9, 9]} />
       </mesh>
-      {/* Legs */}
-      {[[-0.2, 0.24, true], [0.2, 0.24, false], [-0.2, -0.2, false], [0.2, -0.2, true]].map(([lx, lz, phase], i) => (
-        <mesh key={i} castShadow material={bodyMat}
-          position={[lx, 0.12 + (isMoving ? Math.sin(walkCycle + (phase ? 0 : Math.PI)) * 0.08 : 0), lz]}>
+      {/* Front-left leg — pivots at shoulder */}
+      <group position={[-0.2, 0.42, 0.18]} rotation={[fL, 0, 0]}>
+        <mesh castShadow position={[0, -0.21, 0]} material={bodyMat}>
+          <cylinderGeometry args={[0.1, 0.08, 0.42, 8]} />
+        </mesh>
+        {/* Paw */}
+        <mesh castShadow position={[0, -0.44, 0.04]} material={bodyMat}>
+          <sphereGeometry args={[0.1, 8, 8]} />
+        </mesh>
+      </group>
+      {/* Front-right leg */}
+      <group position={[0.2, 0.42, 0.18]} rotation={[fR, 0, 0]}>
+        <mesh castShadow position={[0, -0.21, 0]} material={bodyMat}>
+          <cylinderGeometry args={[0.1, 0.08, 0.42, 8]} />
+        </mesh>
+        <mesh castShadow position={[0, -0.44, 0.04]} material={bodyMat}>
+          <sphereGeometry args={[0.1, 8, 8]} />
+        </mesh>
+      </group>
+      {/* Back-left leg */}
+      <group position={[-0.2, 0.38, -0.18]} rotation={[bL, 0, 0]}>
+        <mesh castShadow position={[0, -0.21, 0]} material={bodyMat}>
           <cylinderGeometry args={[0.1, 0.09, 0.42, 8]} />
         </mesh>
-      ))}
+        <mesh castShadow position={[0, -0.44, 0.04]} material={bodyMat}>
+          <sphereGeometry args={[0.1, 8, 8]} />
+        </mesh>
+      </group>
+      {/* Back-right leg */}
+      <group position={[0.2, 0.38, -0.18]} rotation={[bR, 0, 0]}>
+        <mesh castShadow position={[0, -0.21, 0]} material={bodyMat}>
+          <cylinderGeometry args={[0.1, 0.09, 0.42, 8]} />
+        </mesh>
+        <mesh castShadow position={[0, -0.44, 0.04]} material={bodyMat}>
+          <sphereGeometry args={[0.1, 8, 8]} />
+        </mesh>
+      </group>
     </group>
   );
 }
@@ -199,48 +363,68 @@ function BearCreature({ color, walkCycle = 0, isMoving = false }) {
   const bodyMat  = useMemo(() => stdMat(color), [color]);
   const bellyMat = useMemo(() => stdMat('#d4eef8'), []);
 
+  const fL = isMoving ? Math.sin(walkCycle)           * 0.38 : 0;
+  const fR = isMoving ? Math.sin(walkCycle + Math.PI) * 0.38 : 0;
+  const aL = isMoving ? Math.sin(walkCycle)           * 0.32 : 0;  // arm swing
+  const aR = isMoving ? Math.sin(walkCycle + Math.PI) * 0.32 : 0;
+  const bodyBob  = isMoving ? Math.abs(Math.sin(walkCycle * 2)) * 0.04 : 0;
+  const headNod  = isMoving ? Math.sin(walkCycle * 2) * 0.05 : 0;
+
   return (
     <group>
-      <mesh castShadow position={[0, 0.62, 0]} scale={[1.1, 1.0, 1.0]} material={bodyMat}>
+      <mesh castShadow position={[0, 0.62 + bodyBob, 0]} scale={[1.1, 1.0, 1.0]} material={bodyMat}>
         <sphereGeometry args={[0.6, 18, 14]} />
       </mesh>
-      <mesh position={[0, 0.62, 0.54]} material={bellyMat}>
+      <mesh position={[0, 0.62 + bodyBob, 0.54]} material={bellyMat}>
         <sphereGeometry args={[0.38, 12, 10]} />
       </mesh>
-      <mesh castShadow position={[0, 1.38, 0.05]} material={bodyMat}>
+      <mesh castShadow position={[0, 1.38 + bodyBob, 0.05]} rotation={[headNod, 0, 0]} material={bodyMat}>
         <sphereGeometry args={[0.44, 18, 14]} />
       </mesh>
-      <mesh position={[0, 1.24, 0.45]} material={bellyMat}>
+      <mesh position={[0, 1.24 + bodyBob, 0.45]} rotation={[headNod,0,0]} material={bellyMat}>
         <sphereGeometry args={[0.2, 12, 10]} />
       </mesh>
       {/* Round ears */}
       {[-0.3, 0.3].map((ex, i) => (
         <group key={i}>
-          <mesh castShadow position={[ex, 1.76, 0]} material={bodyMat}><sphereGeometry args={[0.14, 12, 12]} /></mesh>
-          <mesh position={[ex, 1.76, 0.05]} material={bellyMat}><sphereGeometry args={[0.08, 10, 10]} /></mesh>
+          <mesh castShadow position={[ex, 1.76 + bodyBob, 0]} material={bodyMat}><sphereGeometry args={[0.14, 12, 12]} /></mesh>
+          <mesh position={[ex, 1.76 + bodyBob, 0.05]} material={bellyMat}><sphereGeometry args={[0.08, 10, 10]} /></mesh>
         </group>
       ))}
       {/* Eyes */}
-      <mesh position={[-0.16, 1.40, 0.42]} material={matBlack}><sphereGeometry args={[0.075, 9, 9]} /></mesh>
-      <mesh position={[ 0.16, 1.40, 0.42]} material={matBlack}><sphereGeometry args={[0.075, 9, 9]} /></mesh>
-      <mesh position={[-0.12, 1.42, 0.48]} material={matWhite}><sphereGeometry args={[0.026, 6, 6]} /></mesh>
-      <mesh position={[ 0.20, 1.42, 0.48]} material={matWhite}><sphereGeometry args={[0.026, 6, 6]} /></mesh>
-      <mesh position={[0, 1.26, 0.51]} material={matBlack}><sphereGeometry args={[0.044, 7, 7]} /></mesh>
-      {/* Arms */}
-      {[[-1, -0.68, 0.82, 0.1], [1, 0.68, 0.82, 0.1]].map(([side, ax, ay, az], i) => (
-        <mesh key={i} castShadow material={bodyMat}
-          position={[ax, ay, az]}
-          rotation={[0, 0, isMoving ? Math.sin(walkCycle + (i===0?0:Math.PI)) * 0.4 + side*0.3 : side*0.3]}>
+      <mesh position={[-0.16, 1.40 + bodyBob, 0.42]} material={matBlack}><sphereGeometry args={[0.075, 9, 9]} /></mesh>
+      <mesh position={[ 0.16, 1.40 + bodyBob, 0.42]} material={matBlack}><sphereGeometry args={[0.075, 9, 9]} /></mesh>
+      <mesh position={[-0.12, 1.42 + bodyBob, 0.48]} material={matWhite}><sphereGeometry args={[0.026, 6, 6]} /></mesh>
+      <mesh position={[ 0.20, 1.42 + bodyBob, 0.48]} material={matWhite}><sphereGeometry args={[0.026, 6, 6]} /></mesh>
+      <mesh position={[0, 1.26 + bodyBob, 0.51]} material={matBlack}><sphereGeometry args={[0.044, 7, 7]} /></mesh>
+      {/* Arms — pivot at shoulder */}
+      <group position={[-0.68, 0.96 + bodyBob, 0.05]} rotation={[aL, 0, 0.3]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.2, 0]}>
           <capsuleGeometry args={[0.1, 0.35, 6, 8]} />
         </mesh>
-      ))}
-      {/* Legs */}
-      {[[-0.22, 0.14], [0.22, -0.14]].map(([lx, lz], i) => (
-        <mesh key={i} castShadow material={bodyMat}
-          position={[lx, 0.08 + (isMoving ? Math.sin(walkCycle + (i===0?0:Math.PI)) * 0.07 : 0), Math.abs(lz)]}>
+      </group>
+      <group position={[0.68, 0.96 + bodyBob, 0.05]} rotation={[aR, 0, -0.3]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.2, 0]}>
+          <capsuleGeometry args={[0.1, 0.35, 6, 8]} />
+        </mesh>
+      </group>
+      {/* Legs — pivot at hip */}
+      <group position={[-0.22, 0.32, 0.12]} rotation={[fL, 0, 0]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.25, 0]}>
           <cylinderGeometry args={[0.13, 0.12, 0.5, 9]} />
         </mesh>
-      ))}
+        <mesh castShadow material={bodyMat} position={[0, -0.52, 0.06]}>
+          <sphereGeometry args={[0.13, 8, 8]} />
+        </mesh>
+      </group>
+      <group position={[0.22, 0.32, 0.12]} rotation={[fR, 0, 0]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.25, 0]}>
+          <cylinderGeometry args={[0.13, 0.12, 0.5, 9]} />
+        </mesh>
+        <mesh castShadow material={bodyMat} position={[0, -0.52, 0.06]}>
+          <sphereGeometry args={[0.13, 8, 8]} />
+        </mesh>
+      </group>
     </group>
   );
 }
@@ -250,46 +434,80 @@ function BunnyCreature({ color, walkCycle = 0, isMoving = false }) {
   const bodyMat  = useMemo(() => stdMat(color), [color]);
   const innerMat = useMemo(() => stdMat('#ffe0a0'), []);
 
+  const fL = isMoving ? Math.sin(walkCycle)           * 0.45 : 0;
+  const fR = isMoving ? Math.sin(walkCycle + Math.PI) * 0.45 : 0;
+  const bL = isMoving ? Math.sin(walkCycle + Math.PI) * 0.52 : 0;  // back legs drive more
+  const bR = isMoving ? Math.sin(walkCycle)           * 0.52 : 0;
+  const bodyBob  = isMoving ? Math.abs(Math.sin(walkCycle * 2)) * 0.06 : 0;
+  const earBounce = isMoving ? Math.sin(walkCycle * 2) * 0.08 : 0;
+  const headNod  = isMoving ? Math.sin(walkCycle * 2) * 0.06 : 0;
+
   return (
     <group>
-      <mesh castShadow position={[0, 0.55, 0]} scale={[1, 1.05, 1]} material={bodyMat}>
+      <mesh castShadow position={[0, 0.55 + bodyBob, 0]} scale={[1, 1.05, 1]} material={bodyMat}>
         <sphereGeometry args={[0.5, 18, 14]} />
       </mesh>
-      <mesh castShadow position={[0, 1.18, 0.06]} material={bodyMat}>
+      <mesh castShadow position={[0, 1.18 + bodyBob, 0.06]} rotation={[headNod, 0, 0]} material={bodyMat}>
         <sphereGeometry args={[0.38, 18, 14]} />
       </mesh>
-      <mesh position={[0, 1.08, 0.38]} material={innerMat}>
+      <mesh position={[0, 1.08 + bodyBob, 0.38]} rotation={[headNod,0,0]} material={innerMat}>
         <sphereGeometry args={[0.15, 10, 9]} />
       </mesh>
-      {/* Long ears */}
+      {/* Long ears — bounce up/down while walking */}
       {[-0.14, 0.14].map((ex, i) => (
-        <group key={i} rotation={[isMoving ? Math.sin(walkCycle * 0.5 + i*0.3) * 0.15 : 0, 0, ex < 0 ? -0.1 : 0.1]}>
-          <mesh castShadow position={[ex, 1.85, -0.04]} material={bodyMat}>
+        <group key={i} position={[ex, 1.6 + bodyBob + earBounce, 0]} rotation={[0, 0, ex < 0 ? -0.1 : 0.1]}>
+          <mesh castShadow material={bodyMat} position={[0, 0.38, -0.04]}>
             <capsuleGeometry args={[0.08, 0.55, 6, 8]} />
           </mesh>
-          <mesh position={[ex, 1.85, 0.03]} material={innerMat}>
+          <mesh material={innerMat} position={[0, 0.38, 0.03]}>
             <capsuleGeometry args={[0.04, 0.48, 6, 8]} />
           </mesh>
         </group>
       ))}
       {/* Eyes */}
-      <mesh position={[-0.14, 1.21, 0.35]} material={matBlack}><sphereGeometry args={[0.068, 9, 9]} /></mesh>
-      <mesh position={[ 0.14, 1.21, 0.35]} material={matBlack}><sphereGeometry args={[0.068, 9, 9]} /></mesh>
-      <mesh position={[-0.10, 1.23, 0.41]} material={matWhite}><sphereGeometry args={[0.023, 6, 6]} /></mesh>
-      <mesh position={[ 0.18, 1.23, 0.41]} material={matWhite}><sphereGeometry args={[0.023, 6, 6]} /></mesh>
-      <mesh position={[0, 1.09, 0.42]} material={matPink}><sphereGeometry args={[0.034, 7, 7]} /></mesh>
+      <mesh position={[-0.14, 1.21 + bodyBob, 0.35]} material={matBlack}><sphereGeometry args={[0.068, 9, 9]} /></mesh>
+      <mesh position={[ 0.14, 1.21 + bodyBob, 0.35]} material={matBlack}><sphereGeometry args={[0.068, 9, 9]} /></mesh>
+      <mesh position={[-0.10, 1.23 + bodyBob, 0.41]} material={matWhite}><sphereGeometry args={[0.023, 6, 6]} /></mesh>
+      <mesh position={[ 0.18, 1.23 + bodyBob, 0.41]} material={matWhite}><sphereGeometry args={[0.023, 6, 6]} /></mesh>
+      <mesh position={[0, 1.09 + bodyBob, 0.42]} material={matPink}><sphereGeometry args={[0.034, 7, 7]} /></mesh>
       {/* Pom tail */}
       <mesh castShadow position={[0, 0.7, -0.52]} material={matWhite}>
         <sphereGeometry args={[0.14, 10, 10]} />
       </mesh>
-      {/* Legs */}
-      {[[-0.18, 0.22, true], [0.18, 0.22, false], [-0.2, -0.18, false], [0.2, -0.18, true]].map(([lx, lz, ph], i) => (
-        <mesh key={i} castShadow material={bodyMat}
-          position={[lx, 0.08 + (isMoving ? Math.sin(walkCycle + (ph ? 0 : Math.PI)) * 0.1 : 0), lz]}
-          rotation={lz < 0 ? [0.15, 0, 0] : [0, 0, 0]}>
-          <cylinderGeometry args={[i<2?0.09:0.11, i<2?0.08:0.1, i<2?0.38:0.5, 8]} />
+      {/* Front legs — pivot at shoulder */}
+      <group position={[-0.18, 0.38, 0.18]} rotation={[fL, 0, 0]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.19, 0]}>
+          <cylinderGeometry args={[0.09, 0.08, 0.38, 8]} />
         </mesh>
-      ))}
+        <mesh castShadow material={bodyMat} position={[0, -0.4, 0.04]}>
+          <sphereGeometry args={[0.09, 8, 8]} />
+        </mesh>
+      </group>
+      <group position={[0.18, 0.38, 0.18]} rotation={[fR, 0, 0]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.19, 0]}>
+          <cylinderGeometry args={[0.09, 0.08, 0.38, 8]} />
+        </mesh>
+        <mesh castShadow material={bodyMat} position={[0, -0.4, 0.04]}>
+          <sphereGeometry args={[0.09, 8, 8]} />
+        </mesh>
+      </group>
+      {/* Back legs — bigger, more powerful stride */}
+      <group position={[-0.2, 0.32, -0.16]} rotation={[bL, 0, 0]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.25, 0]}>
+          <cylinderGeometry args={[0.11, 0.1, 0.5, 8]} />
+        </mesh>
+        <mesh castShadow material={bodyMat} position={[0, -0.52, 0.06]}>
+          <sphereGeometry args={[0.12, 8, 8]} />
+        </mesh>
+      </group>
+      <group position={[0.2, 0.32, -0.16]} rotation={[bR, 0, 0]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.25, 0]}>
+          <cylinderGeometry args={[0.11, 0.1, 0.5, 8]} />
+        </mesh>
+        <mesh castShadow material={bodyMat} position={[0, -0.52, 0.06]}>
+          <sphereGeometry args={[0.12, 8, 8]} />
+        </mesh>
+      </group>
     </group>
   );
 }
@@ -509,24 +727,21 @@ function PlayerController() {
   const { scene } = useThree();
 
   useEffect(() => {
-    const onDown = (e) => {
-      keys.current[e.key.toLowerCase()] = true;
-      if (e.code === 'Space') { e.preventDefault(); actions.toggleBoard(); }
-    };
-    const onUp = (e) => { keys.current[e.key.toLowerCase()] = false; };
+    const onDown = (e) => { keys.current[e.key.toLowerCase()] = true; };
+    const onUp   = (e) => { keys.current[e.key.toLowerCase()] = false; };
     window.addEventListener('keydown', onDown);
     window.addEventListener('keyup',   onUp);
     return () => {
       window.removeEventListener('keydown', onDown);
       window.removeEventListener('keyup',   onUp);
     };
-  }, [actions]);
+  }, []);
 
   useFrame(({ clock }, delta) => {
     const g = playerGroupRef.current;
     if (!g || state.ui !== 'play') return;
     const k = keys.current;
-    const speed = state.activeBoard ? CONFIG.SPEEDS.ride : (k['shift'] ? CONFIG.SPEEDS.run : CONFIG.SPEEDS.walk);
+    const speed = CONFIG.SPEED;
     const mx = (k['a'] || k['arrowleft']  ? -1 : 0) + (k['d'] || k['arrowright'] ? 1 : 0);
     const mz = (k['w'] || k['arrowup']    ? -1 : 0) + (k['s'] || k['arrowdown']  ? 1 : 0);
 
@@ -548,17 +763,19 @@ function PlayerController() {
     }
 
     const spd2D = Math.sqrt(vel.current.x ** 2 + vel.current.z ** 2);
-    movingRef.current = spd2D > 0.04;
+    movingRef.current = spd2D > 0.02;
     if (movingRef.current) {
-      walkRef.current += delta * (state.activeBoard ? 6 : k['shift'] ? 10 : 8);
-      g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), 0.18);
+      // Slow, gentle walk cycle — 4 steps per second feels natural at this speed
+      walkRef.current += delta * 4.5;
+      g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), 0.14);
       if (bodyRef.current) {
-        bodyRef.current.position.y = Math.abs(Math.sin(walkRef.current)) * 0.08;
-        bodyRef.current.rotation.z = Math.sin(walkRef.current) * 0.04;
+        // Gentle side-to-side waddle
+        bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, Math.sin(walkRef.current) * 0.03, 0.2);
       }
-    } else if (bodyRef.current) {
-      bodyRef.current.position.y = THREE.MathUtils.lerp(bodyRef.current.position.y, 0, 0.1);
-      bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, 0, 0.1);
+    } else {
+      if (bodyRef.current) {
+        bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, 0, 0.08);
+      }
     }
     playerPosRef.current.copy(g.position);
   });
@@ -567,12 +784,6 @@ function PlayerController() {
     <group ref={playerGroupRef} position={[0, 1, 0]}>
       <group ref={bodyRef}>
         <CatCreature color={CONFIG.COLORS.player} walkCycle={walkRef.current} isMoving={movingRef.current} />
-        {state.activeBoard && (
-          <mesh position={[0, -0.18, 0]}>
-            <boxGeometry args={[1.8, 0.1, 0.9]} />
-            <meshStandardMaterial color="hotpink" emissive="hotpink" emissiveIntensity={1.0} />
-          </mesh>
-        )}
       </group>
       <ContactShadows opacity={0.45} scale={4} blur={2.5} position={[0, 0.02, 0]} />
     </group>
@@ -598,9 +809,9 @@ function NPC({ name, color, home, dialogues, creatureType }) {
     }
     if (modeRef.current === 'walk') {
       const dir = target.current.clone().sub(ref.current.position).normalize();
-      ref.current.position.add(dir.multiplyScalar(delta * 2.8));
+      ref.current.position.add(dir.multiplyScalar(delta * 1.6));
       ref.current.lookAt(target.current.x, ref.current.position.y, target.current.z);
-      walkRef.current += delta * 7;
+      walkRef.current += delta * 4.5;
       movingRef.current = true;
       if (ref.current.position.distanceTo(target.current) < 0.5) { modeRef.current = 'idle'; movingRef.current = false; }
     } else {
@@ -688,7 +899,7 @@ function FruitLayer() {
     FRUIT_DATA.forEach((pos, id) => {
       if (active.has(id) && playerPosRef.current.distanceTo(pos) < 1.6) {
         setActive(prev => { const n = new Set(prev); n.delete(id); return n; });
-        actions.addItem('fruit'); actions.addBells(50); audio.sfx('pop');
+        actions.addItem('fruit'); actions.addBells(50); audio.sfx('munch');
       }
     });
   });
@@ -875,7 +1086,6 @@ function GameUI() {
       <div style={ST.hud}>
         <div style={ST.pill}>🔔 {state.bells.toLocaleString()}</div>
         <div style={ST.pill}>🍎 {state.inventory.fruit}</div>
-        <button style={ST.btn} onClick={() => actions.toggleBoard()}>{state.activeBoard ? '🛹 ON' : '🛹 OFF'}</button>
         <div style={ST.pill}>{String(Math.floor(state.gameTime%12)||12).padStart(2,'0')}:00 {state.gameTime>=12?'PM':'AM'}</div>
       </div>
       {locked && <div style={ST.cross}>+</div>}
@@ -890,7 +1100,7 @@ function GameUI() {
           <div style={{ textAlign:'right', padding:'3px 16px 0', fontSize:12, opacity:0.4 }}>click to continue ▶</div>
         </div>
       )}
-      <div style={ST.help}>{locked ? 'WASD · Move  |  SHIFT · Sprint  |  SPACE · Board  |  ESC · Unlock  |  Click NPC · Talk' : '🖱️ Click the world to enable mouse look'}</div>
+      <div style={ST.help}>{locked ? 'WASD · Wander  |  ESC · Unlock mouse  |  Click NPC · Talk' : '🖱️ Click the world to enable mouse look'}</div>
     </>
   );
 }
@@ -919,7 +1129,7 @@ export default function CandyIslandUltimate() {
               dialogues={['Meow~ The night sky here is gorgeous.','Did you find any fruit today?','Bells grow on trees… almost literally!']} />
             <NPC name="Pip" color={CONFIG.COLORS.pip} creatureType="bunny"
               home={{ x:0, y:getTerrainY(0,22), z:22 }}
-              dialogues={["I'm the fastest on the island!","Hold SHIFT to sprint!","Try the hoverboard, it's SO fast!"]} />
+              dialogues={["I could hop around here all day!","The flowers smell amazing today.","Have you met Barnaby yet? He loves exploring!"]} />
             <Environment preset="sunset" />
             <EffectComposer multisampling={4}>
               <Bloom intensity={0.4} luminanceThreshold={0.88} luminanceSmoothing={0.4} />
