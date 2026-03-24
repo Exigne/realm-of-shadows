@@ -1,9 +1,9 @@
 /**
- * 🏝️ CANDY ISLAND - LOCAL MULTIPLAYER EDITION
- * - UPGRADED: Highly Detailed Character Meshes
- * - FIXED: Instant Chat UI & Physics Flicker
- * - ADDED: Randomized Spawn Locations
- * - HARDCODED: Server URL (Line 25)
+ * 🎤 TAKE THAT: THE SEARCH FOR ROBBIE - MULTIPLAYER EDITION
+ * - Human Bipedal Rig (No more running on all fours!)
+ * - Choose your band member
+ * - Dynamic Robbie Williams Hide & Seek mechanic
+ * - Real-Time Multiplayer Sync
  */
 
 import React, {
@@ -12,16 +12,15 @@ import React, {
 } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
-  Sky, ContactShadows, Float, Instance, Instances, Html, Sparkles
+  Sky, ContactShadows, Stars, Sparkles,
+  Float, Instance, Instances, Html,
 } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 
 // ─── Multiplayer Config ───────────────────────────────────────────────────────
-
-// HARDCODE YOUR NAS IP HERE! Make sure to keep the quotes and the :3001 port.
-const SERVER_URL = "http://192.168.1.129:3001"; 
+const SOCKET_URL = "http://192.168.1.129:3001"; // <--- REPLACE THIS WITH YOUR CODESPACE URL
 let socket;
 
 // ─── Pure Math Terrain Generation ────────────────────────────────────────────
@@ -35,15 +34,19 @@ function getTerrainY(x, z) {
   return h * Math.max(0, 1 - Math.pow(d / 60, 4));
 }
 
-const camState = { yaw: Math.PI, pitch: 0.4 };
+const camState = { yaw: Math.PI, pitch: 0.4, yawVel: 0, pitchVel: 0 };
 const keyState = { prevE: false };
-const globalSeason = { factor: 0 }; 
+
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 const CONFIG = {
-  SPEED: 6.0, ACCEL: 12, DECEL: 15, GRAVITY: 35, JUMP_FORCE: 14,          
+  SPEED: 6.5, // Boybands run fast             
+  ACCEL: 12,               
+  DECEL: 15,               
+  GRAVITY: 35,             
+  JUMP_FORCE: 14,          
   COLORS: {
-    barnaby: '#6aaddb', luna: '#c07ed4', pip: '#f5c842', coco: '#c4813a',
-    rosie: '#ff8fab', maple: '#ff7a1a', bubbles: '#6ecfb5',
+    fan1: '#ff8fab', fan2: '#6ecfb5', fan3: '#c07ed4', robbie: '#ff2222'
   }
 };
 
@@ -52,19 +55,22 @@ const CONFIG = {
 const GameContext = createContext();
 
 const useIslandStore = () => {
-  // RANDOM SPAWN: Prevents players from spawning inside each other!
-  const startX = (Math.random() - 0.5) * 12;
-  const startZ = (Math.random() - 0.5) * 12;
-  const playerPosRef   = useRef(new THREE.Vector3(startX, 5, startZ)); 
+  const playerPosRef   = useRef(new THREE.Vector3(0, 1, 0));
   const playerGroupRef = useRef();
 
   const [state, setState] = useState({
-    bells: 100, inventory: { fruit: 0 }, dialogue: null, ui: 'start',
+    bells: 0,
+    inventory: { hitRecords: 0 },
+    gameTime: 14.0, // Afternoon lighting
+    dialogue: null,
+    ui: 'start',
     playerConfig: { 
-      name: '', creatureType: 'cat',
-      colors: { head: '#ffccd8', body: '#f4a0b0', arms: '#f4a0b0', legs: '#f4a0b0' }
+      name: '', 
+      member: 'Gary',
+      colors: { jacket: '#333333', pants: '#111111' }
     },
-    onlinePlayers: {}, chatMessages: [],
+    onlinePlayers: {},
+    chatMessages: [],
   });
 
   const actions = useMemo(() => ({
@@ -72,28 +78,28 @@ const useIslandStore = () => {
     addBells:        (n)  => setState(s => ({ ...s, bells: s.bells + n })),
     addItem:         (t, n=1) => setState(s => ({ ...s, inventory: { ...s.inventory, [t]: (s.inventory[t]||0) + n } })),
     setDialogue:     (d)  => setState(s => ({ ...s, dialogue: d })),
+    tickTime:        ()   => setState(s => ({ ...s, gameTime: (s.gameTime + 0.05) % 24 })),
     setPlayerConfig: (cfg) => setState(s => ({ ...s, playerConfig: { ...s.playerConfig, ...cfg } })),
     setOnlinePlayers:(p)  => setState(s => ({ ...s, onlinePlayers: p })),
-    addChatMessage:  (m)  => setState(s => {
-      const last = s.chatMessages[s.chatMessages.length - 1];
-      if (last && last.text === m.text && last.name === m.name) return s; 
-      return { ...s, chatMessages: [...s.chatMessages.slice(-14), m] };
-    }),
+    addChatMessage:  (m)  => setState(s => ({ ...s, chatMessages: [...s.chatMessages.slice(-8), m] })),
   }), []);
 
   return { state, actions, playerPosRef, playerGroupRef };
 };
 
 // ─── Audio ────────────────────────────────────────────────────────────────────
-
+// Keeping the same audio engine for footsteps and chat blips
 class GameAudio {
   constructor() { this.ctx = null; this.master = null; this.bgm = false; }
+
   init() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.master = this.ctx.createGain(); this.master.gain.value = 0.14;
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.14;
     this.master.connect(this.ctx.destination);
   }
+
   playBGM() {
     if (this.bgm || !this.ctx) return;
     this.bgm = true;
@@ -107,9 +113,9 @@ class GameAudio {
     const reverbGain = this.ctx.createGain(); reverbGain.gain.value = 0.22;
     reverb.connect(reverbGain); reverbGain.connect(this.master);
 
-    const BEAT = 60 / 96;
-    const phrase = [[523.25, 0, 0.9], [587.33, 1, 0.9], [659.25, 2, 0.9], [523.25, 3, 0.9], [698.46, 4, 0.9], [659.25, 5, 0.9], [587.33, 6, 1.8], [392.00, 8, 0.9], [440.00, 9, 0.9], [523.25, 10, 0.9], [587.33, 11, 0.9], [523.25, 12, 0.9], [493.88, 13, 0.9], [440.00, 14, 1.8]];
-    const bass = [[130.81, 0, 1.6], [174.61, 4, 1.6], [146.83, 8, 1.6], [130.81, 12, 1.6]];
+    const BPM = 110; const BEAT = 60 / BPM;
+    const phrase = [[523.25, 0, 0.9], [587.33, 1, 0.9], [659.25, 2, 0.9], [523.25, 3, 0.9]];
+    const bass = [[130.81, 0, 1.6], [174.61, 4, 1.6]];
 
     const playNote = (freq, beatOffset, durBeats, startTime, vol = 0.06, type = 'sine') => {
       const osc = this.ctx.createOscillator(); const env = this.ctx.createGain();
@@ -125,7 +131,8 @@ class GameAudio {
       phrase.forEach(([f, b, d]) => playNote(f, b, d, startTime, 0.055, 'sine'));
       bass.forEach(([f, b, d]) => playNote(f, b, d, startTime, 0.038, 'triangle'));
       const nextStart = startTime + 16 * BEAT;
-      setTimeout(() => { if (this.bgm) scheduleLoop(nextStart); }, Math.max(0, (nextStart - this.ctx.currentTime - 0.5) * 1000));
+      const scheduleAhead = (nextStart - this.ctx.currentTime - 0.5) * 1000;
+      setTimeout(() => { if (this.bgm) scheduleLoop(nextStart); }, Math.max(0, scheduleAhead));
     };
     scheduleLoop(this.ctx.currentTime + 0.1);
   }
@@ -137,8 +144,7 @@ class GameAudio {
       const d = buf.getChannelData(0);
       for(let i=0; i<d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 2);
       const src = this.ctx.createBufferSource(); src.buffer = buf;
-      const filter = this.ctx.createBiquadFilter(); filter.type = 'lowpass'; 
-      filter.frequency.value = globalSeason.factor > 0.5 ? 400 : 1000;
+      const filter = this.ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 1000;
       const gain = this.ctx.createGain(); gain.gain.value = 0.4;
       src.connect(filter); filter.connect(gain); gain.connect(this.master);
       src.start();
@@ -153,219 +159,137 @@ class GameAudio {
       src.connect(filter); filter.connect(gain); gain.connect(this.master);
       src.start();
     }
-    if (type === 'munch') {
-      [0, 0.07, 0.15].forEach((delay, i) => {
-        const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.08, this.ctx.sampleRate);
-        const d = buf.getChannelData(0);
-        for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * Math.pow(1 - j / d.length, 1.5);
-        const src = this.ctx.createBufferSource(); src.buffer = buf;
-        const bpf = this.ctx.createBiquadFilter(); bpf.type = 'bandpass'; bpf.frequency.value = 900 + i * 180; bpf.Q.value = 2.5;
-        const g = this.ctx.createGain(); g.gain.setValueAtTime(0.18, this.ctx.currentTime + delay);
-        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + delay + 0.07);
-        src.connect(bpf); bpf.connect(g); g.connect(this.master);
-        src.start(this.ctx.currentTime + delay); src.stop(this.ctx.currentTime + delay + 0.1);
-      });
-    }
     if (type === 'talk') {
       const osc = this.ctx.createOscillator(); const g = this.ctx.createGain();
-      osc.type = 'square'; osc.frequency.value = 500 + Math.random() * 300;
+      osc.type = 'square'; osc.frequency.value = 400 + Math.random() * 200;
       g.gain.setValueAtTime(0.025, this.ctx.currentTime);
       g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.07);
       osc.connect(g); g.connect(this.master);
       osc.start(); osc.stop(this.ctx.currentTime + 0.07);
+    }
+    if (type === 'win') {
+      const osc = this.ctx.createOscillator(); const g = this.ctx.createGain();
+      osc.type = 'sine'; osc.frequency.setValueAtTime(440, this.ctx.currentTime);
+      osc.frequency.setValueAtTime(880, this.ctx.currentTime + 0.1);
+      g.gain.setValueAtTime(0.1, this.ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
+      osc.connect(g); g.connect(this.master);
+      osc.start(); osc.stop(this.ctx.currentTime + 0.5);
     }
   }
 }
 const audio = new GameAudio();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  DYNAMIC BIPED -> QUADRUPED ANIMATION ENGINE
+//  HUMAN BIPED ANIMATION ENGINE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const matBlack = new THREE.MeshBasicMaterial({ color: '#222' });
-const matWhite = new THREE.MeshStandardMaterial({ color: '#fff', roughness: 0.9 });
-const matPink  = new THREE.MeshStandardMaterial({ color: '#ffb3cc', roughness: 0.8 });
-function stdMat(color, opts = {}) { return new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0, ...opts }); }
+const matSkin  = new THREE.MeshStandardMaterial({ color: '#ffcdb2', roughness: 0.6 });
+const matBlack = new THREE.MeshBasicMaterial({ color: '#111' });
 
-function useCreatureAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
-  const body = useRef(); const head = useRef(); const armL = useRef(); const armR = useRef(); 
-  const legL = useRef(); const legR = useRef(); const tail = useRef();
-  const walk = useRef(0); const tilt = useRef(0);
+function stdMat(color) {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.1 });
+}
+
+function useHumanAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
+  const body = useRef(); const head = useRef(); 
+  const armL = useRef(); const armR = useRef(); 
+  const legL = useRef(); const legR = useRef();
+  const walk = useRef(0);
 
   useFrame((_, delta) => {
-    let isMoving = false; let isSwimming = false;
-    if (isNPC && npcMovingRef) { isMoving = npcMovingRef.current; } 
-    else if (velRef && isSwimmingRef) { isMoving = Math.sqrt(velRef.current.x**2 + velRef.current.z**2) > 0.5; isSwimming = isSwimmingRef.current; }
+    let isMoving = false;
+    let isSwimming = false;
 
-    if (isMoving) walk.current += delta * (isSwimming ? 5 : 12);
-    
-    const targetTilt = isSwimming ? -1.2 : (isMoving ? -1.5 : 0);
-    tilt.current = THREE.MathUtils.lerp(tilt.current, targetTilt, 12 * delta);
-    const targetY = isSwimming ? -0.2 : (isMoving ? 0.35 : 0.6);
-
-    if (body.current) {
-      body.current.rotation.x = tilt.current;
-      body.current.position.y = THREE.MathUtils.lerp(body.current.position.y, targetY, 12 * delta);
-      if (isSwimming) body.current.position.y += Math.sin(walk.current * 0.5) * 0.05;
+    if (isNPC && npcMovingRef) {
+      isMoving = npcMovingRef.current;
+    } else if (velRef && isSwimmingRef) {
+      isMoving = Math.sqrt(velRef.current.x**2 + velRef.current.z**2) > 0.5;
+      isSwimming = isSwimmingRef.current;
     }
-    if (head.current) head.current.rotation.x = -tilt.current + (isMoving && !isSwimming ? Math.sin(walk.current * 2) * 0.05 : 0);
-    if (tail.current) tail.current.rotation.z = Math.sin(walk.current * 1.5) * 0.3;
 
-    const limbBase = Math.abs(tilt.current); const s = Math.sin(walk.current) * 0.8;
+    if (isMoving) walk.current += delta * (isSwimming ? 5 : 14);
+    
+    // Human running: upright, no pitching forward like the animals
+    if (body.current) {
+      body.current.position.y = isSwimming ? -0.2 : 1.0;
+      if (isMoving && !isSwimming) {
+        body.current.position.y += Math.abs(Math.sin(walk.current * 2)) * 0.08;
+      }
+    }
+    
+    // Head bob
+    if (head.current) {
+      head.current.rotation.y = isMoving ? Math.sin(walk.current) * 0.1 : 0;
+    }
+    
+    // Human arm and leg swings (opposites)
+    const s = Math.sin(walk.current) * 1.2; 
     
     if (isSwimming) {
-      if (armL.current) armL.current.rotation.x = -1.0 + Math.sin(walk.current)*0.4;
-      if (armR.current) armR.current.rotation.x = -1.0 - Math.sin(walk.current)*0.4;
-      if (legL.current) legL.current.rotation.x =  1.0 - Math.sin(walk.current)*0.4;
-      if (legR.current) legR.current.rotation.x =  1.0 + Math.sin(walk.current)*0.4;
+      if (armL.current) armL.current.rotation.x = -1.5 + Math.sin(walk.current)*0.5;
+      if (armR.current) armR.current.rotation.x = -1.5 - Math.sin(walk.current)*0.5;
+      if (legL.current) legL.current.rotation.x =  0.5 - Math.sin(walk.current)*0.5;
+      if (legR.current) legR.current.rotation.x =  0.5 + Math.sin(walk.current)*0.5;
+    } else if (isMoving) {
+      if (armL.current) armL.current.rotation.x = s;
+      if (armR.current) armR.current.rotation.x = -s;
+      if (legL.current) legL.current.rotation.x = -s;
+      if (legR.current) legR.current.rotation.x = s;
     } else {
-      if (armL.current) armL.current.rotation.x = limbBase + s;
-      if (armR.current) armR.current.rotation.x = limbBase - s;
-      if (legL.current) legL.current.rotation.x = limbBase - s;
-      if (legR.current) legR.current.rotation.x = limbBase + s;
+      // Idle
+      if (armL.current) armL.current.rotation.x = THREE.MathUtils.lerp(armL.current.rotation.x, 0, 0.1);
+      if (armR.current) armR.current.rotation.x = THREE.MathUtils.lerp(armR.current.rotation.x, 0, 0.1);
+      if (legL.current) legL.current.rotation.x = THREE.MathUtils.lerp(legL.current.rotation.x, 0, 0.1);
+      if (legR.current) legR.current.rotation.x = THREE.MathUtils.lerp(legR.current.rotation.x, 0, 0.1);
     }
   });
 
-  return { body, head, armL, armR, legL, legR, tail };
+  return { body, head, armL, armR, legL, legR };
 }
 
-// ─── HIGH-DETAIL CREATURE MESHES ─────────────────────────────────────────────
-
-function CatCreature(props) {
-  const { body, head, armL, armR, legL, legR, tail } = useCreatureAnim(props);
-  const headMat = useMemo(() => stdMat(props.colors?.head || props.color || '#fff'), [props]);
-  const bodyMat = useMemo(() => stdMat(props.colors?.body || props.color || '#fff'), [props]);
-  const armMat  = useMemo(() => stdMat(props.colors?.arms || props.color || '#fff'), [props]);
-  const legMat  = useMemo(() => stdMat(props.colors?.legs || props.color || '#fff'), [props]);
-
-  return (
-    <group ref={body} position={[0, 0.6, 0]}>
-      <mesh material={bodyMat} castShadow><sphereGeometry args={[0.5, 16, 16]} /></mesh>
-      <group ref={head} position={[0, 0.45, 0.2]}>
-        <mesh material={headMat} castShadow><sphereGeometry args={[0.4, 16, 16]} /></mesh>
-        <group position={[-0.2, 0.3, 0]} rotation={[0,0,0.2]}>
-          <mesh material={headMat} castShadow><coneGeometry args={[0.1, 0.3, 8]} /></mesh>
-          <mesh material={matPink} position={[0, 0.02, 0.05]}><coneGeometry args={[0.06, 0.2, 8]} /></mesh>
-        </group>
-        <group position={[0.2, 0.3, 0]} rotation={[0,0,-0.2]}>
-          <mesh material={headMat} castShadow><coneGeometry args={[0.1, 0.3, 8]} /></mesh>
-          <mesh material={matPink} position={[0, 0.02, 0.05]}><coneGeometry args={[0.06, 0.2, 8]} /></mesh>
-        </group>
-        <mesh material={matBlack} position={[-0.15, 0.05, 0.37]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
-        <mesh material={matBlack} position={[0.15, 0.05, 0.37]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, -0.05, 0.35]} castShadow><sphereGeometry args={[0.18, 16, 16]} /></mesh>
-        <mesh material={matBlack} position={[0, -0.02, 0.52]}><sphereGeometry args={[0.04, 8, 8]} /></mesh>
-        <mesh material={matBlack} position={[-0.18, -0.05, 0.45]} rotation={[0, 0, 0.2]}><cylinderGeometry args={[0.005, 0.005, 0.15]} /></mesh>
-        <mesh material={matBlack} position={[0.18, -0.05, 0.45]} rotation={[0, 0, -0.2]}><cylinderGeometry args={[0.005, 0.005, 0.15]} /></mesh>
-      </group>
-      <group ref={armL} position={[-0.25, 0.1, 0]}>
-        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.1, 0.5, 8, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, -0.5, 0.05]}><sphereGeometry args={[0.11, 12, 12]} /></mesh>
-      </group>
-      <group ref={armR} position={[0.25, 0.1, 0]}>
-        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.1, 0.5, 8, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, -0.5, 0.05]}><sphereGeometry args={[0.11, 12, 12]} /></mesh>
-      </group>
-      <group ref={legL} position={[-0.25, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, -0.5, 0.05]}><sphereGeometry args={[0.13, 12, 12]} /></mesh>
-      </group>
-      <group ref={legR} position={[0.25, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, -0.5, 0.05]}><sphereGeometry args={[0.13, 12, 12]} /></mesh>
-      </group>
-      <group ref={tail} position={[0, -0.3, -0.4]}>
-        <mesh material={bodyMat} position={[0, 0.3, -0.2]} rotation={[-0.5, 0, 0]} castShadow><cylinderGeometry args={[0.06, 0.08, 0.6, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, 0.55, -0.32]} rotation={[-0.5, 0, 0]}><sphereGeometry args={[0.07, 8, 8]} /></mesh>
-      </group>
-    </group>
-  );
-}
-
-function BearCreature(props) {
-  const { body, head, armL, armR, legL, legR, tail } = useCreatureAnim(props);
-  const headMat = useMemo(() => stdMat(props.colors?.head || props.color || '#fff'), [props]);
-  const bodyMat = useMemo(() => stdMat(props.colors?.body || props.color || '#fff'), [props]);
-  const armMat  = useMemo(() => stdMat(props.colors?.arms || props.color || '#fff'), [props]);
-  const legMat  = useMemo(() => stdMat(props.colors?.legs || props.color || '#fff'), [props]);
-  const bellyMat = useMemo(() => stdMat('#d4eef8'), []);
+function BoybandRig(props) {
+  const { body, head, armL, armR, legL, legR } = useHumanAnim(props);
+  
+  const cJacket = props.colors?.jacket || '#333';
+  const cPants  = props.colors?.pants || '#111';
+  
+  const jacketMat = useMemo(() => stdMat(cJacket), [cJacket]);
+  const pantsMat  = useMemo(() => stdMat(cPants), [cPants]);
 
   return (
-    <group ref={body} position={[0, 0.6, 0]}>
-      <mesh material={bodyMat} scale={[1.1, 1, 1]} castShadow><sphereGeometry args={[0.55, 16, 16]} /></mesh>
-      <mesh material={bellyMat} position={[0, 0, 0.48]}><sphereGeometry args={[0.35, 16, 16]} /></mesh>
-      <group ref={head} position={[0, 0.55, 0.2]}>
-        <mesh material={headMat} castShadow><sphereGeometry args={[0.42, 16, 16]} /></mesh>
-        <mesh material={headMat} position={[-0.28, 0.32, 0]} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
-        <mesh material={headMat} position={[0.28, 0.32, 0]} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
-        <mesh material={bellyMat} position={[-0.28, 0.32, 0.1]}><sphereGeometry args={[0.08, 12, 12]} /></mesh>
-        <mesh material={bellyMat} position={[0.28, 0.32, 0.1]}><sphereGeometry args={[0.08, 12, 12]} /></mesh>
-        <mesh material={matBlack} position={[-0.15, 0.12, 0.39]}><sphereGeometry args={[0.05, 8, 8]} /></mesh>
-        <mesh material={matBlack} position={[0.15, 0.12, 0.39]}><sphereGeometry args={[0.05, 8, 8]} /></mesh>
-        <mesh material={bellyMat} position={[0, -0.05, 0.38]} castShadow><sphereGeometry args={[0.22, 16, 16]} /></mesh>
-        <mesh material={matBlack} position={[0, 0.05, 0.58]}><sphereGeometry args={[0.07, 8, 8]} /></mesh>
+    <group ref={body} position={[0, 1.0, 0]}>
+      {/* Torso */}
+      <mesh material={jacketMat} castShadow><boxGeometry args={[0.6, 0.8, 0.4]} /></mesh>
+      
+      {/* Head */}
+      <group ref={head} position={[0, 0.6, 0]}>
+        <mesh material={matSkin} castShadow><boxGeometry args={[0.45, 0.5, 0.45]} /></mesh>
+        {/* Hair block */}
+        <mesh material={jacketMat} position={[0, 0.28, -0.05]} castShadow><boxGeometry args={[0.5, 0.15, 0.5]} /></mesh>
+        {/* Eyes */}
+        <mesh material={matBlack} position={[-0.1, 0.05, 0.23]}><boxGeometry args={[0.06, 0.06, 0.02]} /></mesh>
+        <mesh material={matBlack} position={[0.1, 0.05, 0.23]}><boxGeometry args={[0.06, 0.06, 0.02]} /></mesh>
       </group>
-      <group ref={armL} position={[-0.35, 0.1, 0]}>
-        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.14, 0.4, 8, 8]} /></mesh>
-      </group>
-      <group ref={armR} position={[0.35, 0.1, 0]}>
-        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.14, 0.4, 8, 8]} /></mesh>
-      </group>
-      <group ref={legL} position={[-0.3, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.16, 0.4, 8, 8]} /></mesh>
-      </group>
-      <group ref={legR} position={[0.3, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.16, 0.4, 8, 8]} /></mesh>
-      </group>
-      <group ref={tail} position={[0, -0.3, -0.5]}>
-        <mesh material={bodyMat} castShadow><sphereGeometry args={[0.16, 12, 12]} /></mesh>
-      </group>
-    </group>
-  );
-}
 
-function BunnyCreature(props) {
-  const { body, head, armL, armR, legL, legR, tail } = useCreatureAnim(props);
-  const headMat = useMemo(() => stdMat(props.colors?.head || props.color || '#fff'), [props]);
-  const bodyMat = useMemo(() => stdMat(props.colors?.body || props.color || '#fff'), [props]);
-  const armMat  = useMemo(() => stdMat(props.colors?.arms || props.color || '#fff'), [props]);
-  const legMat  = useMemo(() => stdMat(props.colors?.legs || props.color || '#fff'), [props]);
+      {/* Arms */}
+      <group ref={armL} position={[-0.4, 0.3, 0]}>
+        <mesh material={jacketMat} position={[0, -0.3, 0]} castShadow><boxGeometry args={[0.2, 0.7, 0.2]} /></mesh>
+        <mesh material={matSkin} position={[0, -0.7, 0]} castShadow><boxGeometry args={[0.15, 0.15, 0.15]} /></mesh>
+      </group>
+      <group ref={armR} position={[0.4, 0.3, 0]}>
+        <mesh material={jacketMat} position={[0, -0.3, 0]} castShadow><boxGeometry args={[0.2, 0.7, 0.2]} /></mesh>
+        <mesh material={matSkin} position={[0, -0.7, 0]} castShadow><boxGeometry args={[0.15, 0.15, 0.15]} /></mesh>
+      </group>
 
-  return (
-    <group ref={body} position={[0, 0.6, 0]}>
-      <mesh material={bodyMat} castShadow><sphereGeometry args={[0.5, 16, 16]} /></mesh>
-      <group ref={head} position={[0, 0.45, 0.2]}>
-        <mesh material={headMat} castShadow><sphereGeometry args={[0.38, 16, 16]} /></mesh>
-        <group position={[-0.15, 0.45, -0.05]} rotation={[0, 0, -0.1]}>
-          <mesh material={headMat} castShadow><capsuleGeometry args={[0.08, 0.5, 8, 8]} /></mesh>
-          <mesh material={matPink} position={[0, 0, 0.05]}><capsuleGeometry args={[0.05, 0.4, 8, 8]} /></mesh>
-        </group>
-        <group position={[0.15, 0.45, -0.05]} rotation={[0, 0, 0.1]}>
-          <mesh material={headMat} castShadow><capsuleGeometry args={[0.08, 0.5, 8, 8]} /></mesh>
-          <mesh material={matPink} position={[0, 0, 0.05]}><capsuleGeometry args={[0.05, 0.4, 8, 8]} /></mesh>
-        </group>
-        <mesh material={matBlack} position={[-0.15, 0.05, 0.32]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
-        <mesh material={matBlack} position={[0.15, 0.05, 0.32]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, -0.05, 0.36]} castShadow><sphereGeometry args={[0.14, 12, 12]} /></mesh>
-        <mesh material={matPink} position={[0, -0.02, 0.48]}><sphereGeometry args={[0.04, 8, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, -0.15, 0.42]}><boxGeometry args={[0.08, 0.1, 0.05]} /></mesh>
+      {/* Legs */}
+      <group ref={legL} position={[-0.18, -0.4, 0]}>
+        <mesh material={pantsMat} position={[0, -0.35, 0]} castShadow><boxGeometry args={[0.25, 0.7, 0.25]} /></mesh>
+        <mesh material={matBlack} position={[0, -0.75, 0.05]} castShadow><boxGeometry args={[0.25, 0.15, 0.35]} /></mesh>
       </group>
-      <group ref={armL} position={[-0.25, 0.1, 0]}>
-        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.09, 0.5, 8, 8]} /></mesh>
-      </group>
-      <group ref={armR} position={[0.25, 0.1, 0]}>
-        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.09, 0.5, 8, 8]} /></mesh>
-      </group>
-      <group ref={legL} position={[-0.25, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.13, 0.4, 8, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, -0.45, 0.15]} rotation={[Math.PI/2, 0, 0]} castShadow><capsuleGeometry args={[0.1, 0.3, 8, 8]} /></mesh>
-      </group>
-      <group ref={legR} position={[0.25, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.13, 0.4, 8, 8]} /></mesh>
-        <mesh material={matWhite} position={[0, -0.45, 0.15]} rotation={[Math.PI/2, 0, 0]} castShadow><capsuleGeometry args={[0.1, 0.3, 8, 8]} /></mesh>
-      </group>
-      <group ref={tail} position={[0, -0.3, -0.45]}>
-        <mesh material={matWhite} castShadow><sphereGeometry args={[0.18, 12, 12]} /></mesh>
+      <group ref={legR} position={[0.18, -0.4, 0]}>
+        <mesh material={pantsMat} position={[0, -0.35, 0]} castShadow><boxGeometry args={[0.25, 0.7, 0.25]} /></mesh>
+        <mesh material={matBlack} position={[0, -0.75, 0.05]} castShadow><boxGeometry args={[0.25, 0.15, 0.35]} /></mesh>
       </group>
     </group>
   );
@@ -374,7 +298,8 @@ function BunnyCreature(props) {
 // ─── Terrain & Textures ────────────────────────────────────────────────────────
 
 function applyNoise(ctx, S, intensity = 12) {
-  const imgData = ctx.getImageData(0, 0, S, S); const data = imgData.data;
+  const imgData = ctx.getImageData(0, 0, S, S);
+  const data = imgData.data;
   for (let i = 0; i < data.length; i += 4) {
     const n = (Math.random() - 0.5) * intensity;
     data[i] = Math.min(255, Math.max(0, data[i] + n));
@@ -385,8 +310,9 @@ function applyNoise(ctx, S, intensity = 12) {
 }
 
 function makeGroundTexture() {
-  const S = 512; const c = document.createElement('canvas'); c.width = c.height = S;
-  const ctx = c.getContext('2d'); ctx.fillStyle = '#78b050'; ctx.fillRect(0, 0, S, S);
+  const S = 512;
+  const c = document.createElement('canvas'); c.width = c.height = S; const ctx = c.getContext('2d');
+  ctx.fillStyle = '#78b050'; ctx.fillRect(0, 0, S, S);
   for (let i = 0; i < 2800; i++) {
     const x = Math.random() * S, y = Math.random() * S; const r = 4 + Math.random() * 16;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -394,122 +320,57 @@ function makeGroundTexture() {
     ctx.fill();
   }
   applyNoise(ctx, S, 12); 
-  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(16, 16);
-  return t;
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(16, 16); return t;
+}
+
+function makeSandTexture() {
+  const S = 256;
+  const c = document.createElement('canvas'); c.width = c.height = S; const ctx = c.getContext('2d');
+  ctx.fillStyle = '#e8ccaa'; ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 2400; i++) {
+    const x = Math.random() * S, y = Math.random() * S; const r = 1 + Math.random() * 4;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${175+Math.random()*45},${145+Math.random()*30},${85+Math.random()*30},0.22)`;
+    ctx.fill();
+  }
+  applyNoise(ctx, S, 8);  
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(10, 10); return t;
 }
 
 function Terrain() {
   const grassTex = useMemo(() => makeGroundTexture(), []);
-  const geoGrass = useMemo(() => {
-    const g = new THREE.PlaneGeometry(150, 150, 128, 128); g.rotateX(-Math.PI / 2);
-    const pos = g.attributes.position;
-    for (let i = 0; i < pos.count; i++) pos.setY(i, getTerrainY(pos.getX(i), pos.getZ(i)));
-    g.computeVertexNormals(); return g;
-  }, []);
+  const sandTex  = useMemo(() => makeSandTexture(),   []);
 
-  const snowMat = useRef();
-  useFrame(() => {
-    if (snowMat.current) snowMat.current.opacity = globalSeason.factor * 0.95;
-  });
+  const { geoBase, geoGrass } = useMemo(() => {
+    const build = () => {
+      const g = new THREE.PlaneGeometry(150, 150, 128, 128); g.rotateX(-Math.PI / 2);
+      const pos = g.attributes.position;
+      for (let i = 0; i < pos.count; i++) pos.setY(i, getTerrainY(pos.getX(i), pos.getZ(i)));
+      g.computeVertexNormals(); return g;
+    };
+    return { geoBase: build(), geoGrass: build() };
+  }, []);
 
   return (
     <group>
-      <mesh name="ground" geometry={geoGrass} receiveShadow position={[0, 0.002, 0]}>
-        <meshStandardMaterial map={grassTex} roughness={0.88} />
-      </mesh>
-      <mesh geometry={geoGrass} receiveShadow position={[0, 0.05, 0]}>
-        <meshStandardMaterial ref={snowMat} color="#ffffff" transparent roughness={0.9} />
+      <mesh geometry={geoBase} receiveShadow name="ground"><meshStandardMaterial map={sandTex} bumpMap={sandTex} bumpScale={0.02} roughness={0.95} metalness={0} /></mesh>
+      <mesh geometry={geoGrass} receiveShadow position={[0, 0.002, 0]}>
+        <meshStandardMaterial map={grassTex} bumpMap={grassTex} bumpScale={0.05} roughness={0.88} metalness={0} transparent alphaTest={0.01}
+          onBeforeCompile={(shader) => {
+            shader.vertexShader = 'attribute float grassMask;\nvarying float vGrassMask;\n' + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvGrassMask = grassMask;');
+            shader.fragmentShader = 'varying float vGrassMask;\n' + shader.fragmentShader.replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'if(vGrassMask < 0.5) discard;\nvec4 diffuseColor = vec4( diffuse, opacity );');
+          }} />
       </mesh>
     </group>
   );
 }
 
 function Water() {
-  const ref = useRef();
-  useFrame(({ clock }) => {
-    if (!ref.current) return;
-    ref.current.position.y = -1.18 + Math.sin(clock.elapsedTime * 0.65) * 0.09;
-  });
   return (
-    <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.18, 0]}>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.18, 0]}>
       <planeGeometry args={[400, 400]} />
-      <meshStandardMaterial color="#5bc8f0" transparent opacity={0.72} metalness={0.55} roughness={0.06} />
+      <meshStandardMaterial color="#38b4e8" transparent opacity={0.8} metalness={0.8} roughness={0.1} />
     </mesh>
-  );
-}
-
-// ─── Particle Effects ─────────────────────────────────────────────────────────
-
-function DustEffect() {
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const particles = useRef([]); const meshRef = useRef();
-
-  useEffect(() => {
-    const handleLand = (e) => {
-      const pos = e.detail;
-      for(let i=0; i<8; i++) {
-         particles.current.push({
-           pos: pos.clone().add(new THREE.Vector3((Math.random()-0.5)*0.8, 0.1, (Math.random()-0.5)*0.8)),
-           vel: new THREE.Vector3((Math.random()-0.5)*2, Math.random()*2 + 1, (Math.random()-0.5)*2),
-           age: 0, life: 0.3 + Math.random()*0.3, scale: Math.random() * 0.3 + 0.2
-         });
-      }
-    };
-    window.addEventListener('player-land', handleLand);
-    return () => window.removeEventListener('player-land', handleLand);
-  }, []);
-
-  useFrame((_, delta) => {
-    if (!meshRef.current) return;
-    let count = 0;
-    for (let i = particles.current.length - 1; i >= 0; i--) {
-      const p = particles.current[i]; p.age += delta;
-      if (p.age >= p.life) { particles.current.splice(i, 1); continue; }
-      p.pos.addScaledVector(p.vel, delta); p.scale *= 0.88; 
-      dummy.position.copy(p.pos); dummy.scale.setScalar(p.scale);
-      dummy.updateMatrix(); meshRef.current.setMatrixAt(count++, dummy.matrix);
-    }
-    meshRef.current.count = count; meshRef.current.instanceMatrix.needsUpdate = true;
-  });
-
-  return (
-    <instancedMesh ref={meshRef} args={[null, null, 50]}>
-      <sphereGeometry args={[1, 6, 6]} />
-      <meshStandardMaterial color="#d4c0a5" roughness={1} />
-    </instancedMesh>
-  );
-}
-
-function WeatherController() {
-  useFrame(({ clock }) => { globalSeason.factor = (Math.sin(clock.elapsedTime * 0.1) + 1) / 2; });
-
-  const meshRef = useRef(); const matRef = useRef();
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const flakes = useMemo(() => Array.from({length: 600}, () => ({
-    x: (Math.random() - 0.5) * 100, y: Math.random() * 40, z: (Math.random() - 0.5) * 100,
-    speed: 1 + Math.random() * 2, sway: Math.random() * Math.PI * 2
-  })), []);
-
-  useFrame((_, delta) => {
-    if (!meshRef.current || !matRef.current) return;
-    matRef.current.opacity = globalSeason.factor > 0.4 ? (globalSeason.factor - 0.4) * 1.5 : 0;
-    
-    if (matRef.current.opacity > 0) {
-      flakes.forEach((f, i) => {
-        f.y -= f.speed * delta; f.sway += delta;
-        if (f.y < -2) f.y = 40;
-        dummy.position.set(f.x + Math.sin(f.sway)*0.5, f.y, f.z);
-        dummy.updateMatrix(); meshRef.current.setMatrixAt(i, dummy.matrix);
-      });
-      meshRef.current.instanceMatrix.needsUpdate = true;
-    }
-  });
-
-  return (
-    <instancedMesh ref={meshRef} args={[null, null, 600]}>
-      <sphereGeometry args={[0.08, 4, 4]} />
-      <meshBasicMaterial ref={matRef} color="#ffffff" transparent opacity={0} />
-    </instancedMesh>
   );
 }
 
@@ -520,11 +381,14 @@ function CameraRig() {
   const { camera } = useThree();
 
   useFrame((_, delta) => {
-    const rotateSpeed = 2.5 * delta;
-    if (keyState['arrowleft'])  camState.yaw += rotateSpeed;
-    if (keyState['arrowright']) camState.yaw -= rotateSpeed;
-    if (keyState['arrowup'])    camState.pitch -= rotateSpeed;
-    if (keyState['arrowdown'])  camState.pitch += rotateSpeed;
+    if (keyState['arrowleft'])  camState.yawVel += 10.0 * delta;
+    if (keyState['arrowright']) camState.yawVel -= 10.0 * delta;
+    if (keyState['arrowup'])    camState.pitchVel -= 10.0 * delta;
+    if (keyState['arrowdown'])  camState.pitchVel += 10.0 * delta;
+
+    camState.yawVel *= 0.82; camState.pitchVel *= 0.82;
+    camState.yaw += camState.yawVel * delta;
+    camState.pitch += camState.pitchVel * delta;
     camState.pitch = Math.max(0.1, Math.min(1.4, camState.pitch));
 
     const p = playerGroupRef.current;
@@ -533,10 +397,10 @@ function CameraRig() {
     const dist = 14;
     camera.position.set(
       p.position.x + Math.sin(camState.yaw) * dist * Math.cos(camState.pitch),
-      p.position.y + dist * Math.sin(camState.pitch) + 1,
+      p.position.y + dist * Math.sin(camState.pitch) + 2,
       p.position.z + Math.cos(camState.yaw) * dist * Math.cos(camState.pitch)
     );
-    camera.lookAt(p.position.x, p.position.y + 1.1, p.position.z);
+    camera.lookAt(p.position.x, p.position.y + 1.5, p.position.z);
   });
   return null;
 }
@@ -545,25 +409,23 @@ function CameraRig() {
 
 function PlayerController() {
   const { state, actions, playerPosRef, playerGroupRef } = useContext(GameContext);
-  const vel = useRef(new THREE.Vector3()); const movingRef = useRef(false);
-  const prevGrounded = useRef(true); const isSwimmingRef = useRef(false);
+  const vel       = useRef(new THREE.Vector3());
+  const movingRef = useRef(false);
+  const prevGrounded = useRef(true);
+  const isSwimmingRef = useRef(false);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
-  const downVec = useMemo(() => new THREE.Vector3(0, -1, 0), []);
-  const { scene } = useThree(); const lastSend = useRef(0); const lastStep = useRef(0);
-
-  // BUG FIX: Teleport player to initial spawn position EXACTLY ONCE
-  useEffect(() => {
-    if (playerGroupRef.current) {
-      playerGroupRef.current.position.set(playerPosRef.current.x, 5, playerPosRef.current.z);
-    }
-  }, []);
+  const downVec   = useMemo(() => new THREE.Vector3(0, -1, 0), []);
+  const { scene } = useThree();
+  const lastSend = useRef(0);
+  const lastStep = useRef(0);
 
   useFrame(({ clock }, delta) => {
     const g = playerGroupRef.current;
     if (!g || state.ui !== 'play') return;
     
     if (keyState['e'] && !keyState.prevE) {
-      let closestNPC = null; let minDist = 4.0;
+      let closestNPC = null;
+      let minDist = 4.0;
       scene.traverse(child => {
         if (child.userData?.isNPC) {
           const dist = child.getWorldPosition(new THREE.Vector3()).distanceTo(g.position);
@@ -571,15 +433,22 @@ function PlayerController() {
         }
       });
       if (closestNPC && !state.dialogue) {
-        actions.setDialogue({ name: closestNPC.userData.name, color: closestNPC.userData.color, nodes: closestNPC.userData.dialogues, step: 0 });
+        actions.setDialogue({
+          name: closestNPC.userData.name, color: closestNPC.userData.color,
+          nodes: closestNPC.userData.dialogues, step: 0
+        });
         audio.sfx('talk');
+        // If they found Robbie!
+        if (closestNPC.userData.name === "Robbie") audio.sfx('win');
       }
     }
     keyState.prevE = keyState['e']; 
+
     if (state.dialogue) return;
 
     const mx = (keyState['a'] ? -1 : 0) + (keyState['d'] ? 1 : 0);
     const mz = (keyState['w'] ? -1 : 0) + (keyState['s'] ? 1 : 0);
+
     const accelFactor = Math.min(1, CONFIG.ACCEL * delta);
     const decelFactor = Math.min(1, CONFIG.DECEL * delta);
     const targetSpeed = isSwimmingRef.current ? CONFIG.SPEED * 0.45 : CONFIG.SPEED;
@@ -594,30 +463,43 @@ function PlayerController() {
     }
 
     vel.current.y -= CONFIG.GRAVITY * delta;
+
     g.position.x = Math.max(-56, Math.min(56, g.position.x + vel.current.x * delta));
     g.position.z = Math.max(-56, Math.min(56, g.position.z + vel.current.z * delta));
     g.position.y += vel.current.y * delta;
 
     raycaster.set(new THREE.Vector3(g.position.x, 20, g.position.z), downVec);
     const ground = scene.getObjectByName('ground');
-    let isGrounded = false; let isSwimming = false;
+    let isGrounded = false;
+    let isSwimming = false;
     
     if (ground) {
       const hits = raycaster.intersectObject(ground);
       if (hits.length > 0) {
         let floorHeight = hits[0].point.y + 0.05;
-        if (floorHeight < -1.48) { floorHeight = -1.48; isSwimming = true; }
-        if (g.position.y <= floorHeight + 0.3 && vel.current.y <= 0) {
-          g.position.y = floorHeight; isGrounded = true; vel.current.y = 0;
-          if (!prevGrounded.current && vel.current.y < -5 && !isSwimming) {
-             window.dispatchEvent(new CustomEvent('player-land', { detail: g.position }));
-          }
+        const SWIM_FLOAT_Y = -1.0; 
+
+        if (floorHeight < SWIM_FLOAT_Y) {
+           floorHeight = SWIM_FLOAT_Y;
+           isSwimming = true;
+        }
+
+        const snapDist = 0.3; 
+        if (g.position.y <= floorHeight + snapDist && vel.current.y <= 0) {
+          g.position.y = floorHeight;
+          isGrounded = true;
+          vel.current.y = 0;
         }
       }
     }
 
-    prevGrounded.current = isGrounded; isSwimmingRef.current = isSwimming;
-    if (keyState[' '] && isGrounded && !isSwimming) { vel.current.y = CONFIG.JUMP_FORCE; isGrounded = false; }
+    prevGrounded.current = isGrounded;
+    isSwimmingRef.current = isSwimming;
+
+    if (keyState[' '] && isGrounded && !isSwimming) {
+      vel.current.y = CONFIG.JUMP_FORCE;
+      isGrounded = false; 
+    }
 
     const spd2D = Math.sqrt(vel.current.x ** 2 + vel.current.z ** 2);
     movingRef.current = spd2D > 0.5 && isGrounded; 
@@ -625,54 +507,55 @@ function PlayerController() {
     if (movingRef.current) {
       g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), Math.min(1, 15 * delta));
       lastStep.current += (spd2D * delta);
-      if (lastStep.current > (isSwimming ? 1.5 : 1.2)) { audio.sfx(isSwimming ? 'splash' : 'step'); lastStep.current = 0; }
-    } else { lastStep.current = 0; }
+      if (lastStep.current > (isSwimming ? 1.5 : 1.4)) {
+        audio.sfx(isSwimming ? 'splash' : 'step');
+        lastStep.current = 0;
+      }
+    } else {
+      lastStep.current = 0;
+    }
 
     playerPosRef.current.copy(g.position);
 
     if (socket && clock.elapsedTime - lastSend.current > 0.05) {
-      socket.emit('move', { position: g.position, rotation: { y: g.rotation.y }, isMoving: movingRef.current, isSwimming: isSwimming });
+      socket.emit('move', {
+        position: g.position,
+        rotation: { y: g.rotation.y },
+        isMoving: movingRef.current,
+        isSwimming: isSwimming
+      });
       lastSend.current = clock.elapsedTime;
     }
   });
 
-  const Creature = state.playerConfig.creatureType === 'bear' ? BearCreature : state.playerConfig.creatureType === 'bunny' ? BunnyCreature : CatCreature;
-  
   return (
-    // BUG FIX: No hardcoded 'position' tag here, so React stops fighting Physics!
-    <group ref={playerGroupRef}>
-      <Creature colors={state.playerConfig.colors} velRef={vel} isSwimmingRef={isSwimmingRef} />
-      
-      <Html position={[0, 2.3, 0]} center>
-        <div style={{ background:'rgba(255,255,255,0.9)', color:'#333', padding:'2px 8px', borderRadius:10, fontSize:12, fontWeight:'bold', border:`2px solid ${state.playerConfig.colors.head}`, whiteSpace:'nowrap' }}>
-          {state.playerConfig.name} (You)
-        </div>
-      </Html>
-
+    <group ref={playerGroupRef} position={[0, 1, 0]}>
+      <BoybandRig colors={state.playerConfig.colors} velRef={vel} isSwimmingRef={isSwimmingRef} />
       <ContactShadows opacity={0.45} scale={4} blur={2.5} position={[0, 0.02, 0]} />
     </group>
   );
 }
 
 // ─── Network Player Renderer ──────────────────────────────────────────────────
-
 function NetworkPlayer({ data }) {
-  const ref = useRef(); const movingRef = useRef(false); const isSwimmingRef = useRef(false);
+  const ref = useRef();
+  const movingRef = useRef(false);
+  const isSwimmingRef = useRef(false);
 
   useFrame((_, delta) => {
     if (!ref.current) return;
     ref.current.position.lerp(new THREE.Vector3(data.position.x, data.position.y, data.position.z), 10 * delta);
     ref.current.rotation.y = THREE.MathUtils.lerp(ref.current.rotation.y, data.rotation.y, 10 * delta);
-    movingRef.current = data.isMoving; isSwimmingRef.current = data.isSwimming;
+    movingRef.current = data.isMoving;
+    isSwimmingRef.current = data.isSwimming;
   });
 
-  const Creature = data.creatureType === 'bear' ? BearCreature : data.creatureType === 'bunny' ? BunnyCreature : CatCreature;
   return (
     <group ref={ref}>
-      <Creature colors={data.colors} isNPC={true} npcMovingRef={movingRef} isSwimmingRef={isSwimmingRef} />
-      <Html position={[0, 2.3, 0]} center>
-        <div style={{ background:'rgba(0,0,0,0.5)', color:'white', padding:'2px 8px', borderRadius:10, fontSize:12, fontWeight:'bold', border:`2px solid ${data.colors?.head || '#fff'}`, whiteSpace:'nowrap' }}>
-          {data.name}
+      <BoybandRig colors={data.colors} isNPC={true} npcMovingRef={movingRef} isSwimmingRef={isSwimmingRef} />
+      <Html position={[0, 2.8, 0]} center>
+        <div style={{ background:'rgba(0,0,0,0.6)', color:'white', padding:'2px 8px', borderRadius:10, fontSize:12, fontWeight:'bold', border:`2px solid ${data.colors?.jacket || '#fff'}`, whiteSpace:'nowrap' }}>
+          {data.name} ({data.member})
         </div>
       </Html>
     </group>
@@ -681,15 +564,21 @@ function NetworkPlayer({ data }) {
 
 // ─── NPC ─────────────────────────────────────────────────────────────────────
 
-function NPC({ name, color, home, dialogues, creatureType }) {
+function NPC({ name, color, home, dialogues }) {
   const { state } = useContext(GameContext);
-  const ref = useRef(); const modeRef = useRef('idle'); const target = useRef(new THREE.Vector3(home.x, home.y, home.z));
+  const ref       = useRef();
+  const modeRef   = useRef('idle');
+  const target    = useRef(new THREE.Vector3(home.x, home.y, home.z));
   const movingRef = useRef(false);
 
   useFrame(({ clock }, delta) => {
-    if (!ref.current || state.dialogue?.name === name) { movingRef.current = false; return; }
+    if (!ref.current || state.dialogue?.name === name) {
+      movingRef.current = false;
+      return;
+    }
     const t = clock.elapsedTime + home.x;
     
+    // NPCs randomly walk
     if (Math.floor(t) % 10 === 0 && modeRef.current === 'idle') {
       modeRef.current = 'walk';
       target.current.set(home.x + (Math.random()-0.5)*12, ref.current.position.y, home.z + (Math.random()-0.5)*12);
@@ -697,18 +586,22 @@ function NPC({ name, color, home, dialogues, creatureType }) {
     
     if (modeRef.current === 'walk') {
       const dir = target.current.clone().sub(ref.current.position).normalize();
-      ref.current.position.add(dir.multiplyScalar(delta * 1.6));
+      ref.current.position.add(dir.multiplyScalar(delta * 2.0));
       ref.current.lookAt(target.current.x, ref.current.position.y, target.current.z);
       movingRef.current = true;
-      if (ref.current.position.distanceTo(target.current) < 0.5) { modeRef.current = 'idle'; movingRef.current = false; }
-    } else { movingRef.current = false; }
+      if (ref.current.position.distanceTo(target.current) < 0.5) { 
+        modeRef.current = 'idle'; 
+        movingRef.current = false; 
+      }
+    } else {
+      movingRef.current = false;
+    }
   });
 
-  const Creature = creatureType === 'bear' ? BearCreature : creatureType === 'bunny' ? BunnyCreature : CatCreature;
   return (
     <group ref={ref} position={[home.x, home.y, home.z]} userData={{ isNPC: true, name, color, dialogues }}>
-      <Creature color={color} isNPC={true} npcMovingRef={movingRef} />
-      <Html position={[0, 2.3, 0]} center occlude>
+      <BoybandRig colors={{ jacket: color, pants: '#222' }} isNPC={true} npcMovingRef={movingRef} />
+      <Html position={[0, 2.8, 0]} center occlude>
         <div style={{ background:'white', padding:'2px 10px', borderRadius:10, fontSize:12, border:`2px solid ${color}`, fontWeight:'bold', pointerEvents:'none', whiteSpace:'nowrap', color:'#333' }}>
           {name}
         </div>
@@ -720,14 +613,18 @@ function NPC({ name, color, home, dialogues, creatureType }) {
 
 // ─── World Data ───────────────────────────────────────────────────────────────
 
-function seededRand(seed) { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+function seededRand(seed) {
+  let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+}
+
 const BLOCKED = [[-15,-15],[20,5],[0,25],[0,0]];
 const isClear = (x, z, r=8) => BLOCKED.every(([bx,bz]) => Math.hypot(x-bx, z-bz) > r);
 
 const TREE_DATA = (() => {
   const rng = seededRand(42); const out = []; let att = 0;
-  while (out.length < 52 && att++ < 600) {
-    const a = rng()*Math.PI*2, r = 9+rng()*43; const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
+  while (out.length < 65 && att++ < 600) {
+    const a = rng()*Math.PI*2, r = 9+rng()*43;
+    const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
     if (y > 0.25 && isClear(x,z)) out.push({ x, y, z, s: 0.65+rng()*0.75, type: rng()>0.3?'pine':'palm' });
   }
   return out;
@@ -736,82 +633,20 @@ const TREE_DATA = (() => {
 const ROCK_DATA = (() => {
   const rng = seededRand(77); const out = []; let att = 0;
   while (out.length < 28 && att++ < 400) {
-    const a = rng()*Math.PI*2, r = 5+rng()*50; const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
+    const a = rng()*Math.PI*2, r = 5+rng()*50;
+    const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
     if (y > -0.3 && isClear(x,z,4)) out.push({ x, y, z, s: 0.3+rng()*0.9, rx: rng()*Math.PI, ry: rng()*Math.PI });
   }
   return out;
 })();
 
-const FLOWER_DATA = (() => {
-  const rng = seededRand(55); const cols = ['#ff6699','#ffdd44','#ff99cc','#cc88ff','#ff8833','#88ddff']; const out = []; let att = 0;
-  while (out.length < 60 && att++ < 500) {
-    const a = rng()*Math.PI*2, r = 4+rng()*46; const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
-    if (y > 0.3) out.push({ x, y: y+0.22, z, color: cols[Math.floor(rng()*cols.length)], s: 0.5+rng()*0.8 });
-  }
-  return out;
-})();
-
-const FRUIT_DATA = (() => {
-  const rng = seededRand(99); const out = [];
-  while (out.length < 18) {
-    const a = rng()*Math.PI*2, r = 8+rng()*38; const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
-    if (y > 0.3) out.push(new THREE.Vector3(x, y+0.85, z));
-  }
-  return out;
-})();
-
-const HOUSE_CFGS = [
-  { pos: [-15, getTerrainY(-15,-15), -15], color: CONFIG.COLORS.barnaby },
-  { pos: [ 20, getTerrainY( 20,  5),   5], color: CONFIG.COLORS.luna    },
-  { pos: [  0, getTerrainY(  0, 25),  25], color: CONFIG.COLORS.pip     },
+// ROBBIE HIDING SPOTS
+const ROBBIE_SPAWNS = [
+  { x: -38, z: -35 }, { x: 42, z: -15 }, { x: -25, z: 40 }, 
+  { x: 30, z: 35 }, { x: 0, z: -45 }, { x: 45, z: 45 }
 ];
 
-// ─── FruitLayer ───────────────────────────────────────────────────────────────
-
-function FruitLayer() {
-  const { actions, playerPosRef } = useContext(GameContext);
-  const [active, setActive] = useState(() => new Set(FRUIT_DATA.map((_,i)=>i)));
-  useFrame(() => {
-    FRUIT_DATA.forEach((pos, id) => {
-      if (active.has(id) && playerPosRef.current.distanceTo(pos) < 1.6) {
-        setActive(prev => { const n = new Set(prev); n.delete(id); return n; });
-        actions.addItem('fruit'); actions.addBells(50); audio.sfx('munch');
-      }
-    });
-  });
-  return (
-    <>
-      {FRUIT_DATA.map((pos, id) => active.has(id) && (
-        <Float key={id} position={[pos.x, pos.y, pos.z]} speed={4} floatIntensity={0.35}>
-          <mesh castShadow>
-            <sphereGeometry args={[0.26, 12, 12]} />
-            <meshStandardMaterial color="#dd2222" emissive="#cc1111" emissiveIntensity={0.4} roughness={0.4} />
-          </mesh>
-          <mesh position={[0, 0.3, 0]} rotation={[0, 0, 0.5]}>
-            <coneGeometry args={[0.06, 0.18, 5]} />
-            <meshStandardMaterial color="#33aa33" />
-          </mesh>
-          <Sparkles count={5} scale={0.9} size={1.4} color="#ffee44" />
-        </Float>
-      ))}
-    </>
-  );
-}
-
 // ─── StaticWorld ──────────────────────────────────────────────────────────────
-
-function House({ position, color }) {
-  return (
-    <group position={position}>
-      <mesh position={[0, 1.5, 0]} castShadow receiveShadow><boxGeometry args={[5, 3, 5]} /><meshStandardMaterial color="#fffaf0" roughness={0.8} /></mesh>
-      <mesh position={[0, 4.1, 0]} rotation={[0, Math.PI/4, 0]} castShadow><coneGeometry args={[4, 2.8, 4]} /><meshStandardMaterial color={color} roughness={0.7} /></mesh>
-      <mesh position={[0, 0.7, 2.51]}><boxGeometry args={[0.9, 1.4, 0.05]} /><meshStandardMaterial color="#6b3310" /></mesh>
-      {[-1.5, 1.5].map(ox => (<mesh key={ox} position={[ox, 1.8, 2.51]}><boxGeometry args={[0.8, 0.8, 0.05]} /><meshStandardMaterial color="#aaddff" emissive="#aaddff" emissiveIntensity={0.4} /></mesh>))}
-      {[-2.8,-2.1,-1.4,1.4,2.1,2.8].map((ox,i) => (<mesh key={i} position={[ox, 0.35, 2.9]} castShadow><boxGeometry args={[0.12, 0.7, 0.12]} /><meshStandardMaterial color="#c8a870" /></mesh>))}
-      <pointLight position={[0, 2.5, 3.5]} intensity={1.5} color={color} distance={14} decay={2} />
-    </group>
-  );
-}
 
 function StaticWorld() {
   const pines = TREE_DATA.filter(t => t.type === 'pine');
@@ -819,54 +654,22 @@ function StaticWorld() {
 
   return (
     <group>
-      {HOUSE_CFGS.map((h, i) => <House key={i} position={h.pos} color={h.color} />)}
-
-      <Instances limit={55} castShadow>
-        <cylinderGeometry args={[0.18, 0.26, 1.6, 7]} /><meshStandardMaterial color="#5c3a1e" roughness={1} />
+      <Instances limit={65} castShadow>
+        <cylinderGeometry args={[0.18, 0.26, 1.6, 7]} />
+        <meshStandardMaterial color="#5c3a1e" roughness={1} />
         {pines.map((t,i) => <Instance key={i} position={[t.x, t.y+0.8, t.z]} scale={t.s} />)}
       </Instances>
-      <Instances limit={55} castShadow>
-        <coneGeometry args={[1.7, 3.0, 8]} /><meshStandardMaterial color="#256325" roughness={0.9} />
+      <Instances limit={65} castShadow>
+        <coneGeometry args={[1.7, 3.0, 8]} />
+        <meshStandardMaterial color="#256325" roughness={0.9} />
         {pines.map((t,i) => <Instance key={i} position={[t.x, t.y+2.8, t.z]} scale={t.s} />)}
       </Instances>
-      <Instances limit={55} castShadow>
-        <coneGeometry args={[1.1, 2.2, 8]} /><meshStandardMaterial color="#2e7d32" roughness={0.9} />
-        {pines.map((t,i) => <Instance key={i} position={[t.x, t.y+4.4, t.z]} scale={t.s} />)}
-      </Instances>
-
-      <Instances limit={22} castShadow>
-        <cylinderGeometry args={[0.14, 0.22, 4.0, 7]} /><meshStandardMaterial color="#8B6914" roughness={0.95} />
-        {palms.map((t,i) => <Instance key={i} position={[t.x, t.y+2.0, t.z]} scale={[t.s*0.8, t.s, t.s*0.8]} />)}
-      </Instances>
-      {palms.map((t,i) => (
-        <group key={i} position={[t.x, t.y+4.1*t.s, t.z]}>
-          {[0,72,144,216,288].map((deg,j) => (
-            <mesh key={j} castShadow rotation={[0.62, 0, (deg*Math.PI)/180]} position={[Math.sin((deg*Math.PI)/180)*1.1*t.s, 0, Math.cos((deg*Math.PI)/180)*1.1*t.s]}>
-              <coneGeometry args={[0.22*t.s, 2.2*t.s, 5]} /><meshStandardMaterial color="#3d8c3a" roughness={0.85} side={THREE.DoubleSide} />
-            </mesh>
-          ))}
-          <mesh position={[0,-0.3,0]}><sphereGeometry args={[0.22*t.s, 8, 8]} /><meshStandardMaterial color="#7a5230" roughness={0.9} /></mesh>
-        </group>
-      ))}
-
+      
       <Instances limit={32} castShadow receiveShadow>
-        <icosahedronGeometry args={[0.5, 0]} /><meshStandardMaterial color="#7a7060" roughness={0.95} />
+        <icosahedronGeometry args={[0.5, 0]} />
+        <meshStandardMaterial color="#7a7060" roughness={0.95} />
         {ROCK_DATA.map((r,i) => <Instance key={i} position={[r.x, r.y+0.2*r.s, r.z]} scale={[r.s*1.2, r.s*0.7, r.s]} rotation={[r.rx, r.ry, 0]} />)}
       </Instances>
-
-      <Instances limit={65}>
-        <cylinderGeometry args={[0.02, 0.025, 0.28, 5]} /><meshStandardMaterial color="#44aa44" />
-        {FLOWER_DATA.map((f,i) => <Instance key={i} position={[f.x, f.y-0.1, f.z]} scale={f.s} />)}
-      </Instances>
-      {['#ff6699','#ffdd44','#ff99cc','#cc88ff','#ff8833','#88ddff'].map(col => {
-        const batch = FLOWER_DATA.filter(f => f.color === col);
-        return (
-          <Instances key={col} limit={15}>
-            <sphereGeometry args={[0.1, 7, 7]} /><meshStandardMaterial color={col} emissive={col} emissiveIntensity={0.3} />
-            {batch.map((f,i) => <Instance key={i} position={[f.x, f.y+0.1, f.z]} scale={f.s} />)}
-          </Instances>
-        );
-      })}
     </group>
   );
 }
@@ -874,23 +677,24 @@ function StaticWorld() {
 // ─── Atmosphere & Lighting ────────────────────────────────────────────────────
 
 function Atmosphere() {
-  const lightColor = useRef(new THREE.Color());
-  const ambientColor = useRef(new THREE.Color());
+  const { state, actions } = useContext(GameContext);
+  useEffect(() => {
+    const timer = setInterval(() => actions.tickTime(), 1000);
+    return () => clearInterval(timer);
+  }, [actions]);
 
-  useFrame(() => {
-    lightColor.current.lerpColors(new THREE.Color('#fff8f0'), new THREE.Color('#d0e0ff'), globalSeason.factor);
-    ambientColor.current.lerpColors(new THREE.Color('#ffffff'), new THREE.Color('#aaccff'), globalSeason.factor);
-  });
-
+  const sunAngle = ((state.gameTime - 6) / 12) * Math.PI - Math.PI;
+  const sunPos   = [Math.cos(sunAngle)*80, Math.max(Math.sin(-sunAngle)*80, -10), 20];
+  const isNight  = state.gameTime < 6 || state.gameTime > 18;
+  const dusk     = state.gameTime > 16 && state.gameTime < 20;
+  
   return (
     <>
-      <Sky sunPosition={[80, 20, 20]} turbidity={0.4} rayleigh={1.5} mieCoefficient={0.005} />
-      <directionalLight position={[80, 20, 20]} intensity={1.6} castShadow shadow-mapSize={[2048,2048]}>
-        <primitive object={lightColor.current} attach="color" />
-      </directionalLight>
-      <ambientLight intensity={0.4}>
-        <primitive object={ambientColor.current} attach="color" />
-      </ambientLight>
+      <Sky sunPosition={sunPos} turbidity={dusk?6:0.4} rayleigh={dusk?4:1.5} mieCoefficient={0.005} />
+      <directionalLight position={sunPos} intensity={isNight?0.15:dusk?0.8:1.6} castShadow
+        shadow-mapSize={[2048,2048]} color={dusk?'#ffaa55':'#fff8f0'} />
+      <ambientLight intensity={isNight?0.08:0.35} color={isNight?'#334':'#fff'} />
+      {isNight && <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade />}
     </>
   );
 }
@@ -901,11 +705,9 @@ function GameUI() {
   const { state, actions } = useContext(GameContext);
   const [chatText, setChatText] = useState("");
 
-  const updateColor = (part, val) => actions.setPlayerConfig({ colors: { ...state.playerConfig.colors, [part]: val } });
-
   const connectToGame = () => {
-    if (!state.playerConfig.name) return alert("Enter a name!");
-    socket = io(SERVER_URL);
+    if (!state.playerConfig.name) return alert("Enter your popstar name!");
+    socket = io(SOCKET_URL);
     socket.emit('join', state.playerConfig);
     socket.on('currentPlayers', (p) => actions.setOnlinePlayers(p));
     socket.on('stateUpdate', (p) => actions.setOnlinePlayers(p));
@@ -920,40 +722,34 @@ function GameUI() {
 
   if (state.ui === 'start') return (
     <div style={ST.overlay}>
-       <div style={{...ST.modal, maxWidth: 450}}>
-          <h1 style={{ fontSize: 48, margin: '4px 0', textShadow: '2px 2px #ff69b4', color: '#fff' }}>🏝️ CANDY ISLAND</h1>
-          <p style={{ fontWeight: 'bold', color: '#333' }}>MULTIPLAYER EDITION</p>
+       <div style={{...ST.modal, maxWidth: 500}}>
+          <h1 style={{ fontSize: 42, margin: '4px 0', textShadow: '2px 2px #ff69b4', color: '#fff', textTransform: 'uppercase' }}>🎤 Take That</h1>
+          <p style={{ fontWeight: 'bold', color: '#333', fontSize: 18 }}>THE SEARCH FOR ROBBIE</p>
           
-          <input style={ST.input} placeholder="Type your name..." maxLength={10} onChange={e => actions.setPlayerConfig({ name: e.target.value })} />
+          <input style={ST.input} placeholder="Your Player Name..." maxLength={10} onChange={e => actions.setPlayerConfig({ name: e.target.value })} />
           
+          <p style={{ margin: '10px 0', fontWeight: 'bold', color: '#555' }}>Choose your Member:</p>
           <div style={ST.row}>
-            {['cat', 'bear', 'bunny'].map(t => (
-              <button key={t} onClick={() => actions.setPlayerConfig({ creatureType: t })} 
-                style={{...ST.btn, border: state.playerConfig.creatureType === t ? '4px solid #ff8fab' : '4px solid transparent'}}>
-                {t === 'cat' ? '🐱' : t === 'bear' ? '🐻' : '🐰'}
+            {['Gary', 'Mark', 'Howard', 'Jason'].map(t => (
+              <button key={t} onClick={() => actions.setPlayerConfig({ member: t })} 
+                style={{...ST.btn, fontSize: 16, padding: '10px 20px', border: state.playerConfig.member === t ? '4px solid #ff8fab' : '4px solid transparent'}}>
+                {t}
               </button>
             ))}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20, textAlign: 'left' }}>
-            <div style={ST.colorRow}><b>Head:</b> <input type="color" style={ST.colorPicker} value={state.playerConfig.colors.head} onChange={e => updateColor('head', e.target.value)} /></div>
-            <div style={ST.colorRow}><b>Body:</b> <input type="color" style={ST.colorPicker} value={state.playerConfig.colors.body} onChange={e => updateColor('body', e.target.value)} /></div>
-            <div style={ST.colorRow}><b>Arms:</b> <input type="color" style={ST.colorPicker} value={state.playerConfig.colors.arms} onChange={e => updateColor('arms', e.target.value)} /></div>
-            <div style={ST.colorRow}><b>Legs:</b> <input type="color" style={ST.colorPicker} value={state.playerConfig.colors.legs} onChange={e => updateColor('legs', e.target.value)} /></div>
+            <div style={ST.colorRow}><b>Jacket:</b> <input type="color" style={ST.colorPicker} value={state.playerConfig.colors.jacket} onChange={e => actions.setPlayerConfig({ colors: {...state.playerConfig.colors, jacket: e.target.value}})} /></div>
+            <div style={ST.colorRow}><b>Pants:</b> <input type="color" style={ST.colorPicker} value={state.playerConfig.colors.pants} onChange={e => actions.setPlayerConfig({ colors: {...state.playerConfig.colors, pants: e.target.value}})} /></div>
           </div>
-
-          <button style={ST.startBtn} onClick={connectToGame}>JUMP IN!</button>
+          
+          <button style={ST.startBtn} onClick={connectToGame}>START TOUR!</button>
        </div>
     </div>
   );
 
   const d = state.dialogue;
   const currentNode = d ? d.nodes[d.step] : null;
-
-  const handleOptionClick = (nextStep) => {
-    if (nextStep === undefined || nextStep === null || nextStep === 'end') { actions.setDialogue(null); } 
-    else { actions.setDialogue({ ...d, step: nextStep }); audio.sfx('talk'); }
-  };
 
   return (
     <>
@@ -964,10 +760,10 @@ function GameUI() {
           <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
             {currentNode.options ? (
               currentNode.options.map((opt, i) => (
-                <button key={i} style={ST.dialogueBtn} onClick={() => handleOptionClick(opt.next)}>{opt.label}</button>
+                <button key={i} style={ST.dialogueBtn} onClick={() => { actions.setDialogue({ ...d, step: opt.next }); audio.sfx('talk'); }}>{opt.label}</button>
               ))
             ) : (
-              <button style={{...ST.dialogueBtn, background: d.color, color: '#fff'}} onClick={() => handleOptionClick(currentNode.next || 'end')}>
+              <button style={{...ST.dialogueBtn, background: d.color, color: '#fff'}} onClick={() => { actions.setDialogue(null); }}>
                 {currentNode.next ? 'Next ▶' : 'Bye 👋'}
               </button>
             )}
@@ -977,14 +773,12 @@ function GameUI() {
 
       <div style={ST.chatArea}>
         <div style={ST.chatLog}>
-          {state.chatMessages.slice().reverse().map((m, i) => (
-            <div key={i} style={{ marginBottom: 4 }}><b style={{ color: m.color }}>{m.name}:</b> {m.text}</div>
-          ))}
+          {state.chatMessages.map((m, i) => <div key={i}><b style={{ color: m.color }}>{m.name}:</b> {m.text}</div>)}
         </div>
-        <input style={ST.chatInput} placeholder="Type here and hit Enter..." value={chatText} onChange={e => setChatText(e.target.value)}
+        <input style={ST.chatInput} placeholder="Chat with other bandmates..." value={chatText} onChange={e => setChatText(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && chatText.trim()) {
-              const msg = { name: state.playerConfig.name, color: state.playerConfig.colors.head, text: chatText };
+              const msg = { name: state.playerConfig.name, color: state.playerConfig.colors.jacket, text: chatText };
               actions.addChatMessage(msg);
               if (socket) socket.emit('chat', chatText);
               setChatText("");
@@ -992,12 +786,9 @@ function GameUI() {
           }} />
       </div>
 
-      <div style={ST.backpack}>
-        <h3 style={{ margin: '0 0 10px 0', fontSize: 16, color: '#6b3310' }}>🎒 Backpack</h3>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <div style={ST.bpItem}><span style={{ fontSize: 20 }}>🍎</span><span style={{ fontWeight: 'bold', color: '#333' }}>x {state.inventory.fruit}</span></div>
-          <div style={ST.bpItem}><span style={{ fontSize: 20 }}>💰</span><span style={{ fontWeight: 'bold', color: '#e5a50a' }}>{state.bells}</span></div>
-        </div>
+      <div style={ST.goalBox}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>🎯 Goal:</h3>
+        <p style={{ margin: '5px 0 0 0', fontWeight: 'bold' }}>Find Robbie Williams!</p>
       </div>
     </>
   );
@@ -1007,6 +798,12 @@ function GameUI() {
 
 export default function CandyIslandUltimate() {
   const store = useIslandStore();
+  
+  // Randomly pick Robbie's location for this session
+  const robbieLoc = useMemo(() => {
+    const loc = ROBBIE_SPAWNS[Math.floor(Math.random() * ROBBIE_SPAWNS.length)];
+    return { x: loc.x, y: getTerrainY(loc.x, loc.z), z: loc.z };
+  }, []);
 
   useEffect(() => {
     const onDown = (e) => {
@@ -1018,8 +815,7 @@ export default function CandyIslandUltimate() {
       if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
       keyState[e.key.toLowerCase()] = false;
     };
-    window.addEventListener('keydown', onDown, { passive: false });
-    window.addEventListener('keyup', onUp);
+    window.addEventListener('keydown', onDown, { passive: false }); window.addEventListener('keyup', onUp);
     return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
   }, []);
 
@@ -1028,26 +824,40 @@ export default function CandyIslandUltimate() {
       <GameContext.Provider value={store}>
         <Canvas shadows dpr={[1,2]} camera={{ fov:46, position:[0,12,18] }}
           gl={{ antialias:true, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.1 }}>
-          <Suspense fallback={<Html center><div style={{fontFamily:'sans-serif', color:'white', background:'rgba(0,0,0,0.5)', padding:'10px 20px', borderRadius:20}}>Loading Island...</div></Html>}>
+          <Suspense fallback={<Html center><div style={{fontFamily:'sans-serif', color:'white', background:'rgba(0,0,0,0.5)', padding:'10px 20px', borderRadius:20}}>Loading Tour...</div></Html>}>
             <Atmosphere />
             <Terrain />
             <Water />
             <StaticWorld />
-            <FruitLayer />
-            <DustEffect />
-            <WeatherController />
+            
             <PlayerController />
             {Object.values(store.state.onlinePlayers).map(p => socket && p.id !== socket.id && <NetworkPlayer key={p.id} data={p} />)}
             
-            <NPC name="Barnaby" color={CONFIG.COLORS.barnaby} creatureType="bear" home={{ x:-15, y:getTerrainY(-15,-10), z:-10 }} dialogues={[{ text: "Hey! Welcome to Candy Island! What are you up to today?", options: [{ label: "Picking fruit!", next: 1 }, { label: "Just exploring.", next: 2 }]}, { text: "Nice! I saw some apples by the big rocks earlier.", next: 'end' }, { text: "It's a beautiful day for it. Take your time!", next: 'end' }]} />
-            <NPC name="Luna" color={CONFIG.COLORS.luna} creatureType="cat" home={{ x:20, y:getTerrainY(20,10), z:10 }} dialogues={[{ text: "Meow~ Do you like the water here?", options: [{ label: "It's so calming.", next: 1 }, { label: "I prefer the forest.", next: 2 }]}, { text: "Right? I could sit by the shore all day.", next: 'end' }, { text: "The trees are nice too, lots of shade for naps.", next: 'end' }]} />
-            <NPC name="Pip" color={CONFIG.COLORS.pip} creatureType="bunny" home={{ x:0, y:getTerrainY(0,22), z:22 }} dialogues={[{ text: 'I could hop around here all day!', next: 1 }, { text: 'The flowers smell amazing this time of year.', next: 'end' }]} />
-            <NPC name="Coco" color={CONFIG.COLORS.coco} creatureType="bear" home={{ x:-5, y:getTerrainY(-5,-22), z:-22 }} dialogues={[{ text: 'Every day here feels like a gentle hug.', next: 'end' }]} />
-            <NPC name="Rosie" color={CONFIG.COLORS.rosie} creatureType="bunny" home={{ x:14, y:getTerrainY(14,-8), z:-8 }} dialogues={[{ text: "Pink flowers are obviously the best. Obviously.", next: 'end' }]} />
-            <NPC name="Maple" color={CONFIG.COLORS.maple} creatureType="cat" home={{ x:-24, y:getTerrainY(-24,6), z:6 }} dialogues={[{ text: "I think I found a heart-shaped leaf today!", next: 'end' }]} />
-            <NPC name="Bubbles" color={CONFIG.COLORS.bubbles} creatureType="bear" home={{ x:10, y:getTerrainY(10,-18), z:-18 }} dialogues={[{ text: 'Come back at night — the stars are incredible.', next: 'end' }]} />
-
             <CameraRig />
+
+            {/* ROBBIE WILLIAMS (Hidden) */}
+            <NPC name="Robbie" color={CONFIG.COLORS.robbie}
+              home={robbieLoc}
+              dialogues={[
+                { text: "LET ME ENTERTAIN YOU! You found me!", options: [
+                    { label: "We need you for the reunion!", next: 1 }
+                ]},
+                { text: "Alright, alright. I'll get my coat.", next: 'end' }
+              ]} />
+
+            {/* SUPERFANS */}
+            <NPC name="Superfan Sarah" color={CONFIG.COLORS.fan1}
+              home={{ x:-15, y:getTerrainY(-15,-10), z:-10 }}
+              dialogues={[{ text: "OMG! Have you found Robbie yet? I heard he was hiding somewhere near the edges of the island!", next: 'end' }]} />
+
+            <NPC name="Superfan Dave" color={CONFIG.COLORS.fan2}
+              home={{ x:20, y:getTerrainY(20,10), z:10 }}
+              dialogues={[{ text: "I've checked everywhere around here. Maybe he's swimming?", next: 'end' }]} />
+
+            <NPC name="Superfan Emma" color={CONFIG.COLORS.fan3}
+              home={{ x:0, y:getTerrainY(0,22), z:22 }}
+              dialogues={[{ text: 'Gary? Is that you? I am your biggest fan!', next: 'end' }]} />
+
             <EffectComposer multisampling={4}>
               <Bloom intensity={0.4} luminanceThreshold={0.88} luminanceSmoothing={0.4} />
               <Vignette darkness={0.4} offset={0.4} />
@@ -1063,24 +873,23 @@ export default function CandyIslandUltimate() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const FF = '"Comic Sans MS", cursive';
+const FF = '"Arial", sans-serif';
 const ST = {
-  overlay:     { position:'absolute', inset:0, zIndex:100, cursor:'pointer', background:'linear-gradient(150deg,#87ceeb 0%,#b8e896 60%,#f4d98a 100%)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'white', fontFamily:FF, textAlign:'center' },
-  modal:       { background: 'white', padding: 40, borderRadius: 30, textAlign: 'center', boxShadow: '0 20px 40px rgba(0,0,0,0.1)' },
+  overlay:     { position:'absolute', inset:0, zIndex:100, cursor:'pointer', background:'linear-gradient(150deg,#0a0a0a 0%,#333333 60%,#0055ff 100%)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'white', fontFamily:FF, textAlign:'center' },
+  modal:       { background: 'white', padding: 40, borderRadius: 30, textAlign: 'center', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' },
   input:       { width: '100%', padding: '15px', marginBottom: 20, borderRadius: 15, border: '2px solid #eee', fontSize: 18, boxSizing: 'border-box', outline: 'none', fontFamily: FF, color: '#333' },
   row:         { display: 'flex', justifyContent: 'space-around', marginBottom: 20 },
-  btn:         { fontSize: 40, background: '#fcfcfc', border: 'none', cursor: 'pointer', padding: 10, borderRadius: 20, transition: '0.2s' },
+  btn:         { background: '#fcfcfc', border: 'none', cursor: 'pointer', borderRadius: 10, transition: '0.2s', fontWeight: 'bold' },
   colorRow:    { display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8f8f8', padding: '5px 15px', borderRadius: 15, color: '#555' },
   colorPicker: { width: 45, height: 45, border: 'none', borderRadius: 10, cursor: 'pointer', background: 'transparent' },
-  startBtn:    { width: '100%', background: '#ff8fab', color: 'white', border: 'none', padding: '18px', borderRadius: 20, fontSize: 20, fontWeight: 'bold', cursor: 'pointer', fontFamily: FF, marginTop: 10 },
+  startBtn:    { width: '100%', background: '#ff2222', color: 'white', border: 'none', padding: '18px', borderRadius: 20, fontSize: 20, fontWeight: 'bold', cursor: 'pointer', fontFamily: FF, marginTop: 10 },
   
-  backpack:    { position:'absolute', top:25, right:25, background:'rgba(255,255,255,0.85)', padding:15, borderRadius:15, border:'4px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)', fontFamily:FF, zIndex:50, pointerEvents: 'auto' },
-  bpItem:      { background:'#fff', padding:'5px 10px', borderRadius:10, display:'flex', alignItems:'center', gap:8 },
+  goalBox:     { position:'absolute', top:25, right:25, background:'rgba(255,255,255,0.9)', padding:15, borderRadius:15, border:'4px solid #ff2222', boxShadow:'0 4px 10px rgba(0,0,0,0.3)', fontFamily:FF, zIndex:50, color: '#333' },
   
-  dialogueBox: { position:'absolute', bottom:40, left:'50%', transform:'translateX(-50%)', width:'60%', minWidth:320, background:'rgba(255,255,255,0.95)', padding:24, borderRadius:20, border:'5px solid #fff', boxShadow:'0 10px 30px rgba(0,0,0,0.15)', fontFamily:FF, textAlign:'center', zIndex:60, pointerEvents: 'auto' },
+  dialogueBox: { position:'absolute', bottom:40, left:'50%', transform:'translateX(-50%)', width:'60%', minWidth:320, background:'rgba(255,255,255,0.95)', padding:24, borderRadius:20, border:'5px solid #ff2222', boxShadow:'0 10px 30px rgba(0,0,0,0.3)', fontFamily:FF, textAlign:'center', zIndex:60, pointerEvents: 'auto' },
   dialogueBtn: { background:'#e0e0e0', border:'none', padding:'12px 24px', borderRadius:12, color:'#333', fontWeight:'bold', cursor:'pointer', fontSize:16, fontFamily:FF, boxShadow:'0 4px 0 rgba(0,0,0,0.1)', transition:'transform 0.1s' },
   
   chatArea:    { position: 'absolute', bottom: 20, left: 20, zIndex: 5, width: 300, fontFamily: FF, pointerEvents: 'auto' },
-  chatLog:     { background: 'rgba(0,0,0,0.4)', color: '#fff', padding: 15, borderRadius: 15, height: 160, overflowY: 'auto', marginBottom: 10, fontSize: 14, backdropFilter: 'blur(10px)', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', display: 'flex', flexDirection: 'column-reverse' },
+  chatLog:     { background: 'rgba(0,0,0,0.6)', color: '#fff', padding: 15, borderRadius: 15, height: 160, overflowY: 'auto', marginBottom: 10, fontSize: 14, backdropFilter: 'blur(10px)', textShadow: '1px 1px 2px rgba(0,0,0,1)' },
   chatInput:   { width: '100%', background: 'rgba(255,255,255,0.95)', border: 'none', padding: 12, borderRadius: 10, boxSizing: 'border-box', outline: 'none', fontFamily: FF, color: '#333', fontSize: 16 }
 };
