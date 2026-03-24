@@ -1,8 +1,9 @@
 /**
- * 🏝️ CANDY ISLAND - FULL MULTIPLAYER MERGE (REPAIRED)
- * - Restored Leg Animations
- * - Fixed Camera Sweep Speed
- * - Fixed Chat Input Visibility & Key Capture
+ * 🏝️ CANDY ISLAND - FULL MULTIPLAYER MERGE
+ * - Extended & Fixed Character Legs
+ * - Fixed Chat Input (WASD bypass)
+ * - Procedural "Crunch" and "Splash" footstep audio
+ * - Real-Time Multiplayer Sync
  */
 
 import React, {
@@ -23,6 +24,7 @@ const SOCKET_URL = "http://localhost:3001"; // <--- REPLACE THIS WITH YOUR CODES
 let socket;
 
 // ─── Pure Math Terrain Generation ────────────────────────────────────────────
+
 function getTerrainY(x, z) {
   const d = Math.sqrt(x * x + z * z);
   if (d > 55) return -2.5;
@@ -32,11 +34,11 @@ function getTerrainY(x, z) {
   return h * Math.max(0, 1 - Math.pow(d / 60, 4));
 }
 
-// Global states outside React to prevent re-renders
 const camState = { yaw: Math.PI, pitch: 0.4, yawVel: 0, pitchVel: 0 };
 const keyState = { prevE: false };
 
 // ─── Config ───────────────────────────────────────────────────────────────────
+
 const CONFIG = {
   SPEED: 5.5,             
   ACCEL: 12,               
@@ -44,12 +46,19 @@ const CONFIG = {
   GRAVITY: 35,             
   JUMP_FORCE: 14,          
   COLORS: {
-    player:  '#f4a0b0', barnaby: '#6aaddb', luna: '#c07ed4', pip: '#f5c842',
-    coco: '#c4813a', rosie: '#ff8fab', maple: '#ff7a1a', bubbles: '#6ecfb5',
+    player:  '#f4a0b0',
+    barnaby: '#6aaddb',
+    luna:    '#c07ed4',
+    pip:     '#f5c842',
+    coco:    '#c4813a',
+    rosie:   '#ff8fab',
+    maple:   '#ff7a1a',
+    bubbles: '#6ecfb5',
   }
 };
 
 // ─── Store ────────────────────────────────────────────────────────────────────
+
 const GameContext = createContext();
 
 const useIslandStore = () => {
@@ -82,6 +91,7 @@ const useIslandStore = () => {
 };
 
 // ─── Audio ────────────────────────────────────────────────────────────────────
+
 class GameAudio {
   constructor() { this.ctx = null; this.master = null; this.bgm = false; }
 
@@ -96,26 +106,51 @@ class GameAudio {
   playBGM() {
     if (this.bgm || !this.ctx) return;
     this.bgm = true;
+
     const convLen = this.ctx.sampleRate * 1.2;
     const convBuf = this.ctx.createBuffer(2, convLen, this.ctx.sampleRate);
     for (let c = 0; c < 2; c++) {
       const d = convBuf.getChannelData(c);
       for (let i = 0; i < convLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / convLen, 2.5);
     }
-    const reverb = this.ctx.createConvolver(); reverb.buffer = convBuf;
-    const reverbGain = this.ctx.createGain(); reverbGain.gain.value = 0.22;
-    reverb.connect(reverbGain); reverbGain.connect(this.master);
+    const reverb = this.ctx.createConvolver();
+    reverb.buffer = convBuf;
+    const reverbGain = this.ctx.createGain();
+    reverbGain.gain.value = 0.22;
+    reverb.connect(reverbGain);
+    reverbGain.connect(this.master);
 
-    const BPM = 96; const BEAT = 60 / BPM;
-    const phrase = [[523.25, 0, 0.9], [587.33, 1, 0.9], [659.25, 2, 0.9], [523.25, 3, 0.9], [698.46, 4, 0.9], [659.25, 5, 0.9], [587.33, 6, 1.8], [392.00, 8, 0.9], [440.00, 9, 0.9], [523.25, 10, 0.9], [587.33, 11, 0.9], [523.25, 12, 0.9], [493.88, 13, 0.9], [440.00, 14, 1.8], [783.99, 16, 0.9], [698.46, 17, 0.9], [659.25, 18, 0.9], [587.33, 19, 0.9], [659.25, 20, 0.9], [587.33, 21, 0.9], [523.25, 22, 1.8], [587.33, 24, 0.9], [523.25, 25, 0.9], [493.88, 26, 0.9], [440.00, 27, 0.9], [392.00, 28, 0.9], [349.23, 29, 0.9], [261.63, 30, 1.8]];
-    const bass = [[130.81, 0, 1.6], [174.61, 4, 1.6], [146.83, 8, 1.6], [130.81, 12, 1.6], [130.81, 16, 1.6], [146.83, 20, 1.6], [174.61, 24, 1.6], [130.81, 28, 1.6]];
+    const BPM   = 96;
+    const BEAT  = 60 / BPM;
+    const phrase = [
+      [523.25, 0, 0.9], [587.33, 1, 0.9], [659.25, 2, 0.9], [523.25, 3, 0.9],
+      [698.46, 4, 0.9], [659.25, 5, 0.9], [587.33, 6, 1.8],
+      [392.00, 8, 0.9], [440.00, 9, 0.9], [523.25, 10, 0.9], [587.33, 11, 0.9],
+      [523.25, 12, 0.9], [493.88, 13, 0.9], [440.00, 14, 1.8],
+      [783.99, 16, 0.9], [698.46, 17, 0.9], [659.25, 18, 0.9], [587.33, 19, 0.9],
+      [659.25, 20, 0.9], [587.33, 21, 0.9], [523.25, 22, 1.8],
+      [587.33, 24, 0.9], [523.25, 25, 0.9], [493.88, 26, 0.9], [440.00, 27, 0.9],
+      [392.00, 28, 0.9], [349.23, 29, 0.9], [261.63, 30, 1.8],
+    ];
+
+    const bass = [
+      [130.81, 0, 1.6], [174.61, 4, 1.6], [146.83, 8, 1.6], [130.81, 12, 1.6],
+      [130.81, 16, 1.6], [146.83, 20, 1.6], [174.61, 24, 1.6], [130.81, 28, 1.6],
+    ];
 
     const playNote = (freq, beatOffset, durBeats, startTime, vol = 0.06, type = 'sine') => {
-      const osc = this.ctx.createOscillator(); const env = this.ctx.createGain();
-      const t0 = startTime + beatOffset * BEAT; const dur = durBeats * BEAT;
-      osc.type = type; osc.frequency.value = freq;
-      env.gain.setValueAtTime(0.001, t0); env.gain.linearRampToValueAtTime(vol, t0 + 0.018);
-      env.gain.exponentialRampToValueAtTime(vol * 0.4, t0 + dur * 0.35); env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 0.95);
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      const t0 = startTime + beatOffset * BEAT;
+      const dur = durBeats * BEAT;
+
+      osc.type = type;
+      osc.frequency.value = freq;
+      env.gain.setValueAtTime(0.001, t0);
+      env.gain.linearRampToValueAtTime(vol, t0 + 0.018);
+      env.gain.exponentialRampToValueAtTime(vol * 0.4, t0 + dur * 0.35);
+      env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 0.95);
+
       osc.connect(env); env.connect(this.master); env.connect(reverb);
       osc.start(t0); osc.stop(t0 + dur + 0.05);
     };
@@ -133,6 +168,31 @@ class GameAudio {
 
   sfx(type) {
     if (!this.ctx) return;
+    
+    // NEW: Grass Crunch Footstep
+    if (type === 'step') {
+      const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.05, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0; i<d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 2);
+      const src = this.ctx.createBufferSource(); src.buffer = buf;
+      const filter = this.ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 1000;
+      const gain = this.ctx.createGain(); gain.gain.value = 0.5;
+      src.connect(filter); filter.connect(gain); gain.connect(this.master);
+      src.start();
+    }
+    
+    // NEW: Water Splash Footstep
+    if (type === 'splash') {
+      const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.15, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0; i<d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 3);
+      const src = this.ctx.createBufferSource(); src.buffer = buf;
+      const filter = this.ctx.createBiquadFilter(); filter.type = 'bandpass'; filter.frequency.value = 600; filter.Q.value = 1.0;
+      const gain = this.ctx.createGain(); gain.gain.value = 0.4;
+      src.connect(filter); filter.connect(gain); gain.connect(this.master);
+      src.start();
+    }
+
     if (type === 'munch') {
       [0, 0.07, 0.15].forEach((delay, i) => {
         const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.08, this.ctx.sampleRate);
@@ -154,6 +214,7 @@ class GameAudio {
       osc.connect(og); og.connect(this.master);
       osc.start(this.ctx.currentTime + 0.22); osc.stop(this.ctx.currentTime + 0.6);
     }
+    
     if (type === 'talk') {
       const osc = this.ctx.createOscillator(); const g = this.ctx.createGain();
       osc.type = 'square'; osc.frequency.value = 500 + Math.random() * 300;
@@ -167,7 +228,7 @@ class GameAudio {
 const audio = new GameAudio();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  CREATURE MESHES (LEGS RESTORED)
+//  CREATURE MESHES (FIXED LEG PROPORTIONS)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const matBlack = new THREE.MeshBasicMaterial({ color: '#111' });
@@ -183,7 +244,6 @@ function CatCreature({ color, walkCycle = 0, isMoving = false, isSwimming = fals
   const innerCol = color === CONFIG.COLORS.player ? '#ffccd8' : '#e8c0f0';
   const innerMat = useMemo(() => stdMat(innerCol), [innerCol]);
 
-  // Swim leg tuck vs walk
   const fL = isSwimming ? -1.0 : (isMoving ? Math.sin(walkCycle) * 0.42 : 0);
   const fR = isSwimming ? -1.0 : (isMoving ? Math.sin(walkCycle + Math.PI) * 0.42 : 0);
   const bL = isSwimming ? 1.0 : (isMoving ? Math.sin(walkCycle + Math.PI) * 0.35 : 0);
@@ -210,22 +270,22 @@ function CatCreature({ color, walkCycle = 0, isMoving = false, isSwimming = fals
       <mesh castShadow position={[-0.26, 0.78, -0.46]} rotation={[0.55, tailWag, 0.32]} material={bodyMat}><cylinderGeometry args={[0.07, 0.11, 0.7, 8]} /></mesh>
       <mesh castShadow position={[-0.16 + tailWag*0.3, 1.08, -0.66]} material={innerMat}><sphereGeometry args={[0.1, 9, 9]} /></mesh>
       
-      {/* RESTORED LEGS */}
-      <group position={[-0.2, 0.42, 0.18]} rotation={[fL, 0, 0]}>
-        <mesh castShadow position={[0, -0.21, 0]} material={bodyMat}><cylinderGeometry args={[0.1, 0.08, 0.42, 8]} /></mesh>
-        <mesh castShadow position={[0, -0.44, 0.04]} material={bodyMat}><sphereGeometry args={[0.1, 8, 8]} /></mesh>
+      {/* LONGER LEGS */}
+      <group position={[-0.2, 0.25, 0.18]} rotation={[fL, 0, 0]}>
+        <mesh castShadow position={[0, -0.25, 0]} material={bodyMat}><cylinderGeometry args={[0.12, 0.1, 0.5, 8]} /></mesh>
+        <mesh castShadow position={[0, -0.5, 0.04]} material={bodyMat}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
       </group>
-      <group position={[0.2, 0.42, 0.18]} rotation={[fR, 0, 0]}>
-        <mesh castShadow position={[0, -0.21, 0]} material={bodyMat}><cylinderGeometry args={[0.1, 0.08, 0.42, 8]} /></mesh>
-        <mesh castShadow position={[0, -0.44, 0.04]} material={bodyMat}><sphereGeometry args={[0.1, 8, 8]} /></mesh>
+      <group position={[0.2, 0.25, 0.18]} rotation={[fR, 0, 0]}>
+        <mesh castShadow position={[0, -0.25, 0]} material={bodyMat}><cylinderGeometry args={[0.12, 0.1, 0.5, 8]} /></mesh>
+        <mesh castShadow position={[0, -0.5, 0.04]} material={bodyMat}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
       </group>
-      <group position={[-0.2, 0.38, -0.18]} rotation={[bL, 0, 0]}>
-        <mesh castShadow position={[0, -0.21, 0]} material={bodyMat}><cylinderGeometry args={[0.1, 0.09, 0.42, 8]} /></mesh>
-        <mesh castShadow position={[0, -0.44, 0.04]} material={bodyMat}><sphereGeometry args={[0.1, 8, 8]} /></mesh>
+      <group position={[-0.2, 0.2, -0.18]} rotation={[bL, 0, 0]}>
+        <mesh castShadow position={[0, -0.25, 0]} material={bodyMat}><cylinderGeometry args={[0.12, 0.1, 0.5, 8]} /></mesh>
+        <mesh castShadow position={[0, -0.5, 0.04]} material={bodyMat}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
       </group>
-      <group position={[0.2, 0.38, -0.18]} rotation={[bR, 0, 0]}>
-        <mesh castShadow position={[0, -0.21, 0]} material={bodyMat}><cylinderGeometry args={[0.1, 0.09, 0.42, 8]} /></mesh>
-        <mesh castShadow position={[0, -0.44, 0.04]} material={bodyMat}><sphereGeometry args={[0.1, 8, 8]} /></mesh>
+      <group position={[0.2, 0.2, -0.18]} rotation={[bR, 0, 0]}>
+        <mesh castShadow position={[0, -0.25, 0]} material={bodyMat}><cylinderGeometry args={[0.12, 0.1, 0.5, 8]} /></mesh>
+        <mesh castShadow position={[0, -0.5, 0.04]} material={bodyMat}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
       </group>
     </group>
   );
@@ -260,11 +320,11 @@ function BearCreature({ color, walkCycle = 0, isMoving = false, isSwimming = fal
       <mesh position={[ 0.20, 1.42 + bodyBob, 0.48]} material={matWhite}><sphereGeometry args={[0.026, 6, 6]} /></mesh>
       <mesh position={[0, 1.26 + bodyBob, 0.51]} material={matBlack}><sphereGeometry args={[0.044, 7, 7]} /></mesh>
       
-      {/* RESTORED ARMS/LEGS */}
-      <group position={[-0.68, 0.96 + bodyBob, 0.05]} rotation={[aL, 0, 0.3]}><mesh castShadow material={bodyMat} position={[0, -0.2, 0]}><capsuleGeometry args={[0.1, 0.35, 6, 8]} /></mesh></group>
-      <group position={[0.68, 0.96 + bodyBob, 0.05]} rotation={[aR, 0, -0.3]}><mesh castShadow material={bodyMat} position={[0, -0.2, 0]}><capsuleGeometry args={[0.1, 0.35, 6, 8]} /></mesh></group>
-      <group position={[-0.22, 0.32, 0.12]} rotation={[fL, 0, 0]}><mesh castShadow material={bodyMat} position={[0, -0.25, 0]}><cylinderGeometry args={[0.13, 0.12, 0.5, 9]} /></mesh><mesh castShadow material={bodyMat} position={[0, -0.52, 0.06]}><sphereGeometry args={[0.13, 8, 8]} /></mesh></group>
-      <group position={[0.22, 0.32, 0.12]} rotation={[fR, 0, 0]}><mesh castShadow material={bodyMat} position={[0, -0.25, 0]}><cylinderGeometry args={[0.13, 0.12, 0.5, 9]} /></mesh><mesh castShadow material={bodyMat} position={[0, -0.52, 0.06]}><sphereGeometry args={[0.13, 8, 8]} /></mesh></group>
+      {/* LONGER ARMS/LEGS */}
+      <group position={[-0.68, 0.96 + bodyBob, 0.05]} rotation={[aL, 0, 0.3]}><mesh castShadow material={bodyMat} position={[0, -0.2, 0]}><capsuleGeometry args={[0.12, 0.35, 6, 8]} /></mesh></group>
+      <group position={[0.68, 0.96 + bodyBob, 0.05]} rotation={[aR, 0, -0.3]}><mesh castShadow material={bodyMat} position={[0, -0.2, 0]}><capsuleGeometry args={[0.12, 0.35, 6, 8]} /></mesh></group>
+      <group position={[-0.22, 0.25, 0.12]} rotation={[fL, 0, 0]}><mesh castShadow material={bodyMat} position={[0, -0.3, 0]}><cylinderGeometry args={[0.15, 0.14, 0.6, 9]} /></mesh><mesh castShadow material={bodyMat} position={[0, -0.6, 0.06]}><sphereGeometry args={[0.15, 8, 8]} /></mesh></group>
+      <group position={[0.22, 0.25, 0.12]} rotation={[fR, 0, 0]}><mesh castShadow material={bodyMat} position={[0, -0.3, 0]}><cylinderGeometry args={[0.15, 0.14, 0.6, 9]} /></mesh><mesh castShadow material={bodyMat} position={[0, -0.6, 0.06]}><sphereGeometry args={[0.15, 8, 8]} /></mesh></group>
     </group>
   );
 }
@@ -299,22 +359,22 @@ function BunnyCreature({ color, walkCycle = 0, isMoving = false, isSwimming = fa
       <mesh position={[0, 1.09 + bodyBob, 0.42]} material={matPink}><sphereGeometry args={[0.034, 7, 7]} /></mesh>
       <mesh castShadow position={[0, 0.7, -0.52]} material={matWhite}><sphereGeometry args={[0.14, 10, 10]} /></mesh>
       
-      {/* RESTORED LEGS */}
-      <group position={[-0.18, 0.38, 0.18]} rotation={[fL, 0, 0]}>
-        <mesh castShadow material={bodyMat} position={[0, -0.19, 0]}><cylinderGeometry args={[0.09, 0.08, 0.38, 8]} /></mesh>
-        <mesh castShadow material={bodyMat} position={[0, -0.4, 0.04]}><sphereGeometry args={[0.09, 8, 8]} /></mesh>
-      </group>
-      <group position={[0.18, 0.38, 0.18]} rotation={[fR, 0, 0]}>
-        <mesh castShadow material={bodyMat} position={[0, -0.19, 0]}><cylinderGeometry args={[0.09, 0.08, 0.38, 8]} /></mesh>
-        <mesh castShadow material={bodyMat} position={[0, -0.4, 0.04]}><sphereGeometry args={[0.09, 8, 8]} /></mesh>
-      </group>
-      <group position={[-0.2, 0.32, -0.16]} rotation={[bL, 0, 0]}>
+      {/* LONGER LEGS */}
+      <group position={[-0.18, 0.25, 0.18]} rotation={[fL, 0, 0]}>
         <mesh castShadow material={bodyMat} position={[0, -0.25, 0]}><cylinderGeometry args={[0.11, 0.1, 0.5, 8]} /></mesh>
-        <mesh castShadow material={bodyMat} position={[0, -0.52, 0.06]}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
+        <mesh castShadow material={bodyMat} position={[0, -0.5, 0.04]}><sphereGeometry args={[0.11, 8, 8]} /></mesh>
       </group>
-      <group position={[0.2, 0.32, -0.16]} rotation={[bR, 0, 0]}>
+      <group position={[0.18, 0.25, 0.18]} rotation={[fR, 0, 0]}>
         <mesh castShadow material={bodyMat} position={[0, -0.25, 0]}><cylinderGeometry args={[0.11, 0.1, 0.5, 8]} /></mesh>
-        <mesh castShadow material={bodyMat} position={[0, -0.52, 0.06]}><sphereGeometry args={[0.12, 8, 8]} /></mesh>
+        <mesh castShadow material={bodyMat} position={[0, -0.5, 0.04]}><sphereGeometry args={[0.11, 8, 8]} /></mesh>
+      </group>
+      <group position={[-0.2, 0.2, -0.16]} rotation={[bL, 0, 0]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.3, 0]}><cylinderGeometry args={[0.13, 0.12, 0.6, 8]} /></mesh>
+        <mesh castShadow material={bodyMat} position={[0, -0.6, 0.06]}><sphereGeometry args={[0.13, 8, 8]} /></mesh>
+      </group>
+      <group position={[0.2, 0.2, -0.16]} rotation={[bR, 0, 0]}>
+        <mesh castShadow material={bodyMat} position={[0, -0.3, 0]}><cylinderGeometry args={[0.13, 0.12, 0.6, 8]} /></mesh>
+        <mesh castShadow material={bodyMat} position={[0, -0.6, 0.06]}><sphereGeometry args={[0.13, 8, 8]} /></mesh>
       </group>
     </group>
   );
@@ -517,7 +577,7 @@ function CameraRig() {
   const { camera } = useThree();
 
   useFrame((_, delta) => {
-    // ⬇ FIXED CAMERA SWEEP SPEED (Lowered from 25.0 to 10.0 for smoothness)
+    // Smoother, slower camera sweep
     if (keyState['arrowleft'])  camState.yawVel += 10.0 * delta;
     if (keyState['arrowright']) camState.yawVel -= 10.0 * delta;
     if (keyState['arrowup'])    camState.pitchVel -= 10.0 * delta;
@@ -559,6 +619,7 @@ function PlayerController() {
   const downVec   = useMemo(() => new THREE.Vector3(0, -1, 0), []);
   const { scene } = useThree();
   const lastSend = useRef(0);
+  const lastStep = useRef(0); // For audio footsteps
 
   useFrame(({ clock }, delta) => {
     const g = playerGroupRef.current;
@@ -652,6 +713,13 @@ function PlayerController() {
     
     if (movingRef.current) {
       walkRef.current += delta * (isSwimming ? 5.0 : 7.5);
+      
+      // TRIGGER AUDIO FOOTSTEPS BASED ON WALK CYCLE
+      if (walkRef.current - lastStep.current > (isSwimming ? 2.2 : 1.5)) {
+        audio.sfx(isSwimming ? 'splash' : 'step');
+        lastStep.current = walkRef.current;
+      }
+
       g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), rotSpeed);
       if (bodyRef.current && !isSwimming) {
         bodyRef.current.rotation.z = THREE.MathUtils.lerp(bodyRef.current.rotation.z, Math.sin(walkRef.current) * 0.03, bobSpeed);
@@ -1070,10 +1138,8 @@ function GameUI() {
         <div style={ST.chatLog}>
           {state.chatMessages.map((m, i) => <div key={i}><b style={{ color: m.color }}>{m.name}:</b> {m.text}</div>)}
         </div>
-        {/* ⬇ FIXED CHAT BOX (Stop propagation so you don't move when typing, and ensure text is visible) */}
-        <input style={ST.chatInput} placeholder="Hit Enter to chat..." value={chatText} onChange={e => setChatText(e.target.value)}
+        <input style={ST.chatInput} placeholder="Type here and hit Enter..." value={chatText} onChange={e => setChatText(e.target.value)}
           onKeyDown={e => {
-            e.stopPropagation(); // Prevent WASD from moving character
             if (e.key === 'Enter' && chatText.trim()) {
               socket.emit('chat', chatText);
               setChatText("");
@@ -1107,6 +1173,9 @@ export default function CandyIslandUltimate() {
 
   useEffect(() => {
     const onDown = (e) => {
+      // FIX: Ignore keyboard events if typing in the chat!
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+      
       const k = e.key.toLowerCase();
       keyState[k] = true;
       if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
@@ -1114,6 +1183,7 @@ export default function CandyIslandUltimate() {
       }
     };
     const onUp = (e) => {
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
       keyState[e.key.toLowerCase()] = false;
     };
     window.addEventListener('keydown', onDown, { passive: false });
@@ -1218,6 +1288,6 @@ const ST = {
   dialogueBtn: { background:'#e0e0e0', border:'none', padding:'12px 24px', borderRadius:12, color:'#333', fontWeight:'bold', cursor:'pointer', fontSize:16, fontFamily:FF, boxShadow:'0 4px 0 rgba(0,0,0,0.1)', transition:'transform 0.1s' },
   
   chatArea:    { position: 'absolute', bottom: 20, left: 20, zIndex: 5, width: 300, fontFamily: FF },
-  chatLog:     { background: 'rgba(0,0,0,0.3)', color: 'white', padding: 15, borderRadius: 15, height: 160, overflowY: 'auto', marginBottom: 10, fontSize: 14, backdropFilter: 'blur(10px)' },
-  chatInput:   { width: '100%', background: 'rgba(255,255,255,0.9)', border: 'none', padding: 12, borderRadius: 10, boxSizing: 'border-box', outline: 'none', fontFamily: FF, color: '#000' } // <- Added color text here
+  chatLog:     { background: 'rgba(0,0,0,0.4)', color: '#fff', padding: 15, borderRadius: 15, height: 160, overflowY: 'auto', marginBottom: 10, fontSize: 14, backdropFilter: 'blur(10px)', textShadow: '1px 1px 2px rgba(0,0,0,0.8)' },
+  chatInput:   { width: '100%', background: 'rgba(255,255,255,0.95)', border: 'none', padding: 12, borderRadius: 10, boxSizing: 'border-box', outline: 'none', fontFamily: FF, color: '#333', fontSize: 16 }
 };
