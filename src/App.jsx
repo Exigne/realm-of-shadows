@@ -1,8 +1,9 @@
 /**
  * 🏝️ CANDY ISLAND - LOCAL MULTIPLAYER EDITION
+ * - FIXED: Falling through the floor (Restored 'ground' tag)
+ * - ADDED: Auto-saves the Server IP address
  * - Dynamic Seasons (Summer to Winter crossfade)
- * - Rigid Camera (Stops dead on release)
- * - Custom Server IP Input for Local Network Play
+ * - Rigid Camera & Custom Avatar Rig
  */
 
 import React, {
@@ -54,7 +55,7 @@ const CONFIG = {
 const GameContext = createContext();
 
 const useIslandStore = () => {
-  const playerPosRef   = useRef(new THREE.Vector3(0, 1, 0));
+  const playerPosRef   = useRef(new THREE.Vector3(0, 5, 0)); // Spawns slightly higher just in case!
   const playerGroupRef = useRef();
 
   const [state, setState] = useState({
@@ -162,7 +163,6 @@ class GameAudio {
       const d = buf.getChannelData(0);
       for(let i=0; i<d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 2);
       const src = this.ctx.createBufferSource(); src.buffer = buf;
-      // Muffle the step sound slightly if it's winter
       const filter = this.ctx.createBiquadFilter(); filter.type = 'lowpass'; 
       filter.frequency.value = globalSeason.factor > 0.5 ? 400 : 1000;
       const gain = this.ctx.createGain(); gain.gain.value = 0.4;
@@ -225,7 +225,6 @@ function useCreatureAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
 
     if (isMoving) walk.current += delta * (isSwimming ? 5 : 12);
     
-    // FULL QUADRUPED TILT
     const targetTilt = isSwimming ? -1.2 : (isMoving ? -1.5 : 0);
     tilt.current = THREE.MathUtils.lerp(tilt.current, targetTilt, 12 * delta);
     const targetY = isSwimming ? -0.2 : (isMoving ? 0.35 : 0.6);
@@ -432,13 +431,13 @@ function Terrain() {
 
   const snowMat = useRef();
   useFrame(() => {
-    // Fade in snow mesh when it gets to winter
     if (snowMat.current) snowMat.current.opacity = globalSeason.factor * 0.95;
   });
 
   return (
     <group>
-      <mesh geometry={geoGrass} receiveShadow position={[0, 0.002, 0]}>
+      {/* ADDED name="ground" HERE! This fixes the falling through the floor bug. */}
+      <mesh name="ground" geometry={geoGrass} receiveShadow position={[0, 0.002, 0]}>
         <meshStandardMaterial map={grassTex} roughness={0.88} />
       </mesh>
       {/* WINTER OVERLAY */}
@@ -467,7 +466,6 @@ function Water() {
 
 function WeatherController() {
   useFrame(({ clock }) => {
-    // Smooth transition: 0 (Summer) -> 1 (Winter) -> 0 (Summer) every 60 seconds
     globalSeason.factor = (Math.sin(clock.elapsedTime * 0.1) + 1) / 2;
   });
 
@@ -488,8 +486,6 @@ function WeatherController() {
 
   useFrame((_, delta) => {
     if (!meshRef.current || !matRef.current) return;
-    
-    // Only show snow if it's winter!
     matRef.current.opacity = globalSeason.factor > 0.4 ? (globalSeason.factor - 0.4) * 1.5 : 0;
     
     if (matRef.current.opacity > 0) {
@@ -520,7 +516,6 @@ function CameraRig() {
   const { camera } = useThree();
 
   useFrame((_, delta) => {
-    // RIGID CAMERA - No more icy swinging, stops dead instantly!
     const rotateSpeed = 2.5 * delta;
     if (keyState['arrowleft'])  camState.yaw += rotateSpeed;
     if (keyState['arrowright']) camState.yaw -= rotateSpeed;
@@ -644,7 +639,7 @@ function PlayerController() {
   const Creature = state.playerConfig.creatureType === 'bear' ? BearCreature : state.playerConfig.creatureType === 'bunny' ? BunnyCreature : CatCreature;
 
   return (
-    <group ref={playerGroupRef} position={[0, 1, 0]}>
+    <group ref={playerGroupRef} position={[0, 5, 0]}>
       <Creature colors={state.playerConfig.colors} velRef={vel} isSwimmingRef={isSwimmingRef} />
       <ContactShadows opacity={0.45} scale={4} blur={2.5} position={[0, 0.02, 0]} />
     </group>
@@ -738,7 +733,6 @@ function Atmosphere() {
   const ambientColor = useRef(new THREE.Color());
 
   useFrame(() => {
-    // Interpolate lighting based on season!
     lightColor.current.lerpColors(new THREE.Color('#fff8f0'), new THREE.Color('#d0e0ff'), globalSeason.factor);
     ambientColor.current.lerpColors(new THREE.Color('#ffffff'), new THREE.Color('#aaccff'), globalSeason.factor);
   });
@@ -761,15 +755,18 @@ function Atmosphere() {
 function GameUI() {
   const { state, actions } = useContext(GameContext);
   const [chatText, setChatText] = useState("");
-  // IMPORTANT: This is where they type in the NAS IP address!
-  const [serverIP, setServerIP] = useState("http://192.168.1.50:3001"); 
+  
+  // PULL FROM LOCALSTORAGE OR USE DEFAULT!
+  const [serverIP, setServerIP] = useState(() => localStorage.getItem('candyIslandServerIP') || "http://192.168.1.50:3001"); 
 
   const updateColor = (part, val) => actions.setPlayerConfig({ colors: { ...state.playerConfig.colors, [part]: val } });
 
   const connectToGame = () => {
     if (!state.playerConfig.name) return alert("Enter a name!");
     
-    // Connect to the custom server IP instead of hardcoded localhost
+    // SAVE IP TO LOCALSTORAGE!
+    localStorage.setItem('candyIslandServerIP', serverIP);
+    
     socket = io(serverIP);
     
     socket.emit('join', state.playerConfig);
@@ -808,7 +805,6 @@ function GameUI() {
             <div style={ST.colorRow}><b>Legs:</b> <input type="color" style={ST.colorPicker} value={state.playerConfig.colors.legs} onChange={e => updateColor('legs', e.target.value)} /></div>
           </div>
           
-          {/* NAS SERVER IP INPUT */}
           <div style={{ marginBottom: 15, textAlign: 'left' }}>
             <label style={{fontWeight: 'bold', color:'#555'}}>Server IP (Your NAS):</label>
             <input style={{...ST.input, padding: '10px', marginBottom: 0, marginTop: 5}} value={serverIP} onChange={e => setServerIP(e.target.value)} />
