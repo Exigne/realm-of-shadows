@@ -4,7 +4,7 @@
  * - Animated water with UV scrolling
  * - Rock clusters, palm trees, flower patches
  * - Interactive Branching Dialogue System
- * - Smooth Gimbal Camera System
+ * - Smooth Gimbal Camera System (Velocity + Damping)
  * - Seamless Water Swimming & Floating Mechanics
  */
 
@@ -15,12 +15,11 @@ import React, {
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   Sky, ContactShadows, Stars, Sparkles,
-  Float, Instance, Instances, Environment, Html,
+  Float, Instance, Instances, Html,
 } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
-import HUD from './HUD';
 
 // ─── Noise & Terrain Formula ─────────────────────────────────────────────────
 
@@ -117,53 +116,42 @@ class GameAudio {
     const BPM   = 96;
     const BEAT  = 60 / BPM;
     const phrase = [
-      [523.25, 0,    0.9], [587.33, 1,    0.9], [659.25, 2,    0.9], [523.25, 3,    0.9],
-      [698.46, 4,    0.9], [659.25, 5,    0.9], [587.33, 6,    1.8],
-      [392.00, 8,    0.9], [440.00, 9,    0.9], [523.25, 10,   0.9], [587.33, 11,   0.9],
-      [523.25, 12,   0.9], [493.88, 13,   0.9], [440.00, 14,   1.8],
-      [783.99, 16,   0.9], [698.46, 17,   0.9], [659.25, 18,   0.9], [587.33, 19,   0.9],
-      [659.25, 20,   0.9], [587.33, 21,   0.9], [523.25, 22,   1.8],
-      [587.33, 24,   0.9], [523.25, 25,   0.9], [493.88, 26,   0.9], [440.00, 27,   0.9],
-      [392.00, 28,   0.9], [349.23, 29,   0.9], [261.63, 30,   1.8],
+      [523.25, 0, 0.9], [587.33, 1, 0.9], [659.25, 2, 0.9], [523.25, 3, 0.9],
+      [698.46, 4, 0.9], [659.25, 5, 0.9], [587.33, 6, 1.8],
+      [392.00, 8, 0.9], [440.00, 9, 0.9], [523.25, 10, 0.9], [587.33, 11, 0.9],
+      [523.25, 12, 0.9], [493.88, 13, 0.9], [440.00, 14, 1.8],
+      [783.99, 16, 0.9], [698.46, 17, 0.9], [659.25, 18, 0.9], [587.33, 19, 0.9],
+      [659.25, 20, 0.9], [587.33, 21, 0.9], [523.25, 22, 1.8],
+      [587.33, 24, 0.9], [523.25, 25, 0.9], [493.88, 26, 0.9], [440.00, 27, 0.9],
+      [392.00, 28, 0.9], [349.23, 29, 0.9], [261.63, 30, 1.8],
     ];
 
     const bass = [
-      [130.81, 0,  1.6], [174.61, 4,  1.6], [146.83, 8,  1.6], [130.81, 12, 1.6],
+      [130.81, 0, 1.6], [174.61, 4, 1.6], [146.83, 8, 1.6], [130.81, 12, 1.6],
       [130.81, 16, 1.6], [146.83, 20, 1.6], [174.61, 24, 1.6], [130.81, 28, 1.6],
     ];
 
-    const totalBeats = 32;
-    const loopDur    = totalBeats * BEAT;
-
     const playNote = (freq, beatOffset, durBeats, startTime, vol = 0.06, type = 'sine') => {
-      const osc  = this.ctx.createOscillator();
-      const env  = this.ctx.createGain();
-      const t0   = startTime + beatOffset * BEAT;
-      const dur  = durBeats * BEAT;
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      const t0 = startTime + beatOffset * BEAT;
+      const dur = durBeats * BEAT;
 
       osc.type = type;
       osc.frequency.value = freq;
-
-      env.gain.setValueAtTime(0.001,       t0);
+      env.gain.setValueAtTime(0.001, t0);
       env.gain.linearRampToValueAtTime(vol, t0 + 0.018);
       env.gain.exponentialRampToValueAtTime(vol * 0.4, t0 + dur * 0.35);
-      env.gain.exponentialRampToValueAtTime(0.0001,    t0 + dur * 0.95);
+      env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 0.95);
 
-      osc.connect(env);
-      env.connect(this.master);
-      env.connect(reverb);
-      osc.start(t0);
-      osc.stop(t0 + dur + 0.05);
+      osc.connect(env); env.connect(this.master); env.connect(reverb);
+      osc.start(t0); osc.stop(t0 + dur + 0.05);
     };
 
     const scheduleLoop = (startTime) => {
-      phrase.forEach(([f, b, d])  => playNote(f, b, d, startTime, 0.055, 'sine'));
-      bass.forEach(  ([f, b, d])  => playNote(f, b, d, startTime, 0.038, 'triangle'));
-      [4, 8, 12, 16, 20, 24, 28].forEach(beat => {
-        playNote(1046.5, beat, 0.5, startTime, 0.022, 'sine');
-      });
-
-      const nextStart = startTime + loopDur;
+      phrase.forEach(([f, b, d]) => playNote(f, b, d, startTime, 0.055, 'sine'));
+      bass.forEach(([f, b, d]) => playNote(f, b, d, startTime, 0.038, 'triangle'));
+      const nextStart = startTime + 32 * BEAT;
       const scheduleAhead = (nextStart - this.ctx.currentTime - 0.5) * 1000;
       setTimeout(() => { if (this.bgm) scheduleLoop(nextStart); }, Math.max(0, scheduleAhead));
     };
@@ -173,44 +161,30 @@ class GameAudio {
 
   sfx(type) {
     if (!this.ctx) return;
-
     if (type === 'munch') {
       [0, 0.07, 0.15].forEach((delay, i) => {
         const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.08, this.ctx.sampleRate);
-        const d   = buf.getChannelData(0);
+        const d = buf.getChannelData(0);
         for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * Math.pow(1 - j / d.length, 1.5);
-        const src = this.ctx.createBufferSource();
-        src.buffer = buf;
-        const bpf = this.ctx.createBiquadFilter();
-        bpf.type = 'bandpass';
-        bpf.frequency.value = 900 + i * 180;
-        bpf.Q.value = 2.5;
-        const g = this.ctx.createGain();
-        g.gain.setValueAtTime(0.18, this.ctx.currentTime + delay);
+        const src = this.ctx.createBufferSource(); src.buffer = buf;
+        const bpf = this.ctx.createBiquadFilter(); bpf.type = 'bandpass'; bpf.frequency.value = 900 + i * 180; bpf.Q.value = 2.5;
+        const g = this.ctx.createGain(); g.gain.setValueAtTime(0.18, this.ctx.currentTime + delay);
         g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + delay + 0.07);
         src.connect(bpf); bpf.connect(g); g.connect(this.master);
-        src.start(this.ctx.currentTime + delay);
-        src.stop(this.ctx.currentTime  + delay + 0.1);
+        src.start(this.ctx.currentTime + delay); src.stop(this.ctx.currentTime + delay + 0.1);
       });
-
-      const osc = this.ctx.createOscillator();
-      const og  = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, this.ctx.currentTime + 0.22);
+      const osc = this.ctx.createOscillator(); const og = this.ctx.createGain();
+      osc.type = 'sine'; osc.frequency.setValueAtTime(880, this.ctx.currentTime + 0.22);
       osc.frequency.setValueAtTime(1046.5, this.ctx.currentTime + 0.30);
       og.gain.setValueAtTime(0.001, this.ctx.currentTime + 0.22);
       og.gain.linearRampToValueAtTime(0.07, this.ctx.currentTime + 0.24);
       og.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.55);
       osc.connect(og); og.connect(this.master);
-      osc.start(this.ctx.currentTime + 0.22);
-      osc.stop( this.ctx.currentTime + 0.6);
+      osc.start(this.ctx.currentTime + 0.22); osc.stop(this.ctx.currentTime + 0.6);
     }
-
     if (type === 'talk') {
-      const osc = this.ctx.createOscillator();
-      const g   = this.ctx.createGain();
-      osc.type = 'square';
-      osc.frequency.value = 500 + Math.random() * 300;
+      const osc = this.ctx.createOscillator(); const g = this.ctx.createGain();
+      osc.type = 'square'; osc.frequency.value = 500 + Math.random() * 300;
       g.gain.setValueAtTime(0.025, this.ctx.currentTime);
       g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.07);
       osc.connect(g); g.connect(this.master);
@@ -391,10 +365,8 @@ function makeGroundTexture() {
   for (let i = 0; i < 2800; i++) {
     const x = Math.random() * S, y = Math.random() * S;
     const r = 4 + Math.random() * 16;
-    const bright = Math.random() > 0.5;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = bright ? `rgba(140,200,85,${0.1 + Math.random() * 0.16})` : `rgba(55,105,25,${0.1  + Math.random() * 0.16})`;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = Math.random() > 0.5 ? `rgba(140,200,85,${0.1 + Math.random() * 0.16})` : `rgba(55,105,25,${0.1  + Math.random() * 0.16})`;
     ctx.fill();
   }
   for (let i = 0; i < 1600; i++) {
@@ -402,10 +374,7 @@ function makeGroundTexture() {
     const h = 5 + Math.random() * 11;
     ctx.strokeStyle = `rgba(${55+Math.random()*50},${145+Math.random()*55},${25+Math.random()*30},0.5)`;
     ctx.lineWidth = 1 + Math.random();
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + (Math.random() - 0.5) * h * 0.6, y - h);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + (Math.random() - 0.5) * h * 0.6, y - h); ctx.stroke();
   }
   applyNoise(ctx, S, 12); 
   const t = new THREE.CanvasTexture(c);
@@ -424,8 +393,7 @@ function makeSandTexture() {
   for (let i = 0; i < 2400; i++) {
     const x = Math.random() * S, y = Math.random() * S;
     const r = 1 + Math.random() * 4;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = `rgba(${175+Math.random()*45},${145+Math.random()*30},${85+Math.random()*30},0.22)`;
     ctx.fill();
   }
@@ -449,8 +417,7 @@ function Terrain() {
         const x = pos.getX(i), z = pos.getZ(i);
         const d = Math.sqrt(x * x + z * z);
         let h = noise2D(x * 0.04, z * 0.04) * 3 + noise2D(x * 0.1, z * 0.1) * 0.8;
-        const mask = Math.max(0, 1 - Math.pow(d / 60, 4));
-        h *= mask;
+        h *= Math.max(0, 1 - Math.pow(d / 60, 4));
         if (d > 55) h = -2.5;
         pos.setY(i, h);
       }
@@ -494,8 +461,7 @@ function makeWaterTexture() {
     const y = (i / 20) * S;
     ctx.strokeStyle = `rgba(255,255,255,${0.04 + Math.random() * 0.09})`;
     ctx.lineWidth = 1 + Math.random() * 2;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
+    ctx.beginPath(); ctx.moveTo(0, y);
     for (let x = 0; x <= S; x += 6) ctx.lineTo(x, y + Math.sin(x * 0.06 + i) * 3);
     ctx.stroke();
   }
@@ -576,17 +542,15 @@ function CameraRig() {
   const { camera } = useThree();
 
   useFrame((_, delta) => {
-    // Add velocity based on key press (Acceleration)
+    // Smooth Gimbal Physics
     if (keyState['arrowleft'])  camState.yawVel += 25.0 * delta;
     if (keyState['arrowright']) camState.yawVel -= 25.0 * delta;
     if (keyState['arrowup'])    camState.pitchVel -= 15.0 * delta;
     if (keyState['arrowdown'])  camState.pitchVel += 15.0 * delta;
 
-    // Apply Friction / Damping to softly glide to a stop
     camState.yawVel *= 0.82;
     camState.pitchVel *= 0.82;
 
-    // Apply Velocity to position
     camState.yaw += camState.yawVel * delta;
     camState.pitch += camState.pitchVel * delta;
     camState.pitch = Math.max(0.1, Math.min(1.4, camState.pitch));
@@ -595,8 +559,6 @@ function CameraRig() {
     if (!p) return;
     
     const dist = 14;
-    
-    // Hard-set position strictly based on smoothed rotation (Zero stutter, true gimbal sweep)
     camera.position.set(
       p.position.x + Math.sin(camState.yaw) * dist * Math.cos(camState.pitch),
       p.position.y + dist * Math.sin(camState.pitch) + 1,
@@ -678,9 +640,6 @@ function PlayerController() {
       const hits = raycaster.intersectObject(ground);
       if (hits.length > 0) {
         let floorHeight = hits[0].point.y + 0.05;
-        
-        // Water surface is -1.18. Player naturally sits at Y=0 relative to feet.
-        // Drop them slightly lower (-1.5) so they are submerged from the waist down.
         const SWIM_FLOAT_Y = -1.48; 
 
         if (floorHeight < SWIM_FLOAT_Y) {
@@ -727,12 +686,10 @@ function PlayerController() {
       }
     }
 
-    // Tilt the body forward to do the "Doggy paddle" swim animation!
+    // Swim Animation Tilt
     if (bodyRef.current) {
        bodyRef.current.rotation.x = THREE.MathUtils.lerp(bodyRef.current.rotation.x, isSwimming ? -0.5 : 0, rotSpeed);
-       
        if (isSwimming) {
-          // Add a gentle floating bob while in the water
           bodyRef.current.position.y = THREE.MathUtils.lerp(bodyRef.current.position.y, Math.sin(clock.elapsedTime * 2.5) * 0.05, rotSpeed);
        } else {
           bodyRef.current.position.y = THREE.MathUtils.lerp(bodyRef.current.position.y, 0, rotSpeed);
@@ -929,7 +886,21 @@ function WorldAssets() {
 
 function Atmosphere() {
   const { state, actions } = useContext(GameContext);
-  useFrame((_, delta) => actions.updateTime(delta * CONFIG.TIME_SPEED));
+  
+  // Safe time update loop
+  useEffect(() => {
+    let frameId;
+    let lastTime = performance.now();
+    const loop = (t) => {
+      const dt = (t - lastTime) / 1000;
+      lastTime = t;
+      actions.updateTime(dt * CONFIG.TIME_SPEED);
+      frameId = requestAnimationFrame(loop);
+    };
+    frameId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frameId);
+  }, [actions]);
+
   const sunAngle = ((state.gameTime - 6) / 12) * Math.PI - Math.PI;
   const sunPos   = [Math.cos(sunAngle)*80, Math.max(Math.sin(-sunAngle)*80, -10), 20];
   const isNight  = state.gameTime < 6 || state.gameTime > 18;
@@ -946,6 +917,17 @@ function Atmosphere() {
 }
 
 // ─── UI ───────────────────────────────────────────────────────────────────────
+
+function InlinedHUD({ bells, fruit, gameTime }) {
+  const timeStr = `${Math.floor(gameTime)}:${Math.floor((gameTime%1)*60).toString().padStart(2,'0')}`;
+  return (
+    <div style={{ position: 'absolute', top: 20, left: 20, pointerEvents: 'none', fontFamily: '"Comic Sans MS", cursive', zIndex: 10 }}>
+      <div style={{ background:'rgba(255,255,255,0.8)', padding:'10px 20px', borderRadius:20, fontSize:18, fontWeight:'bold', border:'3px solid #fff', color: '#333' }}>
+        🕒 {timeStr}
+      </div>
+    </div>
+  );
+}
 
 function GameUI() {
   const { state, actions } = useContext(GameContext);
@@ -1010,7 +992,7 @@ function GameUI() {
         </div>
       </div>
 
-      <HUD bells={state.bells} fruit={state.inventory.fruit} gameTime={state.gameTime} />
+      <InlinedHUD bells={state.bells} fruit={state.inventory.fruit} gameTime={state.gameTime} />
     </>
   );
 }
@@ -1044,7 +1026,7 @@ export default function CandyIslandUltimate() {
       <GameContext.Provider value={store}>
         <Canvas shadows dpr={[1,2]} camera={{ fov:46, position:[0,12,18] }}
           gl={{ antialias:true, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.1 }}>
-          <Suspense fallback={null}>
+          <Suspense fallback={<Html center><h2 style={{fontFamily:'sans-serif', color:'white'}}>Loading Island...</h2></Html>}>
             <Atmosphere />
             <Terrain />
             <Water />
@@ -1098,7 +1080,6 @@ export default function CandyIslandUltimate() {
               home={{ x:10, y:getTerrainY(10,-18), z:-18 }}
               dialogues={[{ text: 'Come back at night — the stars are incredible.', next: 'end' }]} />
 
-            <Environment preset="sunset" />
             <EffectComposer multisampling={4}>
               <Bloom intensity={0.4} luminanceThreshold={0.88} luminanceSmoothing={0.4} />
               <Vignette darkness={0.4} offset={0.4} />
