@@ -1,7 +1,7 @@
 /**
  * 🏝️ CANDY ISLAND - LOCAL MULTIPLAYER EDITION
- * - FIXED: Falling through the floor (Restored 'ground' tag)
- * - ADDED: Auto-saves the Server IP address
+ * - RESTORED: Flowers, Rocks, Fruit, Dust Effects, and NPCs!
+ * - HARDCODED: Server URL (Line 25)
  * - Dynamic Seasons (Summer to Winter crossfade)
  * - Rigid Camera & Custom Avatar Rig
  */
@@ -12,12 +12,16 @@ import React, {
 } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
-  Sky, ContactShadows, Float, Instance, Instances, Html,
+  Sky, ContactShadows, Float, Instance, Instances, Html, Sparkles
 } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 
+// ─── Multiplayer Config ───────────────────────────────────────────────────────
+
+// HARDCODE YOUR NAS IP HERE! Make sure to keep the quotes and the :3001 port.
+const SERVER_URL = "http://192.168.1.129:9000"; 
 let socket;
 
 // ─── Pure Math Terrain Generation ────────────────────────────────────────────
@@ -31,19 +35,12 @@ function getTerrainY(x, z) {
   return h * Math.max(0, 1 - Math.pow(d / 60, 4));
 }
 
-// Global state for rigid camera and smooth seasons
 const camState = { yaw: Math.PI, pitch: 0.4 };
 const keyState = { prevE: false };
-const globalSeason = { factor: 0 }; // 0 = Summer, 1 = Winter
-
-// ─── Config ───────────────────────────────────────────────────────────────────
+const globalSeason = { factor: 0 }; 
 
 const CONFIG = {
-  SPEED: 6.0,             
-  ACCEL: 12,               
-  DECEL: 15,               
-  GRAVITY: 35,             
-  JUMP_FORCE: 14,          
+  SPEED: 6.0, ACCEL: 12, DECEL: 15, GRAVITY: 35, JUMP_FORCE: 14,          
   COLORS: {
     barnaby: '#6aaddb', luna: '#c07ed4', pip: '#f5c842', coco: '#c4813a',
     rosie: '#ff8fab', maple: '#ff7a1a', bubbles: '#6ecfb5',
@@ -55,21 +52,16 @@ const CONFIG = {
 const GameContext = createContext();
 
 const useIslandStore = () => {
-  const playerPosRef   = useRef(new THREE.Vector3(0, 5, 0)); // Spawns slightly higher just in case!
+  const playerPosRef   = useRef(new THREE.Vector3(0, 5, 0)); 
   const playerGroupRef = useRef();
 
   const [state, setState] = useState({
-    bells: 100,
-    inventory: { fruit: 0 },
-    dialogue: null,
-    ui: 'start',
+    bells: 100, inventory: { fruit: 0 }, dialogue: null, ui: 'start',
     playerConfig: { 
-      name: '', 
-      creatureType: 'cat',
+      name: '', creatureType: 'cat',
       colors: { head: '#ffccd8', body: '#f4a0b0', arms: '#f4a0b0', legs: '#f4a0b0' }
     },
-    onlinePlayers: {},
-    chatMessages: [],
+    onlinePlayers: {}, chatMessages: [],
   });
 
   const actions = useMemo(() => ({
@@ -89,57 +81,35 @@ const useIslandStore = () => {
 
 class GameAudio {
   constructor() { this.ctx = null; this.master = null; this.bgm = false; }
-
   init() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.master = this.ctx.createGain();
-    this.master.gain.value = 0.14;
+    this.master = this.ctx.createGain(); this.master.gain.value = 0.14;
     this.master.connect(this.ctx.destination);
   }
-
   playBGM() {
     if (this.bgm || !this.ctx) return;
     this.bgm = true;
-
     const convLen = this.ctx.sampleRate * 1.2;
     const convBuf = this.ctx.createBuffer(2, convLen, this.ctx.sampleRate);
     for (let c = 0; c < 2; c++) {
       const d = convBuf.getChannelData(c);
       for (let i = 0; i < convLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / convLen, 2.5);
     }
-    const reverb = this.ctx.createConvolver();
-    reverb.buffer = convBuf;
-    const reverbGain = this.ctx.createGain();
-    reverbGain.gain.value = 0.22;
-    reverb.connect(reverbGain);
-    reverbGain.connect(this.master);
+    const reverb = this.ctx.createConvolver(); reverb.buffer = convBuf;
+    const reverbGain = this.ctx.createGain(); reverbGain.gain.value = 0.22;
+    reverb.connect(reverbGain); reverbGain.connect(this.master);
 
-    const BPM   = 96;
-    const BEAT  = 60 / BPM;
-    const phrase = [
-      [523.25, 0, 0.9], [587.33, 1, 0.9], [659.25, 2, 0.9], [523.25, 3, 0.9],
-      [698.46, 4, 0.9], [659.25, 5, 0.9], [587.33, 6, 1.8],
-      [392.00, 8, 0.9], [440.00, 9, 0.9], [523.25, 10, 0.9], [587.33, 11, 0.9],
-      [523.25, 12, 0.9], [493.88, 13, 0.9], [440.00, 14, 1.8]
-    ];
-
-    const bass = [
-      [130.81, 0, 1.6], [174.61, 4, 1.6], [146.83, 8, 1.6], [130.81, 12, 1.6]
-    ];
+    const BEAT = 60 / 96;
+    const phrase = [[523.25, 0, 0.9], [587.33, 1, 0.9], [659.25, 2, 0.9], [523.25, 3, 0.9], [698.46, 4, 0.9], [659.25, 5, 0.9], [587.33, 6, 1.8], [392.00, 8, 0.9], [440.00, 9, 0.9], [523.25, 10, 0.9], [587.33, 11, 0.9], [523.25, 12, 0.9], [493.88, 13, 0.9], [440.00, 14, 1.8]];
+    const bass = [[130.81, 0, 1.6], [174.61, 4, 1.6], [146.83, 8, 1.6], [130.81, 12, 1.6]];
 
     const playNote = (freq, beatOffset, durBeats, startTime, vol = 0.06, type = 'sine') => {
-      const osc = this.ctx.createOscillator();
-      const env = this.ctx.createGain();
-      const t0 = startTime + beatOffset * BEAT;
-      const dur = durBeats * BEAT;
-
+      const osc = this.ctx.createOscillator(); const env = this.ctx.createGain();
+      const t0 = startTime + beatOffset * BEAT; const dur = durBeats * BEAT;
       osc.type = type; osc.frequency.value = freq;
-      env.gain.setValueAtTime(0.001, t0);
-      env.gain.linearRampToValueAtTime(vol, t0 + 0.018);
-      env.gain.exponentialRampToValueAtTime(vol * 0.4, t0 + dur * 0.35);
-      env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 0.95);
-
+      env.gain.setValueAtTime(0.001, t0); env.gain.linearRampToValueAtTime(vol, t0 + 0.018);
+      env.gain.exponentialRampToValueAtTime(vol * 0.4, t0 + dur * 0.35); env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 0.95);
       osc.connect(env); env.connect(this.master); env.connect(reverb);
       osc.start(t0); osc.stop(t0 + dur + 0.05);
     };
@@ -148,16 +118,13 @@ class GameAudio {
       phrase.forEach(([f, b, d]) => playNote(f, b, d, startTime, 0.055, 'sine'));
       bass.forEach(([f, b, d]) => playNote(f, b, d, startTime, 0.038, 'triangle'));
       const nextStart = startTime + 16 * BEAT;
-      const scheduleAhead = (nextStart - this.ctx.currentTime - 0.5) * 1000;
-      setTimeout(() => { if (this.bgm) scheduleLoop(nextStart); }, Math.max(0, scheduleAhead));
+      setTimeout(() => { if (this.bgm) scheduleLoop(nextStart); }, Math.max(0, (nextStart - this.ctx.currentTime - 0.5) * 1000));
     };
-
     scheduleLoop(this.ctx.currentTime + 0.1);
   }
 
   sfx(type) {
     if (!this.ctx) return;
-    
     if (type === 'step') {
       const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.05, this.ctx.sampleRate);
       const d = buf.getChannelData(0);
@@ -169,7 +136,6 @@ class GameAudio {
       src.connect(filter); filter.connect(gain); gain.connect(this.master);
       src.start();
     }
-    
     if (type === 'splash') {
       const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.15, this.ctx.sampleRate);
       const d = buf.getChannelData(0);
@@ -180,7 +146,27 @@ class GameAudio {
       src.connect(filter); filter.connect(gain); gain.connect(this.master);
       src.start();
     }
-
+    if (type === 'munch') {
+      [0, 0.07, 0.15].forEach((delay, i) => {
+        const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.08, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * Math.pow(1 - j / d.length, 1.5);
+        const src = this.ctx.createBufferSource(); src.buffer = buf;
+        const bpf = this.ctx.createBiquadFilter(); bpf.type = 'bandpass'; bpf.frequency.value = 900 + i * 180; bpf.Q.value = 2.5;
+        const g = this.ctx.createGain(); g.gain.setValueAtTime(0.18, this.ctx.currentTime + delay);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + delay + 0.07);
+        src.connect(bpf); bpf.connect(g); g.connect(this.master);
+        src.start(this.ctx.currentTime + delay); src.stop(this.ctx.currentTime + delay + 0.1);
+      });
+      const osc = this.ctx.createOscillator(); const og = this.ctx.createGain();
+      osc.type = 'sine'; osc.frequency.setValueAtTime(880, this.ctx.currentTime + 0.22);
+      osc.frequency.setValueAtTime(1046.5, this.ctx.currentTime + 0.30);
+      og.gain.setValueAtTime(0.001, this.ctx.currentTime + 0.22);
+      og.gain.linearRampToValueAtTime(0.07, this.ctx.currentTime + 0.24);
+      og.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.55);
+      osc.connect(og); og.connect(this.master);
+      osc.start(this.ctx.currentTime + 0.22); osc.stop(this.ctx.currentTime + 0.6);
+    }
     if (type === 'talk') {
       const osc = this.ctx.createOscillator(); const g = this.ctx.createGain();
       osc.type = 'square'; osc.frequency.value = 500 + Math.random() * 300;
@@ -200,28 +186,17 @@ const audio = new GameAudio();
 const matBlack = new THREE.MeshBasicMaterial({ color: '#111' });
 const matWhite = new THREE.MeshBasicMaterial({ color: '#fff' });
 const matPink  = new THREE.MeshBasicMaterial({ color: '#ffb3cc' });
-
-function stdMat(color, opts = {}) {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0, ...opts });
-}
+function stdMat(color, opts = {}) { return new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0, ...opts }); }
 
 function useCreatureAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
-  const body = useRef(); const head = useRef(); 
-  const armL = useRef(); const armR = useRef(); 
+  const body = useRef(); const head = useRef(); const armL = useRef(); const armR = useRef(); 
   const legL = useRef(); const legR = useRef(); const tail = useRef();
-  const walk = useRef(0);
-  const tilt = useRef(0);
+  const walk = useRef(0); const tilt = useRef(0);
 
   useFrame((_, delta) => {
-    let isMoving = false;
-    let isSwimming = false;
-
-    if (isNPC && npcMovingRef) {
-      isMoving = npcMovingRef.current;
-    } else if (velRef && isSwimmingRef) {
-      isMoving = Math.sqrt(velRef.current.x**2 + velRef.current.z**2) > 0.5;
-      isSwimming = isSwimmingRef.current;
-    }
+    let isMoving = false; let isSwimming = false;
+    if (isNPC && npcMovingRef) { isMoving = npcMovingRef.current; } 
+    else if (velRef && isSwimmingRef) { isMoving = Math.sqrt(velRef.current.x**2 + velRef.current.z**2) > 0.5; isSwimming = isSwimmingRef.current; }
 
     if (isMoving) walk.current += delta * (isSwimming ? 5 : 12);
     
@@ -234,12 +209,10 @@ function useCreatureAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
       body.current.position.y = THREE.MathUtils.lerp(body.current.position.y, targetY, 12 * delta);
       if (isSwimming) body.current.position.y += Math.sin(walk.current * 0.5) * 0.05;
     }
-    
     if (head.current) head.current.rotation.x = -tilt.current + (isMoving && !isSwimming ? Math.sin(walk.current * 2) * 0.05 : 0);
     if (tail.current) tail.current.rotation.z = Math.sin(walk.current * 1.5) * 0.3;
 
-    const limbBase = Math.abs(tilt.current); 
-    const s = Math.sin(walk.current) * 0.8;
+    const limbBase = Math.abs(tilt.current); const s = Math.sin(walk.current) * 0.8;
     
     if (isSwimming) {
       if (armL.current) armL.current.rotation.x = -1.0 + Math.sin(walk.current)*0.4;
@@ -261,15 +234,10 @@ function useCreatureAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
 
 function CatCreature(props) {
   const { body, head, armL, armR, legL, legR, tail } = useCreatureAnim(props);
-  const cHead = props.colors?.head || props.color || '#fff';
-  const cBody = props.colors?.body || props.color || '#fff';
-  const cArms = props.colors?.arms || props.color || '#fff';
-  const cLegs = props.colors?.legs || props.color || '#fff';
-  
-  const headMat = useMemo(() => stdMat(cHead), [cHead]);
-  const bodyMat = useMemo(() => stdMat(cBody), [cBody]);
-  const armMat  = useMemo(() => stdMat(cArms), [cArms]);
-  const legMat  = useMemo(() => stdMat(cLegs), [cLegs]);
+  const headMat = useMemo(() => stdMat(props.colors?.head || props.color || '#fff'), [props]);
+  const bodyMat = useMemo(() => stdMat(props.colors?.body || props.color || '#fff'), [props]);
+  const armMat  = useMemo(() => stdMat(props.colors?.arms || props.color || '#fff'), [props]);
+  const legMat  = useMemo(() => stdMat(props.colors?.legs || props.color || '#fff'), [props]);
   const innerMat = useMemo(() => stdMat('#ffccd8'), []);
 
   return (
@@ -306,15 +274,10 @@ function CatCreature(props) {
 
 function BearCreature(props) {
   const { body, head, armL, armR, legL, legR } = useCreatureAnim(props);
-  const cHead = props.colors?.head || props.color || '#fff';
-  const cBody = props.colors?.body || props.color || '#fff';
-  const cArms = props.colors?.arms || props.color || '#fff';
-  const cLegs = props.colors?.legs || props.color || '#fff';
-  
-  const headMat = useMemo(() => stdMat(cHead), [cHead]);
-  const bodyMat = useMemo(() => stdMat(cBody), [cBody]);
-  const armMat  = useMemo(() => stdMat(cArms), [cArms]);
-  const legMat  = useMemo(() => stdMat(cLegs), [cLegs]);
+  const headMat = useMemo(() => stdMat(props.colors?.head || props.color || '#fff'), [props]);
+  const bodyMat = useMemo(() => stdMat(props.colors?.body || props.color || '#fff'), [props]);
+  const armMat  = useMemo(() => stdMat(props.colors?.arms || props.color || '#fff'), [props]);
+  const legMat  = useMemo(() => stdMat(props.colors?.legs || props.color || '#fff'), [props]);
   const bellyMat = useMemo(() => stdMat('#d4eef8'), []);
 
   return (
@@ -348,15 +311,10 @@ function BearCreature(props) {
 
 function BunnyCreature(props) {
   const { body, head, armL, armR, legL, legR, tail } = useCreatureAnim(props);
-  const cHead = props.colors?.head || props.color || '#fff';
-  const cBody = props.colors?.body || props.color || '#fff';
-  const cArms = props.colors?.arms || props.color || '#fff';
-  const cLegs = props.colors?.legs || props.color || '#fff';
-  
-  const headMat = useMemo(() => stdMat(cHead), [cHead]);
-  const bodyMat = useMemo(() => stdMat(cBody), [cBody]);
-  const armMat  = useMemo(() => stdMat(cArms), [cArms]);
-  const legMat  = useMemo(() => stdMat(cLegs), [cLegs]);
+  const headMat = useMemo(() => stdMat(props.colors?.head || props.color || '#fff'), [props]);
+  const bodyMat = useMemo(() => stdMat(props.colors?.body || props.color || '#fff'), [props]);
+  const armMat  = useMemo(() => stdMat(props.colors?.arms || props.color || '#fff'), [props]);
+  const legMat  = useMemo(() => stdMat(props.colors?.legs || props.color || '#fff'), [props]);
   const innerMat = useMemo(() => stdMat('#ffe0a0'), []);
 
   return (
@@ -395,8 +353,7 @@ function BunnyCreature(props) {
 // ─── Terrain & Textures ────────────────────────────────────────────────────────
 
 function applyNoise(ctx, S, intensity = 12) {
-  const imgData = ctx.getImageData(0, 0, S, S);
-  const data = imgData.data;
+  const imgData = ctx.getImageData(0, 0, S, S); const data = imgData.data;
   for (let i = 0; i < data.length; i += 4) {
     const n = (Math.random() - 0.5) * intensity;
     data[i] = Math.min(255, Math.max(0, data[i] + n));
@@ -436,11 +393,9 @@ function Terrain() {
 
   return (
     <group>
-      {/* ADDED name="ground" HERE! This fixes the falling through the floor bug. */}
       <mesh name="ground" geometry={geoGrass} receiveShadow position={[0, 0.002, 0]}>
         <meshStandardMaterial map={grassTex} roughness={0.88} />
       </mesh>
-      {/* WINTER OVERLAY */}
       <mesh geometry={geoGrass} receiveShadow position={[0, 0.05, 0]}>
         <meshStandardMaterial ref={snowMat} color="#ffffff" transparent roughness={0.9} />
       </mesh>
@@ -462,27 +417,59 @@ function Water() {
   );
 }
 
+// ─── Particle Effects ─────────────────────────────────────────────────────────
+
+function DustEffect() {
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const particles = useRef([]); const meshRef = useRef();
+
+  useEffect(() => {
+    const handleLand = (e) => {
+      const pos = e.detail;
+      for(let i=0; i<8; i++) {
+         particles.current.push({
+           pos: pos.clone().add(new THREE.Vector3((Math.random()-0.5)*0.8, 0.1, (Math.random()-0.5)*0.8)),
+           vel: new THREE.Vector3((Math.random()-0.5)*2, Math.random()*2 + 1, (Math.random()-0.5)*2),
+           age: 0, life: 0.3 + Math.random()*0.3, scale: Math.random() * 0.3 + 0.2
+         });
+      }
+    };
+    window.addEventListener('player-land', handleLand);
+    return () => window.removeEventListener('player-land', handleLand);
+  }, []);
+
+  useFrame((_, delta) => {
+    if (!meshRef.current) return;
+    let count = 0;
+    for (let i = particles.current.length - 1; i >= 0; i--) {
+      const p = particles.current[i]; p.age += delta;
+      if (p.age >= p.life) { particles.current.splice(i, 1); continue; }
+      p.pos.addScaledVector(p.vel, delta); p.scale *= 0.88; 
+      dummy.position.copy(p.pos); dummy.scale.setScalar(p.scale);
+      dummy.updateMatrix(); meshRef.current.setMatrixAt(count++, dummy.matrix);
+    }
+    meshRef.current.count = count; meshRef.current.instanceMatrix.needsUpdate = true;
+  });
+
+  return (
+    <instancedMesh ref={meshRef} args={[null, null, 50]}>
+      <sphereGeometry args={[1, 6, 6]} />
+      <meshStandardMaterial color="#d4c0a5" roughness={1} />
+    </instancedMesh>
+  );
+}
+
 // ─── Weather Effects (Seasons & Snow) ─────────────────────────────────────────
 
 function WeatherController() {
-  useFrame(({ clock }) => {
-    globalSeason.factor = (Math.sin(clock.elapsedTime * 0.1) + 1) / 2;
-  });
+  useFrame(({ clock }) => { globalSeason.factor = (Math.sin(clock.elapsedTime * 0.1) + 1) / 2; });
 
-  const meshRef = useRef();
+  const meshRef = useRef(); const matRef = useRef();
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const flakes = useMemo(() => {
-    const arr = [];
-    for(let i=0; i<600; i++) {
-      arr.push({
-        x: (Math.random() - 0.5) * 100, y: Math.random() * 40, z: (Math.random() - 0.5) * 100,
-        speed: 1 + Math.random() * 2, sway: Math.random() * Math.PI * 2
-      });
-    }
-    return arr;
-  }, []);
-
-  const matRef = useRef();
+  const flakes = useMemo(() => Array.from({length: 600}, () => ({
+    x: (Math.random() - 0.5) * 100, y: Math.random() * 40, z: (Math.random() - 0.5) * 100,
+    speed: 1 + Math.random() * 2, sway: Math.random() * Math.PI * 2
+  })), []);
 
   useFrame((_, delta) => {
     if (!meshRef.current || !matRef.current) return;
@@ -490,12 +477,10 @@ function WeatherController() {
     
     if (matRef.current.opacity > 0) {
       flakes.forEach((f, i) => {
-        f.y -= f.speed * delta;
-        f.sway += delta;
+        f.y -= f.speed * delta; f.sway += delta;
         if (f.y < -2) f.y = 40;
         dummy.position.set(f.x + Math.sin(f.sway)*0.5, f.y, f.z);
-        dummy.updateMatrix();
-        meshRef.current.setMatrixAt(i, dummy.matrix);
+        dummy.updateMatrix(); meshRef.current.setMatrixAt(i, dummy.matrix);
       });
       meshRef.current.instanceMatrix.needsUpdate = true;
     }
@@ -521,7 +506,6 @@ function CameraRig() {
     if (keyState['arrowright']) camState.yaw -= rotateSpeed;
     if (keyState['arrowup'])    camState.pitch -= rotateSpeed;
     if (keyState['arrowdown'])  camState.pitch += rotateSpeed;
-
     camState.pitch = Math.max(0.1, Math.min(1.4, camState.pitch));
 
     const p = playerGroupRef.current;
@@ -533,7 +517,6 @@ function CameraRig() {
       p.position.y + dist * Math.sin(camState.pitch) + 1,
       p.position.z + Math.cos(camState.yaw) * dist * Math.cos(camState.pitch)
     );
-    
     camera.lookAt(p.position.x, p.position.y + 1.1, p.position.z);
   });
   return null;
@@ -543,15 +526,11 @@ function CameraRig() {
 
 function PlayerController() {
   const { state, actions, playerPosRef, playerGroupRef } = useContext(GameContext);
-  const vel       = useRef(new THREE.Vector3());
-  const movingRef = useRef(false);
-  const prevGrounded = useRef(true);
-  const isSwimmingRef = useRef(false);
+  const vel = useRef(new THREE.Vector3()); const movingRef = useRef(false);
+  const prevGrounded = useRef(true); const isSwimmingRef = useRef(false);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
-  const downVec   = useMemo(() => new THREE.Vector3(0, -1, 0), []);
-  const { scene } = useThree();
-  const lastSend = useRef(0);
-  const lastStep = useRef(0);
+  const downVec = useMemo(() => new THREE.Vector3(0, -1, 0), []);
+  const { scene } = useThree(); const lastSend = useRef(0); const lastStep = useRef(0);
 
   useFrame(({ clock }, delta) => {
     const g = playerGroupRef.current;
@@ -575,7 +554,6 @@ function PlayerController() {
 
     const mx = (keyState['a'] ? -1 : 0) + (keyState['d'] ? 1 : 0);
     const mz = (keyState['w'] ? -1 : 0) + (keyState['s'] ? 1 : 0);
-
     const accelFactor = Math.min(1, CONFIG.ACCEL * delta);
     const decelFactor = Math.min(1, CONFIG.DECEL * delta);
     const targetSpeed = isSwimmingRef.current ? CONFIG.SPEED * 0.45 : CONFIG.SPEED;
@@ -590,15 +568,13 @@ function PlayerController() {
     }
 
     vel.current.y -= CONFIG.GRAVITY * delta;
-
     g.position.x = Math.max(-56, Math.min(56, g.position.x + vel.current.x * delta));
     g.position.z = Math.max(-56, Math.min(56, g.position.z + vel.current.z * delta));
     g.position.y += vel.current.y * delta;
 
     raycaster.set(new THREE.Vector3(g.position.x, 20, g.position.z), downVec);
     const ground = scene.getObjectByName('ground');
-    let isGrounded = false;
-    let isSwimming = false;
+    let isGrounded = false; let isSwimming = false;
     
     if (ground) {
       const hits = raycaster.intersectObject(ground);
@@ -606,15 +582,15 @@ function PlayerController() {
         let floorHeight = hits[0].point.y + 0.05;
         if (floorHeight < -1.48) { floorHeight = -1.48; isSwimming = true; }
         if (g.position.y <= floorHeight + 0.3 && vel.current.y <= 0) {
-          g.position.y = floorHeight;
-          isGrounded = true;
-          vel.current.y = 0;
+          g.position.y = floorHeight; isGrounded = true; vel.current.y = 0;
+          if (!prevGrounded.current && vel.current.y < -5 && !isSwimming) {
+             window.dispatchEvent(new CustomEvent('player-land', { detail: g.position }));
+          }
         }
       }
     }
 
     prevGrounded.current = isGrounded; isSwimmingRef.current = isSwimming;
-
     if (keyState[' '] && isGrounded && !isSwimming) { vel.current.y = CONFIG.JUMP_FORCE; isGrounded = false; }
 
     const spd2D = Math.sqrt(vel.current.x ** 2 + vel.current.z ** 2);
@@ -623,9 +599,7 @@ function PlayerController() {
     if (movingRef.current) {
       g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), Math.min(1, 15 * delta));
       lastStep.current += (spd2D * delta);
-      if (lastStep.current > (isSwimming ? 1.5 : 1.2)) {
-        audio.sfx(isSwimming ? 'splash' : 'step'); lastStep.current = 0;
-      }
+      if (lastStep.current > (isSwimming ? 1.5 : 1.2)) { audio.sfx(isSwimming ? 'splash' : 'step'); lastStep.current = 0; }
     } else { lastStep.current = 0; }
 
     playerPosRef.current.copy(g.position);
@@ -637,7 +611,6 @@ function PlayerController() {
   });
 
   const Creature = state.playerConfig.creatureType === 'bear' ? BearCreature : state.playerConfig.creatureType === 'bunny' ? BunnyCreature : CatCreature;
-
   return (
     <group ref={playerGroupRef} position={[0, 5, 0]}>
       <Creature colors={state.playerConfig.colors} velRef={vel} isSwimmingRef={isSwimmingRef} />
@@ -647,17 +620,15 @@ function PlayerController() {
 }
 
 // ─── Network Player Renderer ──────────────────────────────────────────────────
+
 function NetworkPlayer({ data }) {
-  const ref = useRef();
-  const movingRef = useRef(false);
-  const isSwimmingRef = useRef(false);
+  const ref = useRef(); const movingRef = useRef(false); const isSwimmingRef = useRef(false);
 
   useFrame((_, delta) => {
     if (!ref.current) return;
     ref.current.position.lerp(new THREE.Vector3(data.position.x, data.position.y, data.position.z), 10 * delta);
     ref.current.rotation.y = THREE.MathUtils.lerp(ref.current.rotation.y, data.rotation.y, 10 * delta);
-    movingRef.current = data.isMoving;
-    isSwimmingRef.current = data.isSwimming;
+    movingRef.current = data.isMoving; isSwimmingRef.current = data.isSwimming;
   });
 
   const Creature = data.creatureType === 'bear' ? BearCreature : data.creatureType === 'bunny' ? BunnyCreature : CatCreature;
@@ -669,6 +640,45 @@ function NetworkPlayer({ data }) {
           {data.name}
         </div>
       </Html>
+    </group>
+  );
+}
+
+// ─── NPC ─────────────────────────────────────────────────────────────────────
+
+function NPC({ name, color, home, dialogues, creatureType }) {
+  const { state } = useContext(GameContext);
+  const ref = useRef(); const modeRef = useRef('idle'); const target = useRef(new THREE.Vector3(home.x, home.y, home.z));
+  const movingRef = useRef(false);
+
+  useFrame(({ clock }, delta) => {
+    if (!ref.current || state.dialogue?.name === name) { movingRef.current = false; return; }
+    const t = clock.elapsedTime + home.x;
+    
+    if (Math.floor(t) % 10 === 0 && modeRef.current === 'idle') {
+      modeRef.current = 'walk';
+      target.current.set(home.x + (Math.random()-0.5)*12, ref.current.position.y, home.z + (Math.random()-0.5)*12);
+    }
+    
+    if (modeRef.current === 'walk') {
+      const dir = target.current.clone().sub(ref.current.position).normalize();
+      ref.current.position.add(dir.multiplyScalar(delta * 1.6));
+      ref.current.lookAt(target.current.x, ref.current.position.y, target.current.z);
+      movingRef.current = true;
+      if (ref.current.position.distanceTo(target.current) < 0.5) { modeRef.current = 'idle'; movingRef.current = false; }
+    } else { movingRef.current = false; }
+  });
+
+  const Creature = creatureType === 'bear' ? BearCreature : creatureType === 'bunny' ? BunnyCreature : CatCreature;
+  return (
+    <group ref={ref} position={[home.x, home.y, home.z]} userData={{ isNPC: true, name, color, dialogues }}>
+      <Creature color={color} isNPC={true} npcMovingRef={movingRef} />
+      <Html position={[0, 2.3, 0]} center occlude>
+        <div style={{ background:'white', padding:'2px 10px', borderRadius:10, fontSize:12, border:`2px solid ${color}`, fontWeight:'bold', pointerEvents:'none', whiteSpace:'nowrap', color:'#333' }}>
+          {name}
+        </div>
+      </Html>
+      <ContactShadows opacity={0.35} scale={3} blur={2} position={[0, 0.02, 0]} />
     </group>
   );
 }
@@ -688,11 +698,70 @@ const TREE_DATA = (() => {
   return out;
 })();
 
+const ROCK_DATA = (() => {
+  const rng = seededRand(77); const out = []; let att = 0;
+  while (out.length < 28 && att++ < 400) {
+    const a = rng()*Math.PI*2, r = 5+rng()*50; const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
+    if (y > -0.3 && isClear(x,z,4)) out.push({ x, y, z, s: 0.3+rng()*0.9, rx: rng()*Math.PI, ry: rng()*Math.PI });
+  }
+  return out;
+})();
+
+const FLOWER_DATA = (() => {
+  const rng = seededRand(55); const cols = ['#ff6699','#ffdd44','#ff99cc','#cc88ff','#ff8833','#88ddff']; const out = []; let att = 0;
+  while (out.length < 60 && att++ < 500) {
+    const a = rng()*Math.PI*2, r = 4+rng()*46; const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
+    if (y > 0.3) out.push({ x, y: y+0.22, z, color: cols[Math.floor(rng()*cols.length)], s: 0.5+rng()*0.8 });
+  }
+  return out;
+})();
+
+const FRUIT_DATA = (() => {
+  const rng = seededRand(99); const out = [];
+  while (out.length < 18) {
+    const a = rng()*Math.PI*2, r = 8+rng()*38; const x = Math.cos(a)*r, z = Math.sin(a)*r, y = getTerrainY(x,z);
+    if (y > 0.3) out.push(new THREE.Vector3(x, y+0.85, z));
+  }
+  return out;
+})();
+
 const HOUSE_CFGS = [
   { pos: [-15, getTerrainY(-15,-15), -15], color: CONFIG.COLORS.barnaby },
   { pos: [ 20, getTerrainY( 20,  5),   5], color: CONFIG.COLORS.luna    },
   { pos: [  0, getTerrainY(  0, 25),  25], color: CONFIG.COLORS.pip     },
 ];
+
+// ─── FruitLayer ───────────────────────────────────────────────────────────────
+
+function FruitLayer() {
+  const { actions, playerPosRef } = useContext(GameContext);
+  const [active, setActive] = useState(() => new Set(FRUIT_DATA.map((_,i)=>i)));
+  useFrame(() => {
+    FRUIT_DATA.forEach((pos, id) => {
+      if (active.has(id) && playerPosRef.current.distanceTo(pos) < 1.6) {
+        setActive(prev => { const n = new Set(prev); n.delete(id); return n; });
+        actions.addItem('fruit'); actions.addBells(50); audio.sfx('munch');
+      }
+    });
+  });
+  return (
+    <>
+      {FRUIT_DATA.map((pos, id) => active.has(id) && (
+        <Float key={id} position={[pos.x, pos.y, pos.z]} speed={4} floatIntensity={0.35}>
+          <mesh castShadow>
+            <sphereGeometry args={[0.26, 12, 12]} />
+            <meshStandardMaterial color="#dd2222" emissive="#cc1111" emissiveIntensity={0.4} roughness={0.4} />
+          </mesh>
+          <mesh position={[0, 0.3, 0]} rotation={[0, 0, 0.5]}>
+            <coneGeometry args={[0.06, 0.18, 5]} />
+            <meshStandardMaterial color="#33aa33" />
+          </mesh>
+          <Sparkles count={5} scale={0.9} size={1.4} color="#ffee44" />
+        </Float>
+      ))}
+    </>
+  );
+}
 
 // ─── StaticWorld ──────────────────────────────────────────────────────────────
 
@@ -702,6 +771,8 @@ function House({ position, color }) {
       <mesh position={[0, 1.5, 0]} castShadow receiveShadow><boxGeometry args={[5, 3, 5]} /><meshStandardMaterial color="#fffaf0" roughness={0.8} /></mesh>
       <mesh position={[0, 4.1, 0]} rotation={[0, Math.PI/4, 0]} castShadow><coneGeometry args={[4, 2.8, 4]} /><meshStandardMaterial color={color} roughness={0.7} /></mesh>
       <mesh position={[0, 0.7, 2.51]}><boxGeometry args={[0.9, 1.4, 0.05]} /><meshStandardMaterial color="#6b3310" /></mesh>
+      {[-1.5, 1.5].map(ox => (<mesh key={ox} position={[ox, 1.8, 2.51]}><boxGeometry args={[0.8, 0.8, 0.05]} /><meshStandardMaterial color="#aaddff" emissive="#aaddff" emissiveIntensity={0.4} /></mesh>))}
+      {[-2.8,-2.1,-1.4,1.4,2.1,2.8].map((ox,i) => (<mesh key={i} position={[ox, 0.35, 2.9]} castShadow><boxGeometry args={[0.12, 0.7, 0.12]} /><meshStandardMaterial color="#c8a870" /></mesh>))}
       <pointLight position={[0, 2.5, 3.5]} intensity={1.5} color={color} distance={14} decay={2} />
     </group>
   );
@@ -709,19 +780,61 @@ function House({ position, color }) {
 
 function StaticWorld() {
   const pines = TREE_DATA.filter(t => t.type === 'pine');
+  const palms = TREE_DATA.filter(t => t.type === 'palm');
+
   return (
     <group>
       {HOUSE_CFGS.map((h, i) => <House key={i} position={h.pos} color={h.color} />)}
+
+      {/* Trees */}
       <Instances limit={55} castShadow>
-        <cylinderGeometry args={[0.18, 0.26, 1.6, 7]} />
-        <meshStandardMaterial color="#5c3a1e" roughness={1} />
+        <cylinderGeometry args={[0.18, 0.26, 1.6, 7]} /><meshStandardMaterial color="#5c3a1e" roughness={1} />
         {pines.map((t,i) => <Instance key={i} position={[t.x, t.y+0.8, t.z]} scale={t.s} />)}
       </Instances>
       <Instances limit={55} castShadow>
-        <coneGeometry args={[1.7, 3.0, 8]} />
-        <meshStandardMaterial color="#256325" roughness={0.9} />
+        <coneGeometry args={[1.7, 3.0, 8]} /><meshStandardMaterial color="#256325" roughness={0.9} />
         {pines.map((t,i) => <Instance key={i} position={[t.x, t.y+2.8, t.z]} scale={t.s} />)}
       </Instances>
+      <Instances limit={55} castShadow>
+        <coneGeometry args={[1.1, 2.2, 8]} /><meshStandardMaterial color="#2e7d32" roughness={0.9} />
+        {pines.map((t,i) => <Instance key={i} position={[t.x, t.y+4.4, t.z]} scale={t.s} />)}
+      </Instances>
+
+      <Instances limit={22} castShadow>
+        <cylinderGeometry args={[0.14, 0.22, 4.0, 7]} /><meshStandardMaterial color="#8B6914" roughness={0.95} />
+        {palms.map((t,i) => <Instance key={i} position={[t.x, t.y+2.0, t.z]} scale={[t.s*0.8, t.s, t.s*0.8]} />)}
+      </Instances>
+      {palms.map((t,i) => (
+        <group key={i} position={[t.x, t.y+4.1*t.s, t.z]}>
+          {[0,72,144,216,288].map((deg,j) => (
+            <mesh key={j} castShadow rotation={[0.62, 0, (deg*Math.PI)/180]} position={[Math.sin((deg*Math.PI)/180)*1.1*t.s, 0, Math.cos((deg*Math.PI)/180)*1.1*t.s]}>
+              <coneGeometry args={[0.22*t.s, 2.2*t.s, 5]} /><meshStandardMaterial color="#3d8c3a" roughness={0.85} side={THREE.DoubleSide} />
+            </mesh>
+          ))}
+          <mesh position={[0,-0.3,0]}><sphereGeometry args={[0.22*t.s, 8, 8]} /><meshStandardMaterial color="#7a5230" roughness={0.9} /></mesh>
+        </group>
+      ))}
+
+      {/* Rocks */}
+      <Instances limit={32} castShadow receiveShadow>
+        <icosahedronGeometry args={[0.5, 0]} /><meshStandardMaterial color="#7a7060" roughness={0.95} />
+        {ROCK_DATA.map((r,i) => <Instance key={i} position={[r.x, r.y+0.2*r.s, r.z]} scale={[r.s*1.2, r.s*0.7, r.s]} rotation={[r.rx, r.ry, 0]} />)}
+      </Instances>
+
+      {/* Flowers */}
+      <Instances limit={65}>
+        <cylinderGeometry args={[0.02, 0.025, 0.28, 5]} /><meshStandardMaterial color="#44aa44" />
+        {FLOWER_DATA.map((f,i) => <Instance key={i} position={[f.x, f.y-0.1, f.z]} scale={f.s} />)}
+      </Instances>
+      {['#ff6699','#ffdd44','#ff99cc','#cc88ff','#ff8833','#88ddff'].map(col => {
+        const batch = FLOWER_DATA.filter(f => f.color === col);
+        return (
+          <Instances key={col} limit={15}>
+            <sphereGeometry args={[0.1, 7, 7]} /><meshStandardMaterial color={col} emissive={col} emissiveIntensity={0.3} />
+            {batch.map((f,i) => <Instance key={i} position={[f.x, f.y+0.1, f.z]} scale={f.s} />)}
+          </Instances>
+        );
+      })}
     </group>
   );
 }
@@ -755,19 +868,14 @@ function Atmosphere() {
 function GameUI() {
   const { state, actions } = useContext(GameContext);
   const [chatText, setChatText] = useState("");
-  
-  // PULL FROM LOCALSTORAGE OR USE DEFAULT!
-  const [serverIP, setServerIP] = useState(() => localStorage.getItem('candyIslandServerIP') || "http://192.168.1.50:3001"); 
 
   const updateColor = (part, val) => actions.setPlayerConfig({ colors: { ...state.playerConfig.colors, [part]: val } });
 
   const connectToGame = () => {
     if (!state.playerConfig.name) return alert("Enter a name!");
     
-    // SAVE IP TO LOCALSTORAGE!
-    localStorage.setItem('candyIslandServerIP', serverIP);
-    
-    socket = io(serverIP);
+    // Connect to the hardcoded Server URL
+    socket = io(SERVER_URL);
     
     socket.emit('join', state.playerConfig);
     socket.on('currentPlayers', (p) => actions.setOnlinePlayers(p));
@@ -804,19 +912,40 @@ function GameUI() {
             <div style={ST.colorRow}><b>Arms:</b> <input type="color" style={ST.colorPicker} value={state.playerConfig.colors.arms} onChange={e => updateColor('arms', e.target.value)} /></div>
             <div style={ST.colorRow}><b>Legs:</b> <input type="color" style={ST.colorPicker} value={state.playerConfig.colors.legs} onChange={e => updateColor('legs', e.target.value)} /></div>
           </div>
-          
-          <div style={{ marginBottom: 15, textAlign: 'left' }}>
-            <label style={{fontWeight: 'bold', color:'#555'}}>Server IP (Your NAS):</label>
-            <input style={{...ST.input, padding: '10px', marginBottom: 0, marginTop: 5}} value={serverIP} onChange={e => setServerIP(e.target.value)} />
-          </div>
 
           <button style={ST.startBtn} onClick={connectToGame}>JUMP IN!</button>
        </div>
     </div>
   );
 
+  const d = state.dialogue;
+  const currentNode = d ? d.nodes[d.step] : null;
+
+  const handleOptionClick = (nextStep) => {
+    if (nextStep === undefined || nextStep === null || nextStep === 'end') { actions.setDialogue(null); } 
+    else { actions.setDialogue({ ...d, step: nextStep }); audio.sfx('talk'); }
+  };
+
   return (
     <>
+      {d && currentNode && (
+        <div style={ST.dialogueBox}>
+          <h2 style={{ margin: '0 0 10px 0', color: d.color, textTransform: 'uppercase' }}>{d.name}</h2>
+          <p style={{ fontSize: 18, margin: '0 0 20px 0', color: '#444' }}>{currentNode.text}</p>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {currentNode.options ? (
+              currentNode.options.map((opt, i) => (
+                <button key={i} style={ST.dialogueBtn} onClick={() => handleOptionClick(opt.next)}>{opt.label}</button>
+              ))
+            ) : (
+              <button style={{...ST.dialogueBtn, background: d.color, color: '#fff'}} onClick={() => handleOptionClick(currentNode.next || 'end')}>
+                {currentNode.next ? 'Next ▶' : 'Bye 👋'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={ST.chatArea}>
         <div style={ST.chatLog}>
           {state.chatMessages.map((m, i) => <div key={i}><b style={{ color: m.color }}>{m.name}:</b> {m.text}</div>)}
@@ -828,6 +957,14 @@ function GameUI() {
               setChatText("");
             }
           }} />
+      </div>
+
+      <div style={ST.backpack}>
+        <h3 style={{ margin: '0 0 10px 0', fontSize: 16, color: '#6b3310' }}>🎒 Backpack</h3>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <div style={ST.bpItem}><span style={{ fontSize: 20 }}>🍎</span><span style={{ fontWeight: 'bold', color: '#333' }}>x {state.inventory.fruit}</span></div>
+          <div style={ST.bpItem}><span style={{ fontSize: 20 }}>💰</span><span style={{ fontWeight: 'bold', color: '#e5a50a' }}>{state.bells}</span></div>
+        </div>
       </div>
     </>
   );
@@ -841,8 +978,7 @@ export default function CandyIslandUltimate() {
   useEffect(() => {
     const onDown = (e) => {
       if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
-      const k = e.key.toLowerCase();
-      keyState[k] = true;
+      const k = e.key.toLowerCase(); keyState[k] = true;
       if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
     };
     const onUp = (e) => {
@@ -864,11 +1000,22 @@ export default function CandyIslandUltimate() {
             <Terrain />
             <Water />
             <StaticWorld />
+            <FruitLayer />
+            <DustEffect />
             <WeatherController />
             <PlayerController />
             {Object.values(store.state.onlinePlayers).map(p => socket && p.id !== socket.id && <NetworkPlayer key={p.id} data={p} />)}
-            <CameraRig />
             
+            {/* NPCs Restored! */}
+            <NPC name="Barnaby" color={CONFIG.COLORS.barnaby} creatureType="bear" home={{ x:-15, y:getTerrainY(-15,-10), z:-10 }} dialogues={[{ text: "Hey! Welcome to Candy Island! What are you up to today?", options: [{ label: "Picking fruit!", next: 1 }, { label: "Just exploring.", next: 2 }]}, { text: "Nice! I saw some apples by the big rocks earlier.", next: 'end' }, { text: "It's a beautiful day for it. Take your time!", next: 'end' }]} />
+            <NPC name="Luna" color={CONFIG.COLORS.luna} creatureType="cat" home={{ x:20, y:getTerrainY(20,10), z:10 }} dialogues={[{ text: "Meow~ Do you like the water here?", options: [{ label: "It's so calming.", next: 1 }, { label: "I prefer the forest.", next: 2 }]}, { text: "Right? I could sit by the shore all day.", next: 'end' }, { text: "The trees are nice too, lots of shade for naps.", next: 'end' }]} />
+            <NPC name="Pip" color={CONFIG.COLORS.pip} creatureType="bunny" home={{ x:0, y:getTerrainY(0,22), z:22 }} dialogues={[{ text: 'I could hop around here all day!', next: 1 }, { text: 'The flowers smell amazing this time of year.', next: 'end' }]} />
+            <NPC name="Coco" color={CONFIG.COLORS.coco} creatureType="bear" home={{ x:-5, y:getTerrainY(-5,-22), z:-22 }} dialogues={[{ text: 'Every day here feels like a gentle hug.', next: 'end' }]} />
+            <NPC name="Rosie" color={CONFIG.COLORS.rosie} creatureType="bunny" home={{ x:14, y:getTerrainY(14,-8), z:-8 }} dialogues={[{ text: "Pink flowers are obviously the best. Obviously.", next: 'end' }]} />
+            <NPC name="Maple" color={CONFIG.COLORS.maple} creatureType="cat" home={{ x:-24, y:getTerrainY(-24,6), z:6 }} dialogues={[{ text: "I think I found a heart-shaped leaf today!", next: 'end' }]} />
+            <NPC name="Bubbles" color={CONFIG.COLORS.bubbles} creatureType="bear" home={{ x:10, y:getTerrainY(10,-18), z:-18 }} dialogues={[{ text: 'Come back at night — the stars are incredible.', next: 'end' }]} />
+
+            <CameraRig />
             <EffectComposer multisampling={4}>
               <Bloom intensity={0.4} luminanceThreshold={0.88} luminanceSmoothing={0.4} />
               <Vignette darkness={0.4} offset={0.4} />
@@ -894,6 +1041,12 @@ const ST = {
   colorRow:    { display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8f8f8', padding: '5px 15px', borderRadius: 15, color: '#555' },
   colorPicker: { width: 45, height: 45, border: 'none', borderRadius: 10, cursor: 'pointer', background: 'transparent' },
   startBtn:    { width: '100%', background: '#ff8fab', color: 'white', border: 'none', padding: '18px', borderRadius: 20, fontSize: 20, fontWeight: 'bold', cursor: 'pointer', fontFamily: FF, marginTop: 10 },
+  
+  backpack:    { position:'absolute', top:25, right:25, background:'rgba(255,255,255,0.85)', padding:15, borderRadius:15, border:'4px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)', fontFamily:FF, zIndex:50, pointerEvents: 'auto' },
+  bpItem:      { background:'#fff', padding:'5px 10px', borderRadius:10, display:'flex', alignItems:'center', gap:8 },
+  
+  dialogueBox: { position:'absolute', bottom:40, left:'50%', transform:'translateX(-50%)', width:'60%', minWidth:320, background:'rgba(255,255,255,0.95)', padding:24, borderRadius:20, border:'5px solid #fff', boxShadow:'0 10px 30px rgba(0,0,0,0.15)', fontFamily:FF, textAlign:'center', zIndex:60, pointerEvents: 'auto' },
+  dialogueBtn: { background:'#e0e0e0', border:'none', padding:'12px 24px', borderRadius:12, color:'#333', fontWeight:'bold', cursor:'pointer', fontSize:16, fontFamily:FF, boxShadow:'0 4px 0 rgba(0,0,0,0.1)', transition:'transform 0.1s' },
   
   chatArea:    { position: 'absolute', bottom: 20, left: 20, zIndex: 5, width: 300, fontFamily: FF, pointerEvents: 'auto' },
   chatLog:     { background: 'rgba(0,0,0,0.4)', color: '#fff', padding: 15, borderRadius: 15, height: 160, overflowY: 'auto', marginBottom: 10, fontSize: 14, backdropFilter: 'blur(10px)', textShadow: '1px 1px 2px rgba(0,0,0,0.8)' },
