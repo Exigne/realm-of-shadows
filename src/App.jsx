@@ -52,7 +52,9 @@ const CONFIG = {
 const GameContext = createContext();
 
 const useIslandStore = () => {
-  const playerPosRef   = useRef(new THREE.Vector3(0, 5, 0)); 
+const startX = (Math.random() - 0.5) * 12;
+  const startZ = (Math.random() - 0.5) * 12;
+  const playerPosRef   = useRef(new THREE.Vector3(startX, 5, startZ)); 
   const playerGroupRef = useRef();
 
   const [state, setState] = useState({
@@ -672,10 +674,20 @@ function PlayerController() {
     }
   });
 
-  const Creature = state.playerConfig.creatureType === 'bear' ? BearCreature : state.playerConfig.creatureType === 'bunny' ? BunnyCreature : CatCreature;
+const Creature = state.playerConfig.creatureType === 'bear' ? BearCreature : state.playerConfig.creatureType === 'bunny' ? BunnyCreature : CatCreature;
+  
   return (
-    <group ref={playerGroupRef} position={[0, 5, 0]}>
+    // Spawn at our random coordinates!
+    <group ref={playerGroupRef} position={[playerPosRef.current.x, 5, playerPosRef.current.z]}>
       <Creature colors={state.playerConfig.colors} velRef={vel} isSwimmingRef={isSwimmingRef} />
+      
+      {/* Add a local name tag so you know which one is you */}
+      <Html position={[0, 2.3, 0]} center>
+        <div style={{ background:'rgba(255,255,255,0.9)', color:'#333', padding:'2px 8px', borderRadius:10, fontSize:12, fontWeight:'bold', border:`2px solid ${state.playerConfig.colors.head}`, whiteSpace:'nowrap' }}>
+          {state.playerConfig.name} (You)
+        </div>
+      </Html>
+
       <ContactShadows opacity={0.45} scale={4} blur={2.5} position={[0, 0.02, 0]} />
     </group>
   );
