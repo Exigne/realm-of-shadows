@@ -4,9 +4,8 @@
  * - Canvas-generated terrain textures with noise variation and bump mapping
  * - Animated water with UV scrolling
  * - Rock clusters, palm trees, flower patches
- * - Velocity-based physics, jumping, and 'E' interactions
- * - Landing dust particles and visual Backpack UI
- * - WASD Movement + Arrow Key Camera
+ * - Buttery smooth WASD movement + Arrow Key Camera
+ * - Interactive Branching Dialogue System!
  */
 
 import React, {
@@ -42,8 +41,9 @@ const keyState = { prevE: false };
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const CONFIG = {
-  FRICTION: 0.70,          // Quick stop multiplier when keys are released
   SPEED: 5.5,              // Fixed maximum walking speed
+  ACCEL: 12,               // How fast you reach top speed (smooths movement)
+  DECEL: 15,               // How fast you slide to a stop
   GRAVITY: 35,             // Pull down strength
   JUMP_FORCE: 14,          // Upward velocity
   COLORS: {
@@ -543,7 +543,7 @@ function DustEffect() {
   useEffect(() => {
     const handleLand = (e) => {
       const pos = e.detail;
-      // Spawn 8 random dust particles when hitting ground
+      // Spawn random dust particles when hitting ground
       for(let i=0; i<8; i++) {
          particles.current.push({
            pos: pos.clone().add(new THREE.Vector3((Math.random()-0.5)*0.8, 0.1, (Math.random()-0.5)*0.8)),
@@ -569,7 +569,7 @@ function DustEffect() {
         continue;
       }
       p.pos.addScaledVector(p.vel, delta);
-      p.scale *= 0.88; // shrink quickly
+      p.scale *= 0.88; 
       dummy.position.copy(p.pos);
       dummy.scale.setScalar(p.scale);
       dummy.updateMatrix();
@@ -653,7 +653,7 @@ function PlayerController() {
         actions.setDialogue({
           name: closestNPC.userData.name,
           color: closestNPC.userData.color,
-          texts: closestNPC.userData.dialogues,
+          nodes: closestNPC.userData.dialogues,
           step: 0
         });
         audio.sfx('talk');
@@ -661,20 +661,21 @@ function PlayerController() {
     }
     keyState.prevE = keyState['e']; 
 
+    // Freeze player if talking to someone
     if (state.dialogue) return;
 
     // Movement strictly restricted to W A S D
     const mx = (keyState['a'] ? -1 : 0) + (keyState['d'] ? 1 : 0);
     const mz = (keyState['w'] ? -1 : 0) + (keyState['s'] ? 1 : 0);
 
+    // Apply Framerate-Independent Acceleration and Deceleration
     if (mx !== 0 || mz !== 0) {
       const angle = Math.atan2(mx, mz) + camState.yaw;
-      // Fixed max speed via lerping directly to target velocity instead of endless addition
-      vel.current.x = THREE.MathUtils.lerp(vel.current.x, Math.sin(angle) * CONFIG.SPEED, 15 * delta);
-      vel.current.z = THREE.MathUtils.lerp(vel.current.z, Math.cos(angle) * CONFIG.SPEED, 15 * delta);
+      vel.current.x = THREE.MathUtils.lerp(vel.current.x, Math.sin(angle) * CONFIG.SPEED, CONFIG.ACCEL * delta);
+      vel.current.z = THREE.MathUtils.lerp(vel.current.z, Math.cos(angle) * CONFIG.SPEED, CONFIG.ACCEL * delta);
     } else {
-      vel.current.x *= CONFIG.FRICTION;
-      vel.current.z *= CONFIG.FRICTION;
+      vel.current.x = THREE.MathUtils.lerp(vel.current.x, 0, CONFIG.DECEL * delta);
+      vel.current.z = THREE.MathUtils.lerp(vel.current.z, 0, CONFIG.DECEL * delta);
     }
 
     // Apply Gravity
@@ -693,13 +694,12 @@ function PlayerController() {
       const hits = raycaster.intersectObject(ground);
       if (hits.length > 0) {
         const floorHeight = hits[0].point.y + 0.05;
-        // Snap to ground if character falls below it
         const snapDist = 0.3; // helps walking down slopes smoothly
         if (g.position.y <= floorHeight + snapDist && vel.current.y <= 0) {
           g.position.y = floorHeight;
           isGrounded = true;
 
-          // Dispatch Dust Particle Event on Hard Landings!
+          // Dispatch Dust Particle Event on Hard Landings
           if (!prevGrounded.current && vel.current.y < -5) {
              window.dispatchEvent(new CustomEvent('player-land', { detail: g.position }));
           }
@@ -713,7 +713,7 @@ function PlayerController() {
     // Jumping Mechanics (Spacebar)
     if (keyState[' '] && isGrounded) {
       vel.current.y = CONFIG.JUMP_FORCE;
-      isGrounded = false; // Prevent double-triggering in same frame
+      isGrounded = false; 
     }
 
     const spd2D = Math.sqrt(vel.current.x ** 2 + vel.current.z ** 2);
@@ -775,6 +775,7 @@ function NPC({ name, color, home, dialogues, creatureType }) {
 
   const Creature = creatureType === 'bear' ? BearCreature : creatureType === 'bunny' ? BunnyCreature : CatCreature;
 
+  // Passing the complex dialogue structure in UserData
   return (
     <group ref={ref} position={[home.x, home.y, home.z]} userData={{ isNPC: true, name, color, dialogues }}>
       <Creature color={color} walkCycle={walkRef.current} isMoving={movingRef.current} />
@@ -995,20 +996,44 @@ function GameUI() {
     </div>
   );
 
-  const handleDialogueNext = () => {
-    const d = state.dialogue;
-    if (!d) return;
-    if (d.step < d.texts.length - 1) {
-      actions.setDialogue({ ...d, step: d.step + 1 });
-      audio.sfx('talk');
-    } else {
+  // New Branching Dialogue Logic
+  const d = state.dialogue;
+  const currentNode = d ? d.nodes[d.step] : null;
+
+  const handleOptionClick = (nextStep) => {
+    if (nextStep === undefined || nextStep === null || nextStep === 'end') {
       actions.setDialogue(null);
+    } else {
+      actions.setDialogue({ ...d, step: nextStep });
+      audio.sfx('talk');
     }
   };
 
   return (
     <>
-      {/* Visual Backpack Inventory Overlay */}
+      {/* Dialogue Overlay */}
+      {d && currentNode && (
+        <div style={ST.dialogueBox}>
+          <h2 style={{ margin: '0 0 10px 0', color: d.color, textTransform: 'uppercase' }}>{d.name}</h2>
+          <p style={{ fontSize: 18, margin: '0 0 20px 0', color: '#444' }}>{currentNode.text}</p>
+          
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {currentNode.options ? (
+              currentNode.options.map((opt, i) => (
+                <button key={i} style={ST.dialogueBtn} onClick={() => handleOptionClick(opt.next)}>
+                  {opt.label}
+                </button>
+              ))
+            ) : (
+              <button style={{...ST.dialogueBtn, background: d.color}} onClick={() => handleOptionClick(currentNode.next || 'end')}>
+                {currentNode.next ? 'Next ▶' : 'Bye 👋'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Backpack UI */}
       <div style={ST.backpack}>
         <h3 style={{ margin: '0 0 10px 0', fontSize: 16, color: '#6b3310' }}>🎒 Backpack</h3>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -1023,13 +1048,8 @@ function GameUI() {
         </div>
       </div>
 
-      <HUD
-        bells={state.bells}
-        fruit={state.inventory.fruit}
-        gameTime={state.gameTime}
-        dialogue={state.dialogue}
-        onDialogueNext={handleDialogueNext}
-      />
+      {/* We stop passing dialogue here to avoid conflicting with your hidden HUD file */}
+      <HUD bells={state.bells} fruit={state.inventory.fruit} gameTime={state.gameTime} />
     </>
   );
 }
@@ -1039,12 +1059,10 @@ function GameUI() {
 export default function CandyIslandUltimate() {
   const store = useIslandStore();
 
-  // Handle global keyboard listeners here
   useEffect(() => {
     const onDown = (e) => {
       const k = e.key.toLowerCase();
       keyState[k] = true;
-      // Prevent browser from scrolling when jumping or looking around
       if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
         e.preventDefault();
       }
@@ -1073,27 +1091,53 @@ export default function CandyIslandUltimate() {
             <PlayerController />
             <DustEffect />
             <CameraRig />
+
+            {/* BARNABY NOW HAS A BRANCHING DIALOGUE */}
             <NPC name="Barnaby" color={CONFIG.COLORS.barnaby} creatureType="bear"
               home={{ x:-15, y:getTerrainY(-15,-10), z:-10 }}
-              dialogues={['Hey! Welcome to Candy Island!','I love strolling through the forest in the morning.','Have you found all the fruit scattered around?','The sunsets here are truly something special.']} />
+              dialogues={[
+                { text: "Hey! Welcome to Candy Island! What are you up to today?", options: [
+                    { label: "Picking fruit!", next: 1 },
+                    { label: "Just exploring.", next: 2 }
+                ]},
+                { text: "Nice! I saw some apples by the big rocks earlier.", next: 'end' },
+                { text: "It's a beautiful day for it. Take your time!", next: 'end' }
+              ]} />
+
             <NPC name="Luna" color={CONFIG.COLORS.luna} creatureType="cat"
               home={{ x:20, y:getTerrainY(20,10), z:10 }}
-              dialogues={['Meow~ The night sky here is gorgeous.','Did you find any fruit today?','I like to sit by the water and just… breathe.','Bells grow on trees here, almost literally!']} />
+              dialogues={[
+                { text: "Meow~ Do you like the water here?", options: [
+                  { label: "It's so calming.", next: 1 },
+                  { label: "I prefer the forest.", next: 2 }
+                ]},
+                { text: "Right? I could sit by the shore all day.", next: 'end' },
+                { text: "The trees are nice too, lots of shade for naps.", next: 'end' }
+              ]} />
+
             <NPC name="Pip" color={CONFIG.COLORS.pip} creatureType="bunny"
               home={{ x:0, y:getTerrainY(0,22), z:22 }}
-              dialogues={['I could hop around here all day!','The flowers smell amazing this time of year.','Have you met Barnaby yet? He gives great tours!','My favourite spot is near the big palm tree.']} />
+              dialogues={[
+                { text: 'I could hop around here all day!', next: 1 },
+                { text: 'The flowers smell amazing this time of year.', next: 'end' }
+              ]} />
+
             <NPC name="Coco" color={CONFIG.COLORS.coco} creatureType="bear"
               home={{ x:-5, y:getTerrainY(-5,-22), z:-22 }}
-              dialogues={['Oh! I was just collecting some thoughts.','Do you hear the waves? So soothing.','I baked some acorn bread earlier. Well, imaginary bread.','Every day here feels like a gentle hug.']} />
+              dialogues={[{ text: 'Every day here feels like a gentle hug.', next: 'end' }]} />
+
             <NPC name="Rosie" color={CONFIG.COLORS.rosie} creatureType="bunny"
               home={{ x:14, y:getTerrainY(14,-8), z:-8 }}
-              dialogues={["Hehe, I've been counting all the flowers!","There are SO many colours here, it's unreal.","I pressed a flower in my journal yesterday.","Pink flowers are obviously the best. Obviously."]} />
+              dialogues={[{ text: "Pink flowers are obviously the best. Obviously.", next: 'end' }]} />
+
             <NPC name="Maple" color={CONFIG.COLORS.maple} creatureType="cat"
               home={{ x:-24, y:getTerrainY(-24,6), z:6 }}
-              dialogues={["*stretches* What a lovely afternoon.","I climbed that hill earlier. Took a whole nap up there.","The trees here whisper if you listen carefully.","I think I found a heart-shaped leaf today!"]} />
+              dialogues={[{ text: "I think I found a heart-shaped leaf today!", next: 'end' }]} />
+
             <NPC name="Bubbles" color={CONFIG.COLORS.bubbles} creatureType="bear"
               home={{ x:10, y:getTerrainY(10,-18), z:-18 }}
-              dialogues={['The water here looks like it has no bottom!','I tried catching a cloud reflection today.','Everything moves so slowly. It is perfect.','Come back at night — the stars are incredible.']} />
+              dialogues={[{ text: 'Come back at night — the stars are incredible.', next: 'end' }]} />
+
             <Environment preset="sunset" />
             <EffectComposer multisampling={4}>
               <Bloom intensity={0.4} luminanceThreshold={0.88} luminanceSmoothing={0.4} />
@@ -1112,7 +1156,9 @@ export default function CandyIslandUltimate() {
 
 const FF = '"Comic Sans MS", cursive';
 const ST = {
-  overlay: { position:'absolute', inset:0, zIndex:100, cursor:'pointer', background:'linear-gradient(150deg,#87ceeb 0%,#b8e896 60%,#f4d98a 100%)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'white', fontFamily:FF, textAlign:'center' },
-  backpack:{ position:'absolute', bottom:25, right:25, background:'rgba(255,255,255,0.85)', padding:15, borderRadius:15, border:'4px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)', fontFamily:FF, zIndex:50 },
-  bpItem:  { background:'#fff', padding:'5px 10px', borderRadius:10, display:'flex', alignItems:'center', gap:8 }
+  overlay:     { position:'absolute', inset:0, zIndex:100, cursor:'pointer', background:'linear-gradient(150deg,#87ceeb 0%,#b8e896 60%,#f4d98a 100%)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'white', fontFamily:FF, textAlign:'center' },
+  backpack:    { position:'absolute', bottom:25, right:25, background:'rgba(255,255,255,0.85)', padding:15, borderRadius:15, border:'4px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)', fontFamily:FF, zIndex:50 },
+  bpItem:      { background:'#fff', padding:'5px 10px', borderRadius:10, display:'flex', alignItems:'center', gap:8 },
+  dialogueBox: { position:'absolute', bottom:40, left:'50%', transform:'translateX(-50%)', width:'60%', minWidth:320, background:'rgba(255,255,255,0.95)', padding:24, borderRadius:20, border:'5px solid #fff', boxShadow:'0 10px 30px rgba(0,0,0,0.15)', fontFamily:FF, textAlign:'center', zIndex:60 },
+  dialogueBtn: { background:'#e0e0e0', border:'none', padding:'12px 24px', borderRadius:12, color:'#333', fontWeight:'bold', cursor:'pointer', fontSize:16, fontFamily:FF, boxShadow:'0 4px 0 rgba(0,0,0,0.1)', transition:'transform 0.1s' }
 };
