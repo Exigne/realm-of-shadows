@@ -1,9 +1,9 @@
 /**
  * 🏝️ CANDY ISLAND - LOCAL MULTIPLAYER EDITION
- * - RESTORED: Flowers, Rocks, Fruit, Dust Effects, and NPCs!
+ * - UPGRADED: Highly Detailed Character Meshes (Snouts, Paws, Whiskers, Teeth!)
+ * - FIXED: Instant Chat UI with Anti-Echo and Auto-Scroll
  * - HARDCODED: Server URL (Line 25)
  * - Dynamic Seasons (Summer to Winter crossfade)
- * - Rigid Camera & Custom Avatar Rig
  */
 
 import React, {
@@ -71,7 +71,12 @@ const useIslandStore = () => {
     setDialogue:     (d)  => setState(s => ({ ...s, dialogue: d })),
     setPlayerConfig: (cfg) => setState(s => ({ ...s, playerConfig: { ...s.playerConfig, ...cfg } })),
     setOnlinePlayers:(p)  => setState(s => ({ ...s, onlinePlayers: p })),
-    addChatMessage:  (m)  => setState(s => ({ ...s, chatMessages: [...s.chatMessages.slice(-8), m] })),
+    addChatMessage:  (m)  => setState(s => {
+      // ANTI-ECHO: Prevents the server from duplicating our optimistic local messages!
+      const last = s.chatMessages[s.chatMessages.length - 1];
+      if (last && last.text === m.text && last.name === m.name) return s; 
+      return { ...s, chatMessages: [...s.chatMessages.slice(-14), m] };
+    }),
   }), []);
 
   return { state, actions, playerPosRef, playerGroupRef };
@@ -158,14 +163,6 @@ class GameAudio {
         src.connect(bpf); bpf.connect(g); g.connect(this.master);
         src.start(this.ctx.currentTime + delay); src.stop(this.ctx.currentTime + delay + 0.1);
       });
-      const osc = this.ctx.createOscillator(); const og = this.ctx.createGain();
-      osc.type = 'sine'; osc.frequency.setValueAtTime(880, this.ctx.currentTime + 0.22);
-      osc.frequency.setValueAtTime(1046.5, this.ctx.currentTime + 0.30);
-      og.gain.setValueAtTime(0.001, this.ctx.currentTime + 0.22);
-      og.gain.linearRampToValueAtTime(0.07, this.ctx.currentTime + 0.24);
-      og.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.55);
-      osc.connect(og); og.connect(this.master);
-      osc.start(this.ctx.currentTime + 0.22); osc.stop(this.ctx.currentTime + 0.6);
     }
     if (type === 'talk') {
       const osc = this.ctx.createOscillator(); const g = this.ctx.createGain();
@@ -183,9 +180,9 @@ const audio = new GameAudio();
 //  DYNAMIC BIPED -> QUADRUPED ANIMATION ENGINE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const matBlack = new THREE.MeshBasicMaterial({ color: '#111' });
-const matWhite = new THREE.MeshBasicMaterial({ color: '#fff' });
-const matPink  = new THREE.MeshBasicMaterial({ color: '#ffb3cc' });
+const matBlack = new THREE.MeshBasicMaterial({ color: '#222' });
+const matWhite = new THREE.MeshStandardMaterial({ color: '#fff', roughness: 0.9 });
+const matPink  = new THREE.MeshStandardMaterial({ color: '#ffb3cc', roughness: 0.8 });
 function stdMat(color, opts = {}) { return new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0, ...opts }); }
 
 function useCreatureAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
@@ -230,7 +227,7 @@ function useCreatureAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
   return { body, head, armL, armR, legL, legR, tail };
 }
 
-// ─── CREATURE MESHES ─────────────────────────────────────────────────────────
+// ─── HIGH-DETAIL CREATURE MESHES ─────────────────────────────────────────────
 
 function CatCreature(props) {
   const { body, head, armL, armR, legL, legR, tail } = useCreatureAnim(props);
@@ -238,42 +235,68 @@ function CatCreature(props) {
   const bodyMat = useMemo(() => stdMat(props.colors?.body || props.color || '#fff'), [props]);
   const armMat  = useMemo(() => stdMat(props.colors?.arms || props.color || '#fff'), [props]);
   const legMat  = useMemo(() => stdMat(props.colors?.legs || props.color || '#fff'), [props]);
-  const innerMat = useMemo(() => stdMat('#ffccd8'), []);
 
   return (
     <group ref={body} position={[0, 0.6, 0]}>
+      {/* Body */}
       <mesh material={bodyMat} castShadow><sphereGeometry args={[0.5, 16, 16]} /></mesh>
+      
+      {/* Head */}
       <group ref={head} position={[0, 0.45, 0.2]}>
         <mesh material={headMat} castShadow><sphereGeometry args={[0.4, 16, 16]} /></mesh>
-        <mesh material={headMat} position={[-0.2, 0.3, 0]} rotation={[0,0,0.2]} castShadow><coneGeometry args={[0.1, 0.3, 8]} /></mesh>
-        <mesh material={innerMat} position={[-0.2, 0.3, 0.05]} rotation={[0,0,0.2]}><coneGeometry args={[0.06, 0.2, 8]} /></mesh>
-        <mesh material={headMat} position={[0.2, 0.3, 0]} rotation={[0,0,-0.2]} castShadow><coneGeometry args={[0.1, 0.3, 8]} /></mesh>
-        <mesh material={innerMat} position={[0.2, 0.3, 0.05]} rotation={[0,0,-0.2]}><coneGeometry args={[0.06, 0.2, 8]} /></mesh>
+        
+        {/* Ears with Pink Insides */}
+        <group position={[-0.2, 0.3, 0]} rotation={[0,0,0.2]}>
+          <mesh material={headMat} castShadow><coneGeometry args={[0.1, 0.3, 8]} /></mesh>
+          <mesh material={matPink} position={[0, 0.02, 0.05]}><coneGeometry args={[0.06, 0.2, 8]} /></mesh>
+        </group>
+        <group position={[0.2, 0.3, 0]} rotation={[0,0,-0.2]}>
+          <mesh material={headMat} castShadow><coneGeometry args={[0.1, 0.3, 8]} /></mesh>
+          <mesh material={matPink} position={[0, 0.02, 0.05]}><coneGeometry args={[0.06, 0.2, 8]} /></mesh>
+        </group>
+
+        {/* Eyes */}
         <mesh material={matBlack} position={[-0.15, 0.05, 0.37]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
         <mesh material={matBlack} position={[0.15, 0.05, 0.37]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
-        <mesh material={matPink} position={[0, -0.05, 0.4]}><sphereGeometry args={[0.03, 8, 8]} /></mesh>
+        
+        {/* Muzzle & Nose */}
+        <mesh material={matWhite} position={[0, -0.05, 0.35]} castShadow><sphereGeometry args={[0.18, 16, 16]} /></mesh>
+        <mesh material={matBlack} position={[0, -0.02, 0.52]}><sphereGeometry args={[0.04, 8, 8]} /></mesh>
+
+        {/* Whiskers */}
+        <mesh material={matBlack} position={[-0.18, -0.05, 0.45]} rotation={[0, 0, 0.2]}><cylinderGeometry args={[0.005, 0.005, 0.15]} /></mesh>
+        <mesh material={matBlack} position={[0.18, -0.05, 0.45]} rotation={[0, 0, -0.2]}><cylinderGeometry args={[0.005, 0.005, 0.15]} /></mesh>
       </group>
+
+      {/* Limbs with White Paws */}
       <group ref={armL} position={[-0.25, 0.1, 0]}>
         <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.1, 0.5, 8, 8]} /></mesh>
+        <mesh material={matWhite} position={[0, -0.5, 0.05]}><sphereGeometry args={[0.11, 12, 12]} /></mesh>
       </group>
       <group ref={armR} position={[0.25, 0.1, 0]}>
         <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.1, 0.5, 8, 8]} /></mesh>
+        <mesh material={matWhite} position={[0, -0.5, 0.05]}><sphereGeometry args={[0.11, 12, 12]} /></mesh>
       </group>
       <group ref={legL} position={[-0.25, -0.2, 0]}>
         <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
+        <mesh material={matWhite} position={[0, -0.5, 0.05]}><sphereGeometry args={[0.13, 12, 12]} /></mesh>
       </group>
       <group ref={legR} position={[0.25, -0.2, 0]}>
         <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
+        <mesh material={matWhite} position={[0, -0.5, 0.05]}><sphereGeometry args={[0.13, 12, 12]} /></mesh>
       </group>
+
+      {/* Tail */}
       <group ref={tail} position={[0, -0.3, -0.4]}>
         <mesh material={bodyMat} position={[0, 0.3, -0.2]} rotation={[-0.5, 0, 0]} castShadow><cylinderGeometry args={[0.06, 0.08, 0.6, 8]} /></mesh>
+        <mesh material={matWhite} position={[0, 0.55, -0.32]} rotation={[-0.5, 0, 0]}><sphereGeometry args={[0.07, 8, 8]} /></mesh>
       </group>
     </group>
   );
 }
 
 function BearCreature(props) {
-  const { body, head, armL, armR, legL, legR } = useCreatureAnim(props);
+  const { body, head, armL, armR, legL, legR, tail } = useCreatureAnim(props);
   const headMat = useMemo(() => stdMat(props.colors?.head || props.color || '#fff'), [props]);
   const bodyMat = useMemo(() => stdMat(props.colors?.body || props.color || '#fff'), [props]);
   const armMat  = useMemo(() => stdMat(props.colors?.arms || props.color || '#fff'), [props]);
@@ -282,28 +305,46 @@ function BearCreature(props) {
 
   return (
     <group ref={body} position={[0, 0.6, 0]}>
+      {/* Big Belly Body */}
       <mesh material={bodyMat} scale={[1.1, 1, 1]} castShadow><sphereGeometry args={[0.55, 16, 16]} /></mesh>
       <mesh material={bellyMat} position={[0, 0, 0.48]}><sphereGeometry args={[0.35, 16, 16]} /></mesh>
+      
+      {/* Head */}
       <group ref={head} position={[0, 0.55, 0.2]}>
         <mesh material={headMat} castShadow><sphereGeometry args={[0.42, 16, 16]} /></mesh>
-        <mesh material={bellyMat} position={[0, -0.1, 0.38]}><sphereGeometry args={[0.18, 16, 16]} /></mesh>
-        <mesh material={headMat} position={[-0.25, 0.3, 0]} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
-        <mesh material={headMat} position={[0.25, 0.3, 0]} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
-        <mesh material={matBlack} position={[-0.15, 0.05, 0.39]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
-        <mesh material={matBlack} position={[0.15, 0.05, 0.39]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
-        <mesh material={matBlack} position={[0, -0.05, 0.55]}><sphereGeometry args={[0.04, 8, 8]} /></mesh>
+        
+        {/* Round Ears */}
+        <mesh material={headMat} position={[-0.28, 0.32, 0]} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
+        <mesh material={headMat} position={[0.28, 0.32, 0]} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
+        <mesh material={bellyMat} position={[-0.28, 0.32, 0.1]}><sphereGeometry args={[0.08, 12, 12]} /></mesh>
+        <mesh material={bellyMat} position={[0.28, 0.32, 0.1]}><sphereGeometry args={[0.08, 12, 12]} /></mesh>
+
+        {/* Eyes */}
+        <mesh material={matBlack} position={[-0.15, 0.12, 0.39]}><sphereGeometry args={[0.05, 8, 8]} /></mesh>
+        <mesh material={matBlack} position={[0.15, 0.12, 0.39]}><sphereGeometry args={[0.05, 8, 8]} /></mesh>
+        
+        {/* Large Prominent Snout */}
+        <mesh material={bellyMat} position={[0, -0.05, 0.38]} castShadow><sphereGeometry args={[0.22, 16, 16]} /></mesh>
+        <mesh material={matBlack} position={[0, 0.05, 0.58]}><sphereGeometry args={[0.07, 8, 8]} /></mesh>
       </group>
+
+      {/* Chunky Limbs */}
       <group ref={armL} position={[-0.35, 0.1, 0]}>
-        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
+        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.14, 0.4, 8, 8]} /></mesh>
       </group>
       <group ref={armR} position={[0.35, 0.1, 0]}>
-        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.12, 0.5, 8, 8]} /></mesh>
+        <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.14, 0.4, 8, 8]} /></mesh>
       </group>
       <group ref={legL} position={[-0.3, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.15, 0.5, 8, 8]} /></mesh>
+        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.16, 0.4, 8, 8]} /></mesh>
       </group>
       <group ref={legR} position={[0.3, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.15, 0.5, 8, 8]} /></mesh>
+        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.16, 0.4, 8, 8]} /></mesh>
+      </group>
+
+      {/* Puffy Tail */}
+      <group ref={tail} position={[0, -0.3, -0.5]}>
+        <mesh material={bodyMat} castShadow><sphereGeometry args={[0.16, 12, 12]} /></mesh>
       </group>
     </group>
   );
@@ -315,36 +356,57 @@ function BunnyCreature(props) {
   const bodyMat = useMemo(() => stdMat(props.colors?.body || props.color || '#fff'), [props]);
   const armMat  = useMemo(() => stdMat(props.colors?.arms || props.color || '#fff'), [props]);
   const legMat  = useMemo(() => stdMat(props.colors?.legs || props.color || '#fff'), [props]);
-  const innerMat = useMemo(() => stdMat('#ffe0a0'), []);
 
   return (
     <group ref={body} position={[0, 0.6, 0]}>
+      {/* Body */}
       <mesh material={bodyMat} castShadow><sphereGeometry args={[0.5, 16, 16]} /></mesh>
+      
+      {/* Head */}
       <group ref={head} position={[0, 0.45, 0.2]}>
         <mesh material={headMat} castShadow><sphereGeometry args={[0.38, 16, 16]} /></mesh>
-        <mesh material={innerMat} position={[0, -0.05, 0.35]}><sphereGeometry args={[0.12, 10, 10]} /></mesh>
-        <mesh material={headMat} position={[-0.15, 0.45, -0.05]} rotation={[0, 0, -0.1]} castShadow><capsuleGeometry args={[0.08, 0.5, 8, 8]} /></mesh>
-        <mesh material={innerMat} position={[-0.15, 0.45, 0]} rotation={[0, 0, -0.1]}><capsuleGeometry args={[0.04, 0.45, 8, 8]} /></mesh>
-        <mesh material={headMat} position={[0.15, 0.45, -0.05]} rotation={[0, 0, 0.1]} castShadow><capsuleGeometry args={[0.08, 0.5, 8, 8]} /></mesh>
-        <mesh material={innerMat} position={[0.15, 0.45, 0]} rotation={[0, 0, 0.1]}><capsuleGeometry args={[0.04, 0.45, 8, 8]} /></mesh>
-        <mesh material={matBlack} position={[-0.12, 0.05, 0.35]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
-        <mesh material={matBlack} position={[0.12, 0.05, 0.35]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
-        <mesh material={matPink} position={[0, -0.02, 0.46]}><sphereGeometry args={[0.03, 8, 8]} /></mesh>
+        
+        {/* Tall Ears */}
+        <group position={[-0.15, 0.45, -0.05]} rotation={[0, 0, -0.1]}>
+          <mesh material={headMat} castShadow><capsuleGeometry args={[0.08, 0.5, 8, 8]} /></mesh>
+          <mesh material={matPink} position={[0, 0, 0.05]}><capsuleGeometry args={[0.05, 0.4, 8, 8]} /></mesh>
+        </group>
+        <group position={[0.15, 0.45, -0.05]} rotation={[0, 0, 0.1]}>
+          <mesh material={headMat} castShadow><capsuleGeometry args={[0.08, 0.5, 8, 8]} /></mesh>
+          <mesh material={matPink} position={[0, 0, 0.05]}><capsuleGeometry args={[0.05, 0.4, 8, 8]} /></mesh>
+        </group>
+        
+        {/* Eyes */}
+        <mesh material={matBlack} position={[-0.15, 0.05, 0.32]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
+        <mesh material={matBlack} position={[0.15, 0.05, 0.32]}><sphereGeometry args={[0.06, 8, 8]} /></mesh>
+        
+        {/* Tiny Snout & Pink Nose & Buck Teeth! */}
+        <mesh material={matWhite} position={[0, -0.05, 0.36]} castShadow><sphereGeometry args={[0.14, 12, 12]} /></mesh>
+        <mesh material={matPink} position={[0, -0.02, 0.48]}><sphereGeometry args={[0.04, 8, 8]} /></mesh>
+        <mesh material={matWhite} position={[0, -0.15, 0.42]}><boxGeometry args={[0.08, 0.1, 0.05]} /></mesh>
       </group>
+
+      {/* Standard Arms */}
       <group ref={armL} position={[-0.25, 0.1, 0]}>
         <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.09, 0.5, 8, 8]} /></mesh>
       </group>
       <group ref={armR} position={[0.25, 0.1, 0]}>
         <mesh material={armMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.09, 0.5, 8, 8]} /></mesh>
       </group>
+
+      {/* Big Thumper Legs */}
       <group ref={legL} position={[-0.25, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.13, 0.5, 8, 8]} /></mesh>
+        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.13, 0.4, 8, 8]} /></mesh>
+        <mesh material={matWhite} position={[0, -0.45, 0.15]} rotation={[Math.PI/2, 0, 0]} castShadow><capsuleGeometry args={[0.1, 0.3, 8, 8]} /></mesh>
       </group>
       <group ref={legR} position={[0.25, -0.2, 0]}>
-        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.13, 0.5, 8, 8]} /></mesh>
+        <mesh material={legMat} position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.13, 0.4, 8, 8]} /></mesh>
+        <mesh material={matWhite} position={[0, -0.45, 0.15]} rotation={[Math.PI/2, 0, 0]} castShadow><capsuleGeometry args={[0.1, 0.3, 8, 8]} /></mesh>
       </group>
+
+      {/* Fluffy Tail */}
       <group ref={tail} position={[0, -0.3, -0.45]}>
-        <mesh material={matWhite} castShadow><sphereGeometry args={[0.15, 12, 12]} /></mesh>
+        <mesh material={matWhite} castShadow><sphereGeometry args={[0.18, 12, 12]} /></mesh>
       </group>
     </group>
   );
@@ -786,7 +848,6 @@ function StaticWorld() {
     <group>
       {HOUSE_CFGS.map((h, i) => <House key={i} position={h.pos} color={h.color} />)}
 
-      {/* Trees */}
       <Instances limit={55} castShadow>
         <cylinderGeometry args={[0.18, 0.26, 1.6, 7]} /><meshStandardMaterial color="#5c3a1e" roughness={1} />
         {pines.map((t,i) => <Instance key={i} position={[t.x, t.y+0.8, t.z]} scale={t.s} />)}
@@ -815,13 +876,11 @@ function StaticWorld() {
         </group>
       ))}
 
-      {/* Rocks */}
       <Instances limit={32} castShadow receiveShadow>
         <icosahedronGeometry args={[0.5, 0]} /><meshStandardMaterial color="#7a7060" roughness={0.95} />
         {ROCK_DATA.map((r,i) => <Instance key={i} position={[r.x, r.y+0.2*r.s, r.z]} scale={[r.s*1.2, r.s*0.7, r.s]} rotation={[r.rx, r.ry, 0]} />)}
       </Instances>
 
-      {/* Flowers */}
       <Instances limit={65}>
         <cylinderGeometry args={[0.02, 0.025, 0.28, 5]} /><meshStandardMaterial color="#44aa44" />
         {FLOWER_DATA.map((f,i) => <Instance key={i} position={[f.x, f.y-0.1, f.z]} scale={f.s} />)}
@@ -873,10 +932,7 @@ function GameUI() {
 
   const connectToGame = () => {
     if (!state.playerConfig.name) return alert("Enter a name!");
-    
-    // Connect to the hardcoded Server URL
     socket = io(SERVER_URL);
-    
     socket.emit('join', state.playerConfig);
     socket.on('currentPlayers', (p) => actions.setOnlinePlayers(p));
     socket.on('stateUpdate', (p) => actions.setOnlinePlayers(p));
@@ -948,11 +1004,18 @@ function GameUI() {
 
       <div style={ST.chatArea}>
         <div style={ST.chatLog}>
-          {state.chatMessages.map((m, i) => <div key={i}><b style={{ color: m.color }}>{m.name}:</b> {m.text}</div>)}
+          {/* Mapped in reverse! New messages push up from the bottom naturally. */}
+          {state.chatMessages.slice().reverse().map((m, i) => (
+            <div key={i} style={{ marginBottom: 4 }}><b style={{ color: m.color }}>{m.name}:</b> {m.text}</div>
+          ))}
         </div>
         <input style={ST.chatInput} placeholder="Type here and hit Enter..." value={chatText} onChange={e => setChatText(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && chatText.trim()) {
+              // Optimistic UI Update: Send it immediately to your own screen!
+              const msg = { name: state.playerConfig.name, color: state.playerConfig.colors.head, text: chatText };
+              actions.addChatMessage(msg);
+              
               if (socket) socket.emit('chat', chatText);
               setChatText("");
             }
@@ -1006,7 +1069,6 @@ export default function CandyIslandUltimate() {
             <PlayerController />
             {Object.values(store.state.onlinePlayers).map(p => socket && p.id !== socket.id && <NetworkPlayer key={p.id} data={p} />)}
             
-            {/* NPCs Restored! */}
             <NPC name="Barnaby" color={CONFIG.COLORS.barnaby} creatureType="bear" home={{ x:-15, y:getTerrainY(-15,-10), z:-10 }} dialogues={[{ text: "Hey! Welcome to Candy Island! What are you up to today?", options: [{ label: "Picking fruit!", next: 1 }, { label: "Just exploring.", next: 2 }]}, { text: "Nice! I saw some apples by the big rocks earlier.", next: 'end' }, { text: "It's a beautiful day for it. Take your time!", next: 'end' }]} />
             <NPC name="Luna" color={CONFIG.COLORS.luna} creatureType="cat" home={{ x:20, y:getTerrainY(20,10), z:10 }} dialogues={[{ text: "Meow~ Do you like the water here?", options: [{ label: "It's so calming.", next: 1 }, { label: "I prefer the forest.", next: 2 }]}, { text: "Right? I could sit by the shore all day.", next: 'end' }, { text: "The trees are nice too, lots of shade for naps.", next: 'end' }]} />
             <NPC name="Pip" color={CONFIG.COLORS.pip} creatureType="bunny" home={{ x:0, y:getTerrainY(0,22), z:22 }} dialogues={[{ text: 'I could hop around here all day!', next: 1 }, { text: 'The flowers smell amazing this time of year.', next: 'end' }]} />
@@ -1042,13 +1104,7 @@ const ST = {
   colorPicker: { width: 45, height: 45, border: 'none', borderRadius: 10, cursor: 'pointer', background: 'transparent' },
   startBtn:    { width: '100%', background: '#ff8fab', color: 'white', border: 'none', padding: '18px', borderRadius: 20, fontSize: 20, fontWeight: 'bold', cursor: 'pointer', fontFamily: FF, marginTop: 10 },
   
-  backpack:    { position:'absolute', top:25, right:25, background:'rgba(255,255,255,0.85)', padding:15, borderRadius:15, border:'4px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)', fontFamily:FF, zIndex:50, pointerEvents: 'auto' },
-  bpItem:      { background:'#fff', padding:'5px 10px', borderRadius:10, display:'flex', alignItems:'center', gap:8 },
-  
-  dialogueBox: { position:'absolute', bottom:40, left:'50%', transform:'translateX(-50%)', width:'60%', minWidth:320, background:'rgba(255,255,255,0.95)', padding:24, borderRadius:20, border:'5px solid #fff', boxShadow:'0 10px 30px rgba(0,0,0,0.15)', fontFamily:FF, textAlign:'center', zIndex:60, pointerEvents: 'auto' },
-  dialogueBtn: { background:'#e0e0e0', border:'none', padding:'12px 24px', borderRadius:12, color:'#333', fontWeight:'bold', cursor:'pointer', fontSize:16, fontFamily:FF, boxShadow:'0 4px 0 rgba(0,0,0,0.1)', transition:'transform 0.1s' },
-  
   chatArea:    { position: 'absolute', bottom: 20, left: 20, zIndex: 5, width: 300, fontFamily: FF, pointerEvents: 'auto' },
-  chatLog:     { background: 'rgba(0,0,0,0.4)', color: '#fff', padding: 15, borderRadius: 15, height: 160, overflowY: 'auto', marginBottom: 10, fontSize: 14, backdropFilter: 'blur(10px)', textShadow: '1px 1px 2px rgba(0,0,0,0.8)' },
+  chatLog:     { background: 'rgba(0,0,0,0.4)', color: '#fff', padding: 15, borderRadius: 15, height: 160, overflowY: 'auto', marginBottom: 10, fontSize: 14, backdropFilter: 'blur(10px)', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', display: 'flex', flexDirection: 'column-reverse' },
   chatInput:   { width: '100%', background: 'rgba(255,255,255,0.95)', border: 'none', padding: 12, borderRadius: 10, boxSizing: 'border-box', outline: 'none', fontFamily: FF, color: '#333', fontSize: 16 }
 };
