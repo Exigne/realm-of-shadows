@@ -707,6 +707,58 @@ function PlayerController() {
   );
 }
 
+// ─── NPC ─────────────────────────────────────────────────────────────────────
+
+function NPC({ name, color, home, dialogues, creatureType }) {
+  const { state } = useContext(GameContext);
+  const ref       = useRef();
+  const modeRef   = useRef('idle');
+  const target    = useRef(new THREE.Vector3(home.x, home.y, home.z));
+  const walkRef   = useRef(0);
+  const movingRef = useRef(false);
+
+  useFrame(({ clock }, delta) => {
+    if (!ref.current || state.dialogue?.name === name) return;
+    const t = clock.elapsedTime + home.x;
+    
+    // NPCs will pick a random nearby spot to walk to every 10 seconds
+    if (Math.floor(t) % 10 === 0 && modeRef.current === 'idle') {
+      modeRef.current = 'walk';
+      target.current.set(home.x + (Math.random()-0.5)*12, ref.current.position.y, home.z + (Math.random()-0.5)*12);
+    }
+    
+    if (modeRef.current === 'walk') {
+      const dir = target.current.clone().sub(ref.current.position).normalize();
+      ref.current.position.add(dir.multiplyScalar(delta * 1.6));
+      ref.current.lookAt(target.current.x, ref.current.position.y, target.current.z);
+      walkRef.current += delta * 4.5;
+      movingRef.current = true;
+      if (ref.current.position.distanceTo(target.current) < 0.5) { 
+        modeRef.current = 'idle'; 
+        movingRef.current = false; 
+      }
+    } else {
+      // Idle breathing bob
+      ref.current.position.y = home.y + 0.05 + Math.sin(t * 1.6) * 0.06;
+      movingRef.current = false;
+    }
+  });
+
+  const Creature = creatureType === 'bear' ? BearCreature : creatureType === 'bunny' ? BunnyCreature : CatCreature;
+
+  return (
+    <group ref={ref} position={[home.x, home.y, home.z]} userData={{ isNPC: true, name, color, dialogues }}>
+      <Creature color={color} walkCycle={walkRef.current} isMoving={movingRef.current} />
+      <Html position={[0, 2.3, 0]} center occlude>
+        <div style={{ background:'white', padding:'2px 10px', borderRadius:10, fontSize:12, border:`2px solid ${color}`, fontWeight:'bold', pointerEvents:'none', whiteSpace:'nowrap' }}>
+          {name}
+        </div>
+      </Html>
+      <ContactShadows opacity={0.35} scale={3} blur={2} position={[0, 0.02, 0]} />
+    </group>
+  );
+}
+
 // ─── World Data ───────────────────────────────────────────────────────────────
 
 function seededRand(seed) {
