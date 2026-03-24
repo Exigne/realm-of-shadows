@@ -589,12 +589,22 @@ function CameraRig() {
 // ─── Local Player Controller ─────────────────────────────────────────────────
 
 function PlayerController() {
+// ─── Local Player Controller ─────────────────────────────────────────────────
+
+function PlayerController() {
   const { state, actions, playerPosRef, playerGroupRef } = useContext(GameContext);
   const vel = useRef(new THREE.Vector3()); const movingRef = useRef(false);
   const prevGrounded = useRef(true); const isSwimmingRef = useRef(false);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const downVec = useMemo(() => new THREE.Vector3(0, -1, 0), []);
   const { scene } = useThree(); const lastSend = useRef(0); const lastStep = useRef(0);
+
+  // BUG FIX: Set the start position EXACTLY ONCE when the player spawns!
+  useEffect(() => {
+    if (playerGroupRef.current) {
+      playerGroupRef.current.position.set(playerPosRef.current.x, 5, playerPosRef.current.z);
+    }
+  }, []);
 
   useFrame(({ clock }, delta) => {
     const g = playerGroupRef.current;
@@ -674,14 +684,14 @@ function PlayerController() {
     }
   });
 
-const Creature = state.playerConfig.creatureType === 'bear' ? BearCreature : state.playerConfig.creatureType === 'bunny' ? BunnyCreature : CatCreature;
+  const Creature = state.playerConfig.creatureType === 'bear' ? BearCreature : state.playerConfig.creatureType === 'bunny' ? BunnyCreature : CatCreature;
   
   return (
-    // Spawn at our random coordinates!
-    <group ref={playerGroupRef} position={[playerPosRef.current.x, 5, playerPosRef.current.z]}>
+    // BUG FIX: Removed the hardcoded position=[] prop so React stops fighting the physics engine!
+    <group ref={playerGroupRef}>
       <Creature colors={state.playerConfig.colors} velRef={vel} isSwimmingRef={isSwimmingRef} />
       
-      {/* Add a local name tag so you know which one is you */}
+      {/* Player Name Tag */}
       <Html position={[0, 2.3, 0]} center>
         <div style={{ background:'rgba(255,255,255,0.9)', color:'#333', padding:'2px 8px', borderRadius:10, fontSize:12, fontWeight:'bold', border:`2px solid ${state.playerConfig.colors.head}`, whiteSpace:'nowrap' }}>
           {state.playerConfig.name} (You)
