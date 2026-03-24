@@ -21,7 +21,7 @@ import { io } from 'socket.io-client';
 // ─── Multiplayer Config ───────────────────────────────────────────────────────
 
 // HARDCODE YOUR NAS IP HERE! Make sure to keep the quotes and the :3001 port.
-const SERVER_URL = "http://192.168.1.129:9000"; 
+const SERVER_URL = "http://192.168.1.129:3001"; 
 let socket;
 
 // ─── Pure Math Terrain Generation ────────────────────────────────────────────
