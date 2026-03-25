@@ -1,6 +1,6 @@
 /**
- * 🛸 SPRINGFIELD UNDER SIEGE (Full Version)
- * Features: Traffic, Hiding in Buildings, Full UI, Chat, Aliens
+ * 🛸 SPRINGFIELD UNDER SIEGE (The Town & Traffic Update)
+ * Features: Proper Town Layout, Road-bound Traffic, Fixed Walking Animations, Full Retro Theme
  */
 
 import React, {
@@ -9,14 +9,14 @@ import React, {
 } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
-  Sky, ContactShadows, Instance, Instances, Html,
+  Sky, ContactShadows, Html,
 } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 
 // ─── Multiplayer Config ───────────────────────────────────────────────────────
-const SOCKET_URL = "http://192.168.1.129:3001"; // <--- your NAS IP:port
+const SOCKET_URL = "http://192.168.1.129:3001";
 let socket;
 
 const camState = { yaw: Math.PI, pitch: 0.45, yawVel: 0, pitchVel: 0 };
@@ -29,7 +29,7 @@ const CHARACTERS = [
     goal: "Moe's Tavern",           goalEmoji: '🍺',
     speed: 4.8,  maxHits: 4,        
     shirt: '#f5f5f5', pants: '#3355cc', hair: '#1a1a1a',
-    dest: new THREE.Vector3(38, 0, 24),
+    dest: new THREE.Vector3(45, 0, -28), // Outer block
     startPos: new THREE.Vector3(3, 0, 3),
     ability: 'tanky', abilityLabel: 'Extra Tough (4 hits)',
     quip: "D'oh! Not the aliens again!",
@@ -39,7 +39,7 @@ const CHARACTERS = [
     goal: 'Springfield Elementary', goalEmoji: '🏫',
     speed: 9.5,  maxHits: 2,        
     shirt: '#ff3333', pants: '#4455dd', hair: '#FFD90F',
-    dest: new THREE.Vector3(-38, 0, -28),
+    dest: new THREE.Vector3(-45, 0, 28), // Outer block
     startPos: new THREE.Vector3(-3, 0, 3),
     ability: 'fast', abilityLabel: 'Super Speed',
     quip: "Ay caramba! Eat my shorts, aliens!",
@@ -49,7 +49,7 @@ const CHARACTERS = [
     goal: 'Public Library',         goalEmoji: '📚',
     speed: 6.2,  maxHits: 2,        
     shirt: '#dd1111', pants: '#dd1111', hair: '#FFD90F',
-    dest: new THREE.Vector3(34, 0, -30),
+    dest: new THREE.Vector3(12, 0, -8), // Central block
     startPos: new THREE.Vector3(3, 0, -3),
     ability: 'slowtime', abilityLabel: 'Q: Slow Aliens (5s)',
     quip: "Statistically, running is optimal!",
@@ -59,38 +59,35 @@ const CHARACTERS = [
     goal: 'Kwik-E-Mart',            goalEmoji: '🏪',
     speed: 5.5,  maxHits: 3,        
     shirt: '#22aa44', pants: '#22aa44', hair: '#1133cc',
-    dest: new THREE.Vector3(-34, 0, 28),
+    dest: new THREE.Vector3(-12, 0, 8), // Central block
     startPos: new THREE.Vector3(-3, 0, -3),
     ability: 'shield', abilityLabel: 'Q: Activate Shield',
     quip: "Hmmmm… I don't like this one bit.",
   },
 ];
 
-// ─── Springfield Buildings ────────────────────────────────────────────────────
+// ─── Springfield Buildings (Redesigned to fit within City Blocks) ─────────────
 const BUILDINGS = [
-  { x: 38, z: 24,  w: 9,  d: 7,  h: 5,  color: '#7B3F00', roof: '#5a2d00', destFor: 'homer', label: "Moe's Tavern"         },
-  { x:-38, z:-28,  w:13,  d: 9,  h: 9,  color: '#cc3333', roof: '#aa2222', destFor: 'bart',  label: 'Springfield Elementary' },
-  { x: 34, z:-30,  w:11,  d: 8,  h:10,  color: '#3366cc', roof: '#224499', destFor: 'lisa',  label: 'Public Library'         },
-  { x:-34, z: 28,  w:10,  d: 7,  h: 5,  color: '#22aa44', roof: '#118833', destFor: 'marge', label: 'Kwik-E-Mart'            },
-  { x: 0,  z:-20,  w: 8,  d: 6,  h: 8,  color: '#aaaaaa', roof: '#888888', label: 'City Hall'            },
-  { x: 16, z: 10,  w: 6,  d: 5,  h:12,  color: '#ff8800', roof: '#cc6600', label: 'Nuclear Plant'        },
-  { x:-15, z: 5,   w: 7,  d: 6,  h: 7,  color: '#cc8855', roof: '#aa6633', label: 'Police Dept'          },
-  { x: 6,  z: 18,  w: 5,  d: 5,  h: 5,  color: '#88ccaa', roof: '#66aaaa', label: 'Hospital'             },
-  { x:-8,  z:-8,   w: 4,  d: 4,  h: 5,  color: '#ddaa33', roof: '#bb8822', label: 'Krusty Burger'        },
-  { x: 12, z:-8,   w: 4,  d: 4,  h: 4,  color: '#dd3333', roof: '#bb1111', label: "Android's Dungeon"    },
-  { x:-20, z:-18,  w: 5,  d: 4,  h: 6,  color: '#6688cc', roof: '#4466aa', label: 'Springfield Mall'     },
-  { x: 20, z:-12,  w: 5,  d: 5,  h: 5,  color: '#886644', roof: '#664422', label: 'First Church'         },
-  { x:-25, z: 0,   w: 6,  d: 4,  h: 4,  color: '#ccaa55', roof: '#aa8833', label: 'Springfield DMV'      },
-  { x: 25, z: 5,   w: 5,  d: 4,  h: 7,  color: '#aa55cc', roof: '#883399', label: 'Springfield Coliseum' },
+  // ── Destinations ──
+  { x: 45, z:-28,  w: 9, d: 7, h: 5,  color: '#7B3F00', roof: '#5a2d00', destFor: 'homer', label: "Moe's Tavern" },
+  { x:-45, z: 28,  w:13, d: 9, h: 9,  color: '#cc3333', roof: '#aa2222', destFor: 'bart',  label: 'Springfield Elementary' },
+  { x: 12, z:-8,   w:11, d: 8, h:10,  color: '#3366cc', roof: '#224499', destFor: 'lisa',  label: 'Public Library' },
+  { x:-12, z: 8,   w:10, d: 7, h: 5,  color: '#22aa44', roof: '#118833', destFor: 'marge', label: 'Kwik-E-Mart' },
+  // ── Generic Springfield ──
+  { x: 0,  z: 10,  w: 8, d: 6, h: 8,  color: '#aaaaaa', roof: '#888888', label: 'City Hall' },
+  { x: 40, z: 35,  w: 6, d: 5, h:12,  color: '#ff8800', roof: '#cc6600', label: 'Nuclear Plant' },
+  { x:-15, z:-10,  w: 7, d: 6, h: 7,  color: '#cc8855', roof: '#aa6633', label: 'Police Dept' },
+  { x: 0,  z:-35,  w: 8, d: 8, h: 6,  color: '#88ccaa', roof: '#66aaaa', label: 'Hospital' },
+  { x: 20, z:-10,  w: 4, d: 4, h: 5,  color: '#ddaa33', roof: '#bb8822', label: 'Krusty Burger' },
+  { x:-20, z:-35,  w: 8, d: 6, h: 5,  color: '#6688cc', roof: '#4466aa', label: 'Springfield Mall' },
+  { x:-40, z:-10,  w: 5, d: 5, h: 5,  color: '#886644', roof: '#664422', label: 'First Church' },
+  { x: 40, z: 10,  w: 5, d: 4, h: 7,  color: '#aa55cc', roof: '#883399', label: 'Springfield Coliseum' },
 ];
 
 const POWERUP_SPAWNS = [
-  { x:  0,  z:  0,  type: 'donut'  }, { x: 12,  z: 12,  type: 'emp'    },
-  { x:-12,  z: 12,  type: 'speed'  }, { x: 12,  z:-12,  type: 'shield' },
-  { x:-12,  z:-12,  type: 'donut'  }, { x:  0,  z: 18,  type: 'emp'    },
-  { x:  0,  z:-18,  type: 'speed'  }, { x: 22,  z:  0,  type: 'shield' },
-  { x:-22,  z:  0,  type: 'donut'  }, { x: 18,  z:-18,  type: 'speed'  },
-  { x:-18,  z: 18,  type: 'emp'    },
+  { x:  0,  z:  0,  type: 'donut'  }, { x: 30,  z: 30,  type: 'emp'    },
+  { x:-30,  z: 30,  type: 'speed'  }, { x: 30,  z:-30,  type: 'shield' },
+  { x:-30,  z:-30,  type: 'donut'  }, { x:  0,  z: 35,  type: 'emp'    },
 ];
 
 const POWERUP_CONFIG = {
@@ -102,7 +99,7 @@ const POWERUP_CONFIG = {
 
 const CONFIG = {
   SPEED: 6.5, ACCEL: 12, DECEL: 15, GRAVITY: 35, JUMP_FORCE: 14,
-  BOUNDS: 54, DEST_RADIUS: 4.5, PICKUP_RADIUS: 2.4, LASER_HIT_RADIUS: 2.5,
+  BOUNDS: 60, DEST_RADIUS: 4.5, PICKUP_RADIUS: 2.4, LASER_HIT_RADIUS: 2.5,
 };
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -111,6 +108,7 @@ const GameContext = createContext();
 function useSpringfieldStore() {
   const charGroupRefs = useRef(CHARACTERS.map(() => React.createRef()));
   const playerPosRef  = useRef(new THREE.Vector3());
+  const activeMovingRef = useRef(false); // Global ref to sync animation
 
   const initChars = () => CHARACTERS.map(c => ({
     id: c.id, hits: 0, done: false,
@@ -230,7 +228,7 @@ function useSpringfieldStore() {
     addChatMessage:   m => setState(s => ({ ...s, chatMessages: [...s.chatMessages.slice(-7), m] })),
   }), []);
 
-  return { state, actions, charGroupRefs, playerPosRef };
+  return { state, actions, charGroupRefs, playerPosRef, activeMovingRef };
 }
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
@@ -246,12 +244,32 @@ class GameAudio {
     if (this.bgm || !this.ctx) return;
     this.bgm = true;
     const BPM = 160; const B = 60 / BPM;
+    
+    // Expanded Full Retro Theme Array [Frequency, Beat Offset, Duration]
     const mel = [
-      [261.63, 0, 1], [329.63, 1.5, 1], [369.99, 2.5, 1], [440.00, 3.5, 1.5],
-      [392.00, 5, 1], [329.63, 6.5, 1], [261.63, 7.5, 1], [220.00, 8.5, 1],
-      [185.00, 9.5, 0.5], [185.00, 10, 0.5], [185.00, 10.5, 0.5], [196.00, 11, 2],
+      [523.25, 0, 1.5],   // C
+      [659.25, 1.5, 1],   // E
+      [739.99, 2.5, 1],   // F#
+      [880.00, 3.5, 0.5], // A
+      [783.99, 4, 1.5],   // G
+      [659.25, 5.5, 1],   // E
+      [523.25, 6.5, 1],   // C
+      [440.00, 7.5, 0.5], // A
+      [369.99, 8, 0.5],   // F#
+      [369.99, 8.5, 0.5], // F#
+      [369.99, 9, 0.5],   // F#
+      [392.00, 9.5, 1.5], // G
+      // Wait a beat...
+      [369.99, 11.5, 0.5], // F#
+      [369.99, 12, 0.5],   // F#
+      [369.99, 12.5, 0.5], // F#
+      [392.00, 13, 0.5],   // G
+      [466.16, 13.5, 0.5], // Bb
+      [493.88, 14, 0.5],   // B
+      [523.25, 14.5, 2]    // C (High)
     ];
-    const note = (f, bOff, dur, t0, vol=0.05, type='sine') => {
+
+    const note = (f, bOff, dur, t0, vol=0.04, type='square') => {
       const osc=this.ctx.createOscillator(); const env=this.ctx.createGain();
       const t=t0+bOff*B; const d=dur*B;
       osc.type=type; osc.frequency.value=f;
@@ -260,8 +278,8 @@ class GameAudio {
       osc.connect(env); env.connect(this.master); osc.start(t); osc.stop(t+d+0.05);
     };
     const loop = t => {
-      mel.forEach(([f,b,d]) => note(f,b,d,t,0.06,'square')); 
-      const next = t + 16*B;
+      mel.forEach(([f,b,d]) => note(f,b,d,t,0.05,'square')); 
+      const next = t + 20*B; // Loop repeats every 20 beats
       setTimeout(() => { if(this.bgm) loop(next); }, Math.max(0,(next-this.ctx.currentTime-0.5)*1000));
     };
     loop(this.ctx.currentTime + 0.1);
@@ -272,8 +290,8 @@ class GameAudio {
       const buf=this.ctx.createBuffer(1,this.ctx.sampleRate*0.05,this.ctx.sampleRate);
       const d=buf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,2);
       const src=this.ctx.createBufferSource(); src.buffer=buf;
-      const f=this.ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=900;
-      const g=this.ctx.createGain(); g.gain.value=0.2;
+      const f=this.ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=800;
+      const g=this.ctx.createGain(); g.gain.value=0.25;
       src.connect(f); f.connect(g); g.connect(this.master); src.start();
     }
     if (type === 'laser') {
@@ -321,7 +339,7 @@ class GameAudio {
 const audio = new GameAudio();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  IMPROVED BIPED ANIMATION ENGINE
+//  IMPROVED BIPED ANIMATION ENGINE (Proper Pendulum Swing)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const matBlack = new THREE.MeshBasicMaterial({ color: '#111' });
@@ -331,21 +349,20 @@ function stdMat(color) {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.1 });
 }
 
-function useHumanAnim({ velRef, isNPC, npcMovingRef }) {
+function useHumanAnim({ isNPC, npcMovingRef }) {
   const body=useRef(); const head=useRef();
   const armL=useRef(); const armR=useRef();
   const legL=useRef(); const legR=useRef();
   const walk=useRef(0);
 
   useFrame((_,delta) => {
-    let isMoving=false;
-    if(isNPC && npcMovingRef) { isMoving=npcMovingRef.current; }
-    else if(velRef) { isMoving = Math.hypot(velRef.current.x,velRef.current.z) > 0.5; }
+    // We read movement state directly from the passed-in ref
+    let isMoving = npcMovingRef && npcMovingRef.current;
 
     if(isMoving) walk.current += delta * 15;
 
     if(body.current) {
-      body.current.position.y = 1.0 + (isMoving ? Math.abs(Math.sin(walk.current)) * 0.06 : 0);
+      body.current.position.y = 1.0 + (isMoving ? Math.abs(Math.sin(walk.current)) * 0.08 : 0);
       body.current.rotation.z = isMoving ? Math.sin(walk.current) * 0.03 : 0;
       body.current.rotation.y = isMoving ? Math.sin(walk.current * 0.5) * 0.08 : 0;
     }
@@ -354,26 +371,26 @@ function useHumanAnim({ velRef, isNPC, npcMovingRef }) {
       head.current.rotation.x = isMoving ? Math.sin(walk.current * 2) * 0.02 : 0;
     }
 
-    const armSwing = Math.sin(walk.current) * 0.7;
-    const legSwing = Math.sin(walk.current) * 0.6;
+    // Pendulum swing for arms and legs
+    const armSwing = Math.sin(walk.current) * 0.8;
+    const legSwing = Math.sin(walk.current) * 0.7;
 
     if(isMoving){
-      if(armL.current) { armL.current.rotation.x = armSwing; armL.current.rotation.z = 0.1; }
-      if(armR.current) { armR.current.rotation.x = -armSwing; armR.current.rotation.z = -0.1; }
-      if(legL.current) legL.current.rotation.x = -legSwing;
-      if(legR.current) legR.current.rotation.x = legSwing;
+      if(armL.current) { armL.current.rotation.x = armSwing; }
+      if(armR.current) { armR.current.rotation.x = -armSwing; }
+      if(legL.current) { legL.current.rotation.x = -legSwing; }
+      if(legR.current) { legR.current.rotation.x = legSwing; }
     } else {
       [armL,armR,legL,legR].forEach(r=>{ if(r.current) {
         r.current.rotation.x = THREE.MathUtils.lerp(r.current.rotation.x, 0, 0.1);
-        r.current.rotation.z = THREE.MathUtils.lerp(r.current.rotation.z, 0, 0.1);
       }});
     }
   });
   return { body, head, armL, armR, legL, legR };
 }
 
-function SimpsonsRig({ charCfg, velRef, isNPC, npcMovingRef, isHidden }) {
-  const { body, head, armL, armR, legL, legR } = useHumanAnim({ velRef, isNPC, npcMovingRef });
+function SimpsonsRig({ charCfg, isNPC, npcMovingRef, isHidden }) {
+  const { body, head, armL, armR, legL, legR } = useHumanAnim({ isNPC, npcMovingRef });
   const shirtMat = useMemo(() => stdMat(charCfg.shirt), [charCfg.shirt]);
   const pantsMat = useMemo(() => stdMat(charCfg.pants), [charCfg.pants]);
   const hairMat  = useMemo(() => stdMat(charCfg.hair),  [charCfg.hair]);
@@ -414,30 +431,63 @@ function SimpsonsRig({ charCfg, velRef, isNPC, npcMovingRef, isHidden }) {
   );
 }
 
-// ─── Environment & Buildings ──────────────────────────────────────────────────
+// ─── Proper City Environment & Roads ──────────────────────────────────────────
 
-function makeRoadTexture() {
-  const S=1024; const c=document.createElement('canvas'); c.width=c.height=S;
-  const ctx=c.getContext('2d');
-  ctx.fillStyle='#555555'; ctx.fillRect(0,0,S,S);
-  for(let i=0;i<8000;i++){
-    const x=Math.random()*S, y=Math.random()*S;
-    ctx.fillStyle=`rgba(${Math.random()>0.5?80:40},${Math.random()>0.5?80:40},${Math.random()>0.5?80:40},0.08)`;
-    ctx.fillRect(x,y,2,2);
-  }
-  ctx.strokeStyle='rgba(255,220,0,0.55)'; ctx.lineWidth=3; ctx.setLineDash([30,18]);
-  for(let i=64;i<S;i+=64){ ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,S); ctx.stroke(); }
-  for(let i=64;i<S;i+=64){ ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(S,i); ctx.stroke(); }
-  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(8,8); return t;
-}
-
-function Terrain() {
-  const roadTex = useMemo(makeRoadTexture, []);
+function CityMap() {
   return (
-    <mesh name="ground" rotation={[-Math.PI/2,0,0]} position={[0,0,0]} receiveShadow>
-      <planeGeometry args={[160,160,1,1]} />
-      <meshStandardMaterial map={roadTex} roughness={0.92} metalness={0.02} />
-    </mesh>
+    <group>
+      {/* Base Grass */}
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, -0.05, 0]} receiveShadow>
+        <planeGeometry args={[200, 200]} />
+        <meshStandardMaterial color="#4a9e30" roughness={0.9} />
+      </mesh>
+
+      {/* Sidewalks (Underneath roads) */}
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.005, -20]} receiveShadow>
+        <planeGeometry args={[104, 14]} /><meshStandardMaterial color="#999" roughness={0.9} />
+      </mesh>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.005, 20]} receiveShadow>
+        <planeGeometry args={[104, 14]} /><meshStandardMaterial color="#999" roughness={0.9} />
+      </mesh>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[-30, 0.005, 0]} receiveShadow>
+        <planeGeometry args={[14, 54]} /><meshStandardMaterial color="#999" roughness={0.9} />
+      </mesh>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[30, 0.005, 0]} receiveShadow>
+        <planeGeometry args={[14, 54]} /><meshStandardMaterial color="#999" roughness={0.9} />
+      </mesh>
+
+      {/* Roads (Dark Asphalt) */}
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.01, -20]} receiveShadow>
+        <planeGeometry args={[100, 10]} /><meshStandardMaterial color="#333" roughness={0.8} />
+      </mesh>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.01, 20]} receiveShadow>
+        <planeGeometry args={[100, 10]} /><meshStandardMaterial color="#333" roughness={0.8} />
+      </mesh>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[-30, 0.01, 0]} receiveShadow>
+        <planeGeometry args={[10, 50]} /><meshStandardMaterial color="#333" roughness={0.8} />
+      </mesh>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[30, 0.01, 0]} receiveShadow>
+        <planeGeometry args={[10, 50]} /><meshStandardMaterial color="#333" roughness={0.8} />
+      </mesh>
+
+      {/* Road Dashed Lines */}
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.015, -20]}>
+        <planeGeometry args={[90, 0.3]} />
+        <meshBasicMaterial color="#FFD90F" transparent opacity={0.6} />
+      </mesh>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.015, 20]}>
+        <planeGeometry args={[90, 0.3]} />
+        <meshBasicMaterial color="#FFD90F" transparent opacity={0.6} />
+      </mesh>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[-30, 0.015, 0]}>
+        <planeGeometry args={[0.3, 40]} />
+        <meshBasicMaterial color="#FFD90F" transparent opacity={0.6} />
+      </mesh>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[30, 0.015, 0]}>
+        <planeGeometry args={[0.3, 40]} />
+        <meshBasicMaterial color="#FFD90F" transparent opacity={0.6} />
+      </mesh>
+    </group>
   );
 }
 
@@ -476,7 +526,7 @@ function Building({ b }) {
   );
 }
 
-// ─── Traffic System (NPC Cars) ────────────────────────────────────────────────
+// ─── Traffic System (Road-bound NPC Cars) ─────────────────────────────────────
 
 function CarMesh({ color }) {
   const bodyMat = useMemo(() => stdMat(color), [color]);
@@ -497,23 +547,35 @@ function CarMesh({ color }) {
 function TrafficSystem() {
   const { state, actions, playerPosRef } = useContext(GameContext);
   
+  // Cars stick strictly to the roads: Z=-20, X=30, Z=20, X=-30
   const carData = useMemo(() => [
-    { id: 1, color: '#e74c3c', speed: 12, bounds: { xMin: -30, xMax: 30, zMin: -16, zMax: 16 }, dir: 'x', pos: [0, 0, 16] },
-    { id: 2, color: '#3498db', speed: 10, bounds: { xMin: -45, xMax: 45, zMin: -35, zMax: 35 }, dir: '-z', pos: [45, 0, 0] },
-    { id: 3, color: '#f1c40f', speed: 15, bounds: { xMin: -25, xMax: 25, zMin: -25, zMax: 25 }, dir: '-x', pos: [0, 0, -25] }
+    { id: 1, color: '#e74c3c', speed: 18, dir: '+x', pos: [0, 0, -20], bounds: { xMin: -30, xMax: 30, zMin: -20, zMax: 20 } }, // Clockwise Outer
+    { id: 2, color: '#3498db', speed: 15, dir: '-x', pos: [0, 0, 20],  bounds: { xMin: -30, xMax: 30, zMin: -20, zMax: 20 } }, // Clockwise Inner
+    { id: 3, color: '#f1c40f', speed: 20, dir: '+z', pos: [30, 0, 0],  bounds: { xMin: -30, xMax: 30, zMin: -20, zMax: 20 } }, // Clockwise Outer 2
   ], []);
 
   const carRefs = useRef(carData.map(() => React.createRef()));
 
   useFrame((_, delta) => {
     if (state.phase !== 'play') return;
+    
     carData.forEach((car, i) => {
       const g = carRefs.current[i].current;
       if (!g) return;
-      if (car.dir === 'x') { g.position.x += car.speed * delta; g.rotation.y = Math.PI/2; if (g.position.x > car.bounds.xMax) { car.dir = 'z'; g.position.x = car.bounds.xMax; } }
-      else if (car.dir === 'z') { g.position.z += car.speed * delta; g.rotation.y = 0; if (g.position.z > car.bounds.zMax) { car.dir = '-x'; g.position.z = car.bounds.zMax; } }
-      else if (car.dir === '-x') { g.position.x -= car.speed * delta; g.rotation.y = -Math.PI/2; if (g.position.x < car.bounds.xMin) { car.dir = '-z'; g.position.x = car.bounds.xMin; } }
-      else if (car.dir === '-z') { g.position.z -= car.speed * delta; g.rotation.y = Math.PI; if (g.position.z < car.bounds.zMin) { car.dir = 'x'; g.position.z = car.bounds.zMin; } }
+
+      if (car.dir === '+x') {
+        g.position.x += car.speed * delta; g.rotation.y = Math.PI / 2;
+        if (g.position.x >= car.bounds.xMax) { g.position.x = car.bounds.xMax; car.dir = '+z'; }
+      } else if (car.dir === '+z') {
+        g.position.z += car.speed * delta; g.rotation.y = 0;
+        if (g.position.z >= car.bounds.zMax) { g.position.z = car.bounds.zMax; car.dir = '-x'; }
+      } else if (car.dir === '-x') {
+        g.position.x -= car.speed * delta; g.rotation.y = -Math.PI / 2;
+        if (g.position.x <= car.bounds.xMin) { g.position.x = car.bounds.xMin; car.dir = '-z'; }
+      } else if (car.dir === '-z') {
+        g.position.z -= car.speed * delta; g.rotation.y = Math.PI;
+        if (g.position.z <= car.bounds.zMin) { g.position.z = car.bounds.zMin; car.dir = '+x'; }
+      }
 
       if (!state.chars[state.activeCharIdx].hidden && !state.chars[state.activeCharIdx].done) {
         if (g.position.distanceTo(playerPosRef.current) < 2.5) {
@@ -726,7 +788,7 @@ function CameraRig() {
 // ─── Player Controller ───────────────────────────────────────────────────────
 
 function PlayerController() {
-  const { state, actions, charGroupRefs, playerPosRef } = useContext(GameContext);
+  const { state, actions, charGroupRefs, playerPosRef, activeMovingRef } = useContext(GameContext);
   const vel          = useRef(new THREE.Vector3());
   const movingRef    = useRef(false);
   const lastSend     = useRef(0);
@@ -780,17 +842,23 @@ function PlayerController() {
       g.position.x = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.x + vel.current.x * delta));
       g.position.z = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.z + vel.current.z * delta));
       g.position.y += vel.current.y * delta;
+      
       if (g.position.y <= 0) { g.position.y = 0; vel.current.y = 0; }
       if (keyState[' '] && g.position.y <= 0.01) vel.current.y = CONFIG.JUMP_FORCE;
 
       const spd2D = Math.hypot(vel.current.x, vel.current.z);
       movingRef.current = spd2D > 0.5;
-      if (movingRef.current) g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), Math.min(1, 15*delta));
+      
+      if (movingRef.current) {
+        g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), Math.min(1, 15*delta));
+      }
     } else {
       vel.current.set(0,0,0);
       movingRef.current = false;
     }
 
+    // Export the moving state so the animation engine can read it
+    activeMovingRef.current = movingRef.current;
     playerPosRef.current.copy(g.position);
 
     if (!charState?.done && !charState.hidden) {
@@ -823,7 +891,7 @@ function PlayerController() {
 // ─── Render Simpsons Characters ───────────────────────────────────────────────
 
 function SimpsonsCharacters() {
-  const { state, charGroupRefs } = useContext(GameContext);
+  const { state, charGroupRefs, activeMovingRef } = useContext(GameContext);
 
   return (
     <>
@@ -839,7 +907,12 @@ function SimpsonsCharacters() {
               <mesh><sphereGeometry args={[1.8, 16, 16]} /><meshBasicMaterial color="#aaaaff" transparent opacity={0.25} side={THREE.DoubleSide} /></mesh>
             )}
             
-            <SimpsonsRig charCfg={charCfg} isNPC={!isActive || state.phase !== 'play'} npcMovingRef={{ current: false }} isHidden={charSt?.hidden} />
+            <SimpsonsRig 
+              charCfg={charCfg} 
+              isNPC={true} 
+              npcMovingRef={isActive ? activeMovingRef : { current: false }} 
+              isHidden={charSt?.hidden} 
+            />
             
             {charSt?.hidden && (
                <Html position={[0, 2, 0]} center><div style={{ background:'rgba(0,0,0,0.8)', color:'white', padding:'4px 10px', borderRadius:10, fontWeight:'bold', border:'2px solid yellow' }}>👀 HIDDEN!</div></Html>
@@ -1013,7 +1086,7 @@ export default function SpringfieldUnderSiege() {
             <ambientLight intensity={0.5} color="#cceeff" />
             <directionalLight position={[80, 60, 20]} intensity={1.8} castShadow shadow-mapSize={[2048, 2048]} />
             
-            <Terrain />
+            <CityMap />
             {BUILDINGS.map((b, i) => <Building key={i} b={b} />)}
             {CHARACTERS.map((c, i) => <DestinationZone key={c.id} charId={c.id} pos={c.dest} done={store.state.chars[i]?.done} />)}
             {store.state.powerUps.map(pu => <PowerUp key={pu.id} data={pu} />)}
