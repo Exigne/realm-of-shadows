@@ -16,7 +16,7 @@ import { io } from 'socket.io-client';
 
 // ─── Multiplayer Config ───────────────────────────────────────────────────────
 // ⚠️ REPLACE THIS WITH YOUR GITHUB CODESPACE PORT 3001 URL
-const SOCKET_URL = "https://YOUR-CODESPACE-NAME-3001.app.github.dev"; 
+const SOCKET_URL = "http://192.168.1.129:3001"; 
 let socket;
 
 const camState = { yaw: Math.PI, pitch: 0.45, yawVel: 0, pitchVel: 0 };
