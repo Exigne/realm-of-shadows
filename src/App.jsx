@@ -602,23 +602,20 @@ function Terrain() {
 const STREET_TREES = (() => {
   const rng = (() => { let s = 91; return () => { s=(s*16807)%2147483647; return (s-1)/2147483646; }; })();
   const out = [];
-  // Place trees inside grass plots, away from building spots
   const avoid = [
-    [38,24],[−38,−28],[34,−30],[−34,28],
-    [0,−20],[16,10],[−15,5],[6,18],[−8,−8],[12,−8],[−20,−18],[20,−12],[−25,0],[25,5],
+    [38,24],[-38,-28],[34,-30],[-34,28],
+    [0,-20],[16,10],[-15,5],[6,18],[-8,-8],[12,-8],[-20,-18],[20,-12],[-25,0],[25,5],
   ];
   const clear = (x,z) => avoid.every(([ax,az]) => Math.hypot(x-ax,z-az) > 7);
   let att = 0;
   while (out.length < 55 && att++ < 600) {
-    // Only place in grass strips (between roads)
     const bandPick = () => {
-      const bands = [[-MAP_EXT, -32-ROAD_HW], [-12-ROAD_HW+1, 12-ROAD_HW-1], [12+ROAD_HW+1, 32-ROAD_HW-1], [32+ROAD_HW, MAP_EXT]];
-      // pick a grass band
+      const bands = [[-64, -32-ROAD_HW], [-12-ROAD_HW+1, 12-ROAD_HW-1], [12+ROAD_HW+1, 32-ROAD_HW-1], [32+ROAD_HW, 64]];
       const b = bands[Math.floor(rng()*bands.length)];
       return b[0] + rng()*(b[1]-b[0]);
     };
     const x = bandPick(), z = bandPick();
-    if (Math.abs(x) < MAP_EXT-2 && Math.abs(z) < MAP_EXT-2 && clear(x,z)) {
+    if (Math.abs(x) < 62 && Math.abs(z) < 62 && clear(x,z)) {
       out.push({ x, z, scale: 0.7+rng()*0.55, variety: rng() });
     }
   }
