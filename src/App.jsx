@@ -25,8 +25,8 @@ let ablyChannel;
 function getTerrainY() { return 0; }
 
 // ─── Camera & key state ───────────────────────────────────────────────────────
-const camState = { yaw: Math.PI, pitch: 0.45, yawVel: 0, pitchVel: 0 };
-const keyState  = { prevE: false, prevTab: false, prevQ: false };
+const camState = { yaw: Math.PI, pitch: 0.45 };
+const keyState  = { prevE: false, prevQ: false };
 
 // ─── Characters ───────────────────────────────────────────────────────────────
 const CHARACTERS = [
@@ -37,8 +37,8 @@ const CHARACTERS = [
     shirt: '#f5f5f5', pants: '#3355cc', hair: '#1a1a1a',
     dest: new THREE.Vector3(38, 0, 24),
     startPos: new THREE.Vector3(3, 0, 3),
-    ability: 'tanky',
-    abilityLabel: 'Extra Tough (4 hits)',
+    ability: 'heal',
+    abilityLabel: 'Q: Eat Donut (Heal)',
     quip: "D'oh! Not the aliens again!",
   },
   {
@@ -49,7 +49,7 @@ const CHARACTERS = [
     dest: new THREE.Vector3(-38, 0, -28),
     startPos: new THREE.Vector3(-3, 0, 3),
     ability: 'fast',
-    abilityLabel: 'Super Speed',
+    abilityLabel: 'Q: Super Speed (5s)',
     quip: "Ay caramba! Eat my shorts, aliens!",
   },
   {
@@ -60,7 +60,7 @@ const CHARACTERS = [
     dest: new THREE.Vector3(34, 0, -30),
     startPos: new THREE.Vector3(3, 0, -3),
     ability: 'slowtime',
-    abilityLabel: 'Q: Slow Aliens (5s)',
+    abilityLabel: 'Q: EMP Slow Aliens (5s)',
     quip: "Statistically, running is optimal!",
   },
   {
@@ -128,6 +128,50 @@ const CONFIG = {
   LASER_HIT_RADIUS: 1.6,
 };
 
+// ─── Custom Physics Helper ────────────────────────────────────────────────────
+function checkCollision(x, y, z) {
+  let floorY = 0;
+  let hitWall = false;
+
+  for (let b of BUILDINGS) {
+    const hw = b.w / 2 + 0.8;
+    const hd = b.d / 2 + 0.8;
+    if (Math.abs(x - b.x) < hw && Math.abs(z - b.z) < hd) {
+      floorY = Math.max(floorY, b.h);
+    }
+  }
+
+  for (let c of PARKED_CARS) {
+    if (Math.hypot(x - c.x, z - c.z) < 2.5) {
+      floorY = Math.max(floorY, 1.8);
+    }
+  }
+  
+  for (let t of STREET_TREES) {
+    if (Math.hypot(x - t.x, z - t.z) < 0.6 && y < 3) hitWall = true;
+  }
+
+  for (let l of LAMP_POSTS) {
+    if (Math.hypot(x - l[0], z - l[1]) < 0.5 && y < 5) hitWall = true;
+  }
+
+  if (y < floorY - 0.4) hitWall = true;
+
+  return { floorY, hitWall };
+}
+
+// Check Line Of Sight for Lasers
+function checkLOS(x1, z1, x2, z2) {
+  const steps = 15;
+  for(let i=0; i<=steps; i++) {
+    const x = x1 + (x2 - x1) * (i/steps);
+    const z = z1 + (z2 - z1) * (i/steps);
+    const col = checkCollision(x, 1.5, z);
+    if (col.floorY > 1.5) return false; 
+  }
+  return true;
+}
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 const GameContext = createContext();
 
@@ -145,14 +189,16 @@ function useSpringfieldStore() {
   const initPowerUps = () => POWERUP_SPAWNS.map((p, i) => ({ ...p, id: i, active: true }));
 
   const [state, setState] = useState({
-    phase: 'start',
+    phase: 'lobby',
     lives: 3,
     activeCharIdx: 0,
     chars: initChars(),
     powerUps: initPowerUps(),
     score: 0,
     alienSlowEnd: 0,
+    isHidden: false,
     onlinePlayers: {},
+    takenCharacters: [],
     chatMessages: [],
     quip: null,
   });
@@ -160,40 +206,33 @@ function useSpringfieldStore() {
   const actions = useMemo(() => ({
     setPhase: p => setState(s => ({ ...s, phase: p })),
 
-    nextChar: () => setState(s => {
-      for (let i = 1; i <= CHARACTERS.length; i++) {
-        const idx = (s.activeCharIdx + i) % CHARACTERS.length;
-        if (!s.chars[idx].done) return { ...s, activeCharIdx: idx };
-      }
-      return s;
+    setActiveChar: id => setState(s => {
+      const idx = CHARACTERS.findIndex(c => c.id === id);
+      return { ...s, activeCharIdx: Math.max(0, idx) };
     }),
 
-    switchChar: idx => setState(s =>
-      s.chars[idx]?.done ? s : { ...s, activeCharIdx: idx }
-    ),
+    toggleHide: () => setState(s => {
+      const isNowHidden = !s.isHidden;
+      if (isNowHidden) audio.sfx('door');
+      return { ...s, isHidden: isNowHidden };
+    }),
 
     charArrived: charId => setState(s => {
       const chars = s.chars.map(c => c.id === charId ? { ...c, done: true } : c);
-      const allDone = chars.every(c => c.done);
-      let nextIdx = s.activeCharIdx;
-      if (!allDone) {
-        const cur = CHARACTERS.findIndex(c => c.id === charId);
-        for (let i = 1; i <= CHARACTERS.length; i++) {
-          const idx = (cur + i) % CHARACTERS.length;
-          if (!chars[idx].done) { nextIdx = idx; break; }
-        }
-      }
-      return { ...s, chars, activeCharIdx: nextIdx, score: s.score + 500, phase: allDone ? 'win' : s.phase };
+      return { ...s, chars, score: s.score + 500, phase: 'win' };
     }),
 
     hitChar: charIdx => setState(s => {
+      if (s.isHidden) return s; 
       const char = s.chars[charIdx];
       if (!char || char.done) return s;
+      
       if (char.shieldActive && char.shieldCharges > 0) {
         const chars = [...s.chars];
         chars[charIdx] = { ...char, shieldCharges: char.shieldCharges - 1, shieldActive: char.shieldCharges - 1 > 0 };
         return { ...s, chars };
       }
+      
       const newLives = s.lives - 1;
       const chars = [...s.chars];
       chars[charIdx] = { ...char, hits: char.hits + 1 };
@@ -218,13 +257,21 @@ function useSpringfieldStore() {
       if (!charCfg) return s;
       const chars = [...s.chars];
       const now = Date.now();
-      if (charCfg.ability === 'slowtime' && now > (s.chars[charIdx].slowTimeEnd || 0)) {
+
+      if (charCfg.ability === 'slowtime') {
         chars[charIdx] = { ...chars[charIdx], slowTimeEnd: now + 5000 };
         return { ...s, chars, alienSlowEnd: now + 5000 };
       }
       if (charCfg.ability === 'shield') {
         chars[charIdx] = { ...chars[charIdx], shieldActive: true, shieldCharges: 1 };
         return { ...s, chars };
+      }
+      if (charCfg.ability === 'fast') {
+        chars[charIdx] = { ...chars[charIdx], speedBoostEnd: now + 5000 };
+        return { ...s, chars };
+      }
+      if (charCfg.ability === 'heal') {
+        return { ...s, lives: Math.min(s.lives + 1, 6) };
       }
       return s;
     }),
@@ -234,12 +281,7 @@ function useSpringfieldStore() {
       setTimeout(() => setState(s => ({ ...s, quip: null })), 3000);
     },
 
-    addScore: n => setState(s => ({ ...s, score: s.score + n })),
-
-    reset: () => setState(s => ({
-      ...s, phase: 'start', lives: 3, activeCharIdx: 0, score: 0,
-      chars: initChars(), powerUps: initPowerUps(), alienSlowEnd: 0, quip: null,
-    })),
+    setTakenCharacters: list => setState(s => ({ ...s, takenCharacters: list })),
 
     setOnlinePlayers: updateFn => setState(s => ({
       ...s,
@@ -263,21 +305,27 @@ class GameAudio {
   playBGM() {
     if (this.bgm || !this.ctx) return;
     this.bgm = true;
-    const BPM = 126; const B = 60 / BPM;
-    const mel  = [[392,0,0.9],[440,1,0.9],[523,2,0.9],[392,3,0.9],[349,4,1.8]];
-    const bass = [[130.81,0,1.8],[174.61,4,1.8]];
-    const note = (f, bOff, dur, t0, vol=0.05, type='sine') => {
+    const BPM = 40; // Super slow Simpsons Theme
+    const B = 60 / BPM;
+    
+    // Simplistic Slow Simpsons Theme Melody
+    const mel = [
+      [261.63, 0, 1.5], [329.63, 1.5, 1.5], [369.99, 3, 1.5], [440.00, 4.5, 1.0],
+      [392.00, 5.5, 1.5], [329.63, 7.0, 1.5], [261.63, 8.5, 1.5],
+      [220.00, 10.0, 0.5], [185.00, 10.5, 0.5], [185.00, 11.0, 0.5], [185.00, 11.5, 0.5], [196.00, 12.0, 2.0]
+    ];
+    
+    const note = (f, bOff, dur, t0, vol=0.05, type='triangle') => {
       const osc=this.ctx.createOscillator(); const env=this.ctx.createGain();
       const t=t0+bOff*B; const d=dur*B;
       osc.type=type; osc.frequency.value=f;
-      env.gain.setValueAtTime(0.001,t); env.gain.linearRampToValueAtTime(vol,t+0.02);
+      env.gain.setValueAtTime(0.001,t); env.gain.linearRampToValueAtTime(vol,t+0.1);
       env.gain.exponentialRampToValueAtTime(0.0001,t+d*0.95);
-      osc.connect(env); env.connect(this.master); osc.start(t); osc.stop(t+d+0.05);
+      osc.connect(env); env.connect(this.master); osc.start(t); osc.stop(t+d+0.1);
     };
     const loop = t => {
-      mel.forEach(([f,b,d]) => note(f,b,d,t,0.05,'sine'));
-      bass.forEach(([f,b,d]) => note(f,b,d,t,0.04,'triangle'));
-      const next = t + 16*B;
+      mel.forEach(([f,b,d]) => note(f,b,d,t,0.06,'triangle'));
+      const next = t + 14*B;
       setTimeout(() => { if(this.bgm) loop(next); }, Math.max(0,(next-this.ctx.currentTime-0.5)*1000));
     };
     loop(this.ctx.currentTime + 0.1);
@@ -289,7 +337,7 @@ class GameAudio {
       const d=buf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,2);
       const src=this.ctx.createBufferSource(); src.buffer=buf;
       const f=this.ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=900;
-      const g=this.ctx.createGain(); g.gain.value=0.35;
+      const g=this.ctx.createGain(); g.gain.value=0.2;
       src.connect(f); f.connect(g); g.connect(this.master); src.start();
     }
     if (type === 'laser') {
@@ -300,6 +348,13 @@ class GameAudio {
       g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+0.2);
       osc.connect(g); g.connect(this.master); osc.start(); osc.stop(this.ctx.currentTime+0.22);
     }
+    if (type === 'door') {
+      const osc=this.ctx.createOscillator(); const g=this.ctx.createGain();
+      osc.type='square'; osc.frequency.setValueAtTime(120,this.ctx.currentTime);
+      g.gain.setValueAtTime(0.1,this.ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+0.2);
+      osc.connect(g); g.connect(this.master); osc.start(); osc.stop(this.ctx.currentTime+0.25);
+    }
     if (type === 'hit') {
       [220,180,150].forEach((f,i) => {
         const osc=this.ctx.createOscillator(); const g=this.ctx.createGain();
@@ -309,16 +364,7 @@ class GameAudio {
         osc.connect(g); g.connect(this.master); osc.start(t); osc.stop(t+0.14);
       });
     }
-    if (type === 'arrive') {
-      [523,659,784,1047].forEach((f,i) => {
-        const osc=this.ctx.createOscillator(); const g=this.ctx.createGain();
-        osc.type='sine'; osc.frequency.value=f;
-        const t=this.ctx.currentTime+i*0.1;
-        g.gain.setValueAtTime(0.09,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.5);
-        osc.connect(g); g.connect(this.master); osc.start(t); osc.stop(t+0.55);
-      });
-    }
-    if (type === 'pickup') {
+    if (type === 'pickup' || type === 'arrive') {
       const osc=this.ctx.createOscillator(); const g=this.ctx.createGain();
       osc.type='sine'; osc.frequency.setValueAtTime(440,this.ctx.currentTime);
       osc.frequency.setValueAtTime(880,this.ctx.currentTime+0.08);
@@ -390,7 +436,7 @@ function useHumanAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
   return { body, head, armL, armR, legL, legR };
 }
 
-function SimpsonsRig({ charCfg, velRef, isSwimmingRef, isNPC, npcMovingRef }) {
+function SimpsonsRig({ charCfg, velRef, isSwimmingRef, isNPC, npcMovingRef, isHidden }) {
   const { body, head, armL, armR, legL, legR } = useHumanAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef });
   const shirtMat = useMemo(() => stdMat(charCfg.shirt), [charCfg.shirt]);
   const pantsMat = useMemo(() => stdMat(charCfg.pants), [charCfg.pants]);
@@ -399,7 +445,7 @@ function SimpsonsRig({ charCfg, velRef, isSwimmingRef, isNPC, npcMovingRef }) {
   const isHomer  = charCfg.id === 'homer';
 
   return (
-    <group ref={body} position={[0, 1.0, 0]}>
+    <group ref={body} position={[0, 1.0, 0]} visible={!isHidden}>
       <mesh material={shirtMat} castShadow><boxGeometry args={[0.6, 0.8, 0.4]} /></mesh>
       <group ref={head} position={[0, 0.6, 0]}>
         <mesh material={matSkinYellow} castShadow><boxGeometry args={[0.45, 0.5, 0.45]} /></mesh>
@@ -436,7 +482,7 @@ function SimpsonsRig({ charCfg, velRef, isSwimmingRef, isNPC, npcMovingRef }) {
   );
 }
 
-// ─── Laser Beam (THE MISSING COMPONENT) ──────────────────────────────────────
+// ─── Laser Beam ──────────────────────────────────────────────────────────────
 function LaserBeam({ laser, onExpire, onHit }) {
   const ref      = useRef();
   const progress = useRef(0);
@@ -446,7 +492,6 @@ function LaserBeam({ laser, onExpire, onHit }) {
   const to    = useMemo(() => new THREE.Vector3(...laser.to),   [laser.to]);
   const target = useMemo(() => new THREE.Vector3(...laser.target), [laser.target]);
 
-  // Build a thin tube along the beam direction
   const { midPoint, length, quaternion } = useMemo(() => {
     const dir = to.clone().sub(from);
     const length = dir.length();
@@ -460,25 +505,18 @@ function LaserBeam({ laser, onExpire, onHit }) {
     if (!ref.current) return;
     progress.current += delta * 3.5;
 
-    // Animate beam travelling (scale along Y)
     const t = Math.min(progress.current, 1);
     ref.current.scale.y = t;
     ref.current.position.lerpVectors(from, midPoint, t);
 
-    // Check hit on arrival
     if (!hit.current && progress.current >= 0.9) {
       hit.current = true;
-      const currentCharGroup = document.querySelector('#char-' + laser.charIdx); // fallback
-      // We do position-based hit check via the passed target
-      if (target.distanceTo(to) < CONFIG.LASER_HIT_RADIUS * 4) {
+      if (target.distanceTo(to) < CONFIG.LASER_HIT_RADIUS * 4 && checkLOS(from.x, from.z, to.x, to.z)) {
         onHit(laser.charIdx);
       }
     }
 
-    // Expire after 1.5s
-    if (progress.current > 1.5) {
-      onExpire(laser.id);
-    }
+    if (progress.current > 1.5) onExpire(laser.id);
   });
 
   return (
@@ -487,24 +525,16 @@ function LaserBeam({ laser, onExpire, onHit }) {
         <cylinderGeometry args={[0.06, 0.06, length, 6]} />
         <meshBasicMaterial color={laser.color} transparent opacity={0.85} />
       </mesh>
-      {/* Glow core */}
       <mesh scale={[1, 1, 1]}>
         <cylinderGeometry args={[0.02, 0.02, length, 6]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0.6} />
       </mesh>
-      {/* Impact flash at target end */}
-      <pointLight
-        position={[0, length * 0.5, 0]}
-        color={laser.color}
-        intensity={4}
-        distance={8}
-        decay={2}
-      />
+      <pointLight position={[0, length * 0.5, 0]} color={laser.color} intensity={4} distance={8} decay={2} />
     </group>
   );
 }
 
-// ─── Springfield City Map ─────────────────────────────────────────────────────
+// ─── Environment Geometry ─────────────────────────────────────────────────────
 const ROAD_HW  = 3.5;
 const ROAD_CENTRES = [-32, -12, 12, 32];
 const MAP_EXT  = 64;
@@ -540,7 +570,6 @@ function cachedMat(col) {
 
 function Terrain() {
   const markTex = useMemo(makeRoadMarkingTex, []);
-
   const grassBlocks = useMemo(() => {
     const bands  = [-MAP_EXT, ...ROAD_CENTRES.flatMap(r => [r-ROAD_HW, r+ROAD_HW]), MAP_EXT];
     const blocks = [];
@@ -742,7 +771,6 @@ function Win({ x, y, z, w=0.65, h=0.7, rot=0 }) {
 }
 
 // ── Landmark building components ──────────────────────────────────────────────
-
 function MoesTavern({ pos, destFor }) {
   return (
     <group position={pos}>
@@ -919,6 +947,10 @@ function SpringfieldElementary({ pos, destFor }) {
           <meshStandardMaterial color="#e8e0d0" roughness={0.85} />
         </mesh>
       ))}
+      <mesh position={[0,1.5,-4.55]}>
+        <boxGeometry args={[2.5,3.0,0.11]} />
+        <meshStandardMaterial color="#552222" roughness={1} />
+      </mesh>
       <Html position={[0,10.5,0]} center>
         <div style={{fontFamily:'Arial Black',fontSize:13,color:'#fff',fontWeight:900,
           background:'rgba(150,40,40,0.9)',padding:'2px 10px',borderRadius:6,
@@ -1024,6 +1056,10 @@ function NuclearPlant({ pos }) {
           <meshStandardMaterial color={i%2===0?"#cc2200":"#ffee00"} />
         </mesh>
       ))}
+      <mesh position={[0,1.2,-3.05]}>
+        <boxGeometry args={[1.4,2.4,0.1]} />
+        <meshStandardMaterial color="#2a1508" roughness={1} />
+      </mesh>
       <Html position={[0,9.5,0]} center>
         <div style={{fontFamily:'Arial Black',fontSize:11,color:'#cc2200',fontWeight:900,
           background:'rgba(255,255,220,0.9)',padding:'2px 8px',borderRadius:4,
@@ -1064,6 +1100,10 @@ function CityHall({ pos }) {
       <mesh castShadow position={[0,8.8,-3.9]} rotation={[-0.32,0,0]}>
         <boxGeometry args={[10,0.4,3]} />
         <meshStandardMaterial color="#c8c4b8" roughness={0.88} />
+      </mesh>
+      <mesh position={[0,1.5,-4.05]}>
+        <boxGeometry args={[2,3,0.1]} />
+        <meshStandardMaterial color="#554433" roughness={1} />
       </mesh>
       <Html position={[0,12,0]} center>
         <div style={{fontFamily:'Georgia,serif',fontSize:12,color:'#333',fontWeight:900,
@@ -1107,6 +1147,10 @@ function FirstChurch({ pos }) {
         <boxGeometry args={[1.2,2.5,0.08]} />
         <meshStandardMaterial color="#aaddff" emissive="#aaddff" emissiveIntensity={0.3} />
       </mesh>
+      <mesh position={[0,1.5,-3.05]}>
+        <boxGeometry args={[1.8,3,0.1]} />
+        <meshStandardMaterial color="#443322" roughness={1} />
+      </mesh>
       <Html position={[0,7.5,-3.5]} center>
         <div style={{fontFamily:'Georgia,serif',fontSize:10,color:'#553300',fontWeight:900,
           background:'rgba(245,242,234,0.95)',padding:'2px 8px',borderRadius:4,
@@ -1136,6 +1180,10 @@ function LardLad({ pos }) {
       <mesh castShadow position={[0,9.5,0.4]} rotation={[Math.PI/2,0,0]}>
         <torusGeometry args={[2.2,0.42,8,20]} />
         <meshStandardMaterial color="#ff88aa" roughness={0.6} emissive="#ff88aa" emissiveIntensity={0.15} />
+      </mesh>
+      <mesh position={[0,1.2,4.5]}>
+        <boxGeometry args={[1.6,2.4,0.1]} />
+        <meshStandardMaterial color="#883311" roughness={1} />
       </mesh>
       <Html position={[0,7,4.9]} center>
         <div style={{fontFamily:'Impact,Arial Black',fontSize:13,color:'#cc6600',fontWeight:900,
@@ -1291,7 +1339,6 @@ function DestinationZone({ charId, pos, done }) {
           {charCfg?.goalEmoji}
         </div>
       </Html>
-      <pointLight color={charCfg?.shirt || '#fff'} intensity={3} distance={8} decay={2} />
     </group>
   );
 }
@@ -1355,12 +1402,12 @@ function AlienUFO({ isSlowed }) {
 }
 
 // ─── UFO controller ───────────────────────────────────────────────────────────
-function UFOController({ ufoId, startX, startZ, activeCharGroupRef, alienSlowEndRef, scoreRef, onFire }) {
+function UFOController({ ufoId, startX, startZ, activeCharGroupRef, isHiddenRef, alienSlowEndRef, onFire }) {
   const groupRef = useRef();
-  const vel      = useRef(new THREE.Vector3(
-    (ufoId % 2 === 0 ? 1 : -1) * (0.3 + ufoId * 0.08),
+  const vel = useRef(new THREE.Vector3(
+    (ufoId % 2 === 0 ? 1 : -1) * 0.35,
     0,
-    (ufoId % 3 === 0 ? 1 : -1) * (0.25 + ufoId * 0.06)
+    (ufoId % 3 === 0 ? 1 : -1) * 0.30
   ));
   const fireTimer = useRef(2.0 + ufoId * 2.8);
 
@@ -1379,16 +1426,18 @@ function UFOController({ ufoId, startX, startZ, activeCharGroupRef, alienSlowEnd
 
     fireTimer.current -= delta * speedMul;
     if (fireTimer.current <= 0) {
-      const baseInterval = Math.max(1.5, 3.5 - (scoreRef.current / 500));
-      fireTimer.current = baseInterval * (0.7 + Math.random() * 0.6);
+      fireTimer.current = 3.0 * (0.7 + Math.random() * 0.6);
       const target = activeCharGroupRef?.current;
-      if (target) onFire(g.position.clone(), target.position.clone(), ufoId);
+      
+      if (target && !isHiddenRef.current) {
+        onFire(g.position.clone(), target.position.clone(), ufoId);
+      }
     }
   });
 
   return (
     <group ref={groupRef} position={[startX, 13, startZ]}>
-      <AlienUFO isSlowed={false} />
+      <AlienUFO isSlowed={Date.now() < alienSlowEndRef.current} />
     </group>
   );
 }
@@ -1398,17 +1447,19 @@ function AlienSystem() {
   const { state, actions, charGroupRefs } = useContext(GameContext);
   const [lasers, setLasers]   = useState([]);
   const alienSlowEndRef       = useRef(state.alienSlowEnd);
-  const scoreRef              = useRef(state.score);
+  const isHiddenRef           = useRef(state.isHidden);
 
   useEffect(() => { alienSlowEndRef.current = state.alienSlowEnd; }, [state.alienSlowEnd]);
-  useEffect(() => { scoreRef.current = state.score; }, [state.score]);
+  useEffect(() => { isHiddenRef.current = state.isHidden; }, [state.isHidden]);
 
-  const numUFOs = Math.min(3, 1 + Math.floor(state.score / 400));
-  const UFO_STARTS = [[-20, -10], [22, 8], [-8, 24]];
-  const LASER_COLS = ['#ff2200', '#00ffaa', '#ff00ff'];
+  const numUFOs = 2;
+  const UFO_STARTS = [[-20, -10], [22, 8]];
+  const LASER_COLS = ['#ff2200', '#00ffaa'];
 
   const handleFire = (fromPos, targetPos, ufoId) => {
-    const jitter = new THREE.Vector3((Math.random()-0.5)*5, 0, (Math.random()-0.5)*5);
+    if (!checkLOS(fromPos.x, fromPos.z, targetPos.x, targetPos.z)) return;
+
+    const jitter = new THREE.Vector3((Math.random()-0.5)*2, 0, (Math.random()-0.5)*2);
     const to = targetPos.clone().add(jitter);
     audio.sfx('laser');
     setLasers(l => [...l.slice(-12), {
@@ -1430,8 +1481,8 @@ function AlienSystem() {
         <UFOController
           key={i} ufoId={i} startX={sx} startZ={sz}
           activeCharGroupRef={charGroupRefs.current[state.activeCharIdx]}
+          isHiddenRef={isHiddenRef}
           alienSlowEndRef={alienSlowEndRef}
-          scoreRef={scoreRef}
           onFire={handleFire}
         />
       ))}
@@ -1463,16 +1514,18 @@ function CameraRig() {
   const { camera } = useThree();
 
   useFrame((_,delta) => {
-    if(keyState['arrowleft'])  camState.yawVel  +=  10*delta;
-    if(keyState['arrowright']) camState.yawVel  -=  10*delta;
-    if(keyState['arrowup'])    camState.pitchVel -= 10*delta;
-    if(keyState['arrowdown'])  camState.pitchVel += 10*delta;
-    camState.yawVel  *= 0.82; camState.pitchVel *= 0.82;
-    camState.yaw     += camState.yawVel   * delta;
-    camState.pitch   += camState.pitchVel * delta;
-    camState.pitch    = Math.max(0.1, Math.min(1.4, camState.pitch));
+    const rotSpeed = 2.0;
+    if(keyState['arrowleft'])  camState.yaw += rotSpeed * delta;
+    if(keyState['arrowright']) camState.yaw -= rotSpeed * delta;
+    
+    if(keyState['arrowup'])    camState.pitch += rotSpeed * delta;
+    if(keyState['arrowdown'])  camState.pitch -= rotSpeed * delta;
+    
+    camState.pitch = Math.max(0.1, Math.min(1.4, camState.pitch));
+    
     const p = charGroupRefs.current[state.activeCharIdx]?.current;
     if (!p) return;
+    
     const dist = 14;
     camera.position.set(
       p.position.x + Math.sin(camState.yaw)*dist*Math.cos(camState.pitch),
@@ -1484,45 +1537,10 @@ function CameraRig() {
   return null;
 }
 
-// ─── Custom Physics Helper ────────────────────────────────────────────────────
-// Generates boundaries and heights using 2.5D boxes without adding Rapier
-function checkCollision(x, y, z) {
-  let floorY = 0;
-  let hitWall = false;
-
-  for (let b of BUILDINGS) {
-    const hw = b.w / 2 + 0.8;
-    const hd = b.d / 2 + 0.8;
-    if (Math.abs(x - b.x) < hw && Math.abs(z - b.z) < hd) {
-      floorY = Math.max(floorY, b.h);
-    }
-  }
-
-  for (let c of PARKED_CARS) {
-    if (Math.hypot(x - c.x, z - c.z) < 2.5) {
-      floorY = Math.max(floorY, 1.8);
-    }
-  }
-
-  for (let t of STREET_TREES) {
-    if (Math.hypot(x - t.x, z - t.z) < 0.6 && y < 3) hitWall = true;
-  }
-
-  for (let l of LAMP_POSTS) {
-    if (Math.hypot(x - l[0], z - l[1]) < 0.5 && y < 5) hitWall = true;
-  }
-
-  if (y < floorY - 0.4) {
-    hitWall = true;
-  }
-
-  return { floorY, hitWall };
-}
-
 // ─── Player Controller ────────────────────────────────────────────────────────
 function PlayerController() {
   const { state, actions, charGroupRefs, playerPosRef, playerVelRef } = useContext(GameContext);
-  const vel          = playerVelRef; // Pull actual velocity globally for the animation rig
+  const vel          = playerVelRef; 
   const movingRef    = useRef(false);
   const lastStep     = useRef(0);
   const lastSend     = useRef(0);
@@ -1531,126 +1549,128 @@ function PlayerController() {
   useFrame(({clock}, delta) => {
     if (state.phase !== 'play') return;
 
-    if (keyState['tab'] && !keyState.prevTab) {
-      actions.nextChar();
-      vel.current.set(0, 0, 0);
-    }
-    keyState.prevTab = keyState['tab'];
+    const g = charGroupRefs.current[state.activeCharIdx]?.current;
+    if (!g) return;
 
-    if (keyState['q'] && !keyState.prevQ) {
+    if (keyState['e'] && !keyState.prevE) {
+      const isNearBuilding = BUILDINGS.some(b => 
+        Math.abs(g.position.x - b.x) < b.w/2 + 2.5 && 
+        Math.abs(g.position.z - b.z) < b.d/2 + 2.5
+      );
+      if (isNearBuilding || state.isHidden) {
+        actions.toggleHide();
+      }
+    }
+    keyState.prevE = keyState['e'];
+
+    if (keyState['q'] && !keyState.prevQ && !state.isHidden) {
       actions.useAbility(state.activeCharIdx);
       audio.sfx('emp');
     }
     keyState.prevQ = keyState['q'];
 
-    const g = charGroupRefs.current[state.activeCharIdx]?.current;
-    if (!g) return;
-
-    const charCfg   = CHARACTERS[state.activeCharIdx];
-    const charState = state.chars[state.activeCharIdx];
-    const boosted   = Date.now() < (charState?.speedBoostEnd || 0);
-    const baseSpeed = charCfg.speed * (boosted ? 1.6 : 1.0);
-    const acF = Math.min(1, CONFIG.ACCEL * delta);
-    const dcF = Math.min(1, CONFIG.DECEL * delta);
-
-    const mx = (keyState['a']?-1:0) + (keyState['d']?1:0);
-    const mz = (keyState['w']?-1:0) + (keyState['s']?1:0);
-
-    if (mx || mz) {
-      const angle = Math.atan2(mx, mz) + camState.yaw;
-      vel.current.x = THREE.MathUtils.lerp(vel.current.x, Math.sin(angle)*baseSpeed, acF);
-      vel.current.z = THREE.MathUtils.lerp(vel.current.z, Math.cos(angle)*baseSpeed, acF);
+    if (state.isHidden) {
+      vel.current.set(0, 0, 0);
+      movingRef.current = false;
     } else {
-      vel.current.x = THREE.MathUtils.lerp(vel.current.x, 0, dcF);
-      vel.current.z = THREE.MathUtils.lerp(vel.current.z, 0, dcF);
-    }
+      const charCfg   = CHARACTERS[state.activeCharIdx];
+      const charState = state.chars[state.activeCharIdx];
+      const boosted   = Date.now() < (charState?.speedBoostEnd || 0);
+      const baseSpeed = charCfg.speed * (boosted ? 1.6 : 1.0);
+      const acF = Math.min(1, CONFIG.ACCEL * delta);
+      const dcF = Math.min(1, CONFIG.DECEL * delta);
 
-    // Capture states
-    const curX = g.position.x;
-    const curZ = g.position.z;
-    const curY = g.position.y;
+      const mx = (keyState['a']?-1:0) + (keyState['d']?1:0);
+      const mz = (keyState['w']?-1:0) + (keyState['s']?1:0);
 
-    let nextX = curX + vel.current.x * delta;
-    let nextZ = curZ + vel.current.z * delta;
-
-    // Fast 2.5D AABB checks & slide logic
-    let col = checkCollision(nextX, curY, nextZ);
-    if (col.hitWall) {
-      let colX = checkCollision(nextX, curY, curZ);
-      let colZ = checkCollision(curX, curY, nextZ);
-
-      if (!colX.hitWall) {
-        nextZ = curZ;
-        vel.current.z = 0;
-        col = colX;
-      } else if (!colZ.hitWall) {
-        nextX = curX;
-        vel.current.x = 0;
-        col = colZ;
+      if (mx || mz) {
+        const angle = Math.atan2(mx, mz) + camState.yaw;
+        vel.current.x = THREE.MathUtils.lerp(vel.current.x, Math.sin(angle)*baseSpeed, acF);
+        vel.current.z = THREE.MathUtils.lerp(vel.current.z, Math.cos(angle)*baseSpeed, acF);
       } else {
-        nextX = curX;
-        nextZ = curZ;
-        vel.current.x = 0;
-        vel.current.z = 0;
-        col = checkCollision(curX, curY, curZ); 
+        vel.current.x = THREE.MathUtils.lerp(vel.current.x, 0, dcF);
+        vel.current.z = THREE.MathUtils.lerp(vel.current.z, 0, dcF);
       }
-    }
 
-    // Apply gravity
-    vel.current.y -= CONFIG.GRAVITY * delta;
-    let nextY = curY + vel.current.y * delta;
+      const curX = g.position.x;
+      const curZ = g.position.z;
+      const curY = g.position.y;
 
-    // Floor evaluate 
-    const floorY = checkCollision(nextX, nextY, nextZ).floorY;
-    
-    if (nextY <= floorY) {
-      nextY = floorY;
-      vel.current.y = 0;
-    }
+      let nextX = curX + vel.current.x * delta;
+      let nextZ = curZ + vel.current.z * delta;
 
-    g.position.x = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, nextX));
-    g.position.z = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, nextZ));
-    g.position.y = nextY;
+      let col = checkCollision(nextX, curY, nextZ);
+      if (col.hitWall) {
+        let colX = checkCollision(nextX, curY, curZ);
+        let colZ = checkCollision(curX, curY, nextZ);
 
-    const isGrounded = Math.abs(g.position.y - floorY) <= 0.05;
-
-    if (keyState[' '] && isGrounded) vel.current.y = CONFIG.JUMP_FORCE;
-
-    const spd2D = Math.hypot(vel.current.x, vel.current.z);
-    movingRef.current = spd2D > 0.5;
-
-    if (movingRef.current) {
-      g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), Math.min(1, 15*delta));
-      lastStep.current += spd2D * delta;
-      if (lastStep.current > 1.3) { audio.sfx('step'); lastStep.current = 0; }
-    }
-
-    playerPosRef.current.copy(g.position);
-
-    const charSt = state.chars[state.activeCharIdx];
-    if (!charSt?.done) {
-      const dist = g.position.distanceTo(charCfg.dest);
-      if (dist < CONFIG.DEST_RADIUS) {
-        actions.charArrived(charCfg.id);
-        actions.showQuip(`${charCfg.emoji} ${charCfg.name} made it to ${charCfg.goal}!`);
-        audio.sfx('arrive');
-        g.position.copy(charCfg.dest);
-        vel.current.set(0, 0, 0);
+        if (!colX.hitWall) {
+          nextZ = curZ; vel.current.z = 0; col = colX;
+        } else if (!colZ.hitWall) {
+          nextX = curX; vel.current.x = 0; col = colZ;
+        } else {
+          nextX = curX; nextZ = curZ; vel.current.x = 0; vel.current.z = 0;
+          col = checkCollision(curX, curY, curZ); 
+        }
       }
-    }
 
-    state.powerUps.forEach(pu => {
-      if (!pu.active) return;
-      const dx = g.position.x - pu.x, dz = g.position.z - pu.z;
-      if (Math.hypot(dx, dz) < CONFIG.PICKUP_RADIUS) {
-        actions.collectPowerUp(pu.id, pu.type, state.activeCharIdx);
-        actions.showQuip(`${POWERUP_CONFIG[pu.type].emoji} ${POWERUP_CONFIG[pu.type].label}!`);
-        audio.sfx('pickup');
+      vel.current.y -= CONFIG.GRAVITY * delta;
+      let nextY = curY + vel.current.y * delta;
+      const floorY = checkCollision(nextX, nextY, nextZ).floorY;
+      
+      if (nextY <= floorY) {
+        nextY = floorY;
+        vel.current.y = 0;
       }
-    });
+
+      g.position.x = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, nextX));
+      g.position.z = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, nextZ));
+      g.position.y = nextY;
+
+      const isGrounded = Math.abs(g.position.y - floorY) <= 0.05;
+      if (keyState[' '] && isGrounded) vel.current.y = CONFIG.JUMP_FORCE;
+
+      const spd2D = Math.hypot(vel.current.x, vel.current.z);
+      movingRef.current = spd2D > 0.5;
+
+      if (movingRef.current) {
+        g.rotation.y = THREE.MathUtils.lerp(g.rotation.y, Math.atan2(vel.current.x, vel.current.z), Math.min(1, 15*delta));
+        lastStep.current += spd2D * delta;
+        if (lastStep.current > 1.3) { audio.sfx('step'); lastStep.current = 0; }
+      }
+
+      playerPosRef.current.copy(g.position);
+
+      const charSt = state.chars[state.activeCharIdx];
+      if (!charSt?.done) {
+        const dist = g.position.distanceTo(charCfg.dest);
+        if (dist < CONFIG.DEST_RADIUS) {
+          actions.charArrived(charCfg.id);
+          actions.showQuip(`${charCfg.emoji} ${charCfg.name} made it to ${charCfg.goal}!`);
+          audio.sfx('arrive');
+          g.position.copy(charCfg.dest);
+          vel.current.set(0, 0, 0);
+        }
+      }
+
+      state.powerUps.forEach(pu => {
+        if (!pu.active) return;
+        const dx = g.position.x - pu.x, dz = g.position.z - pu.z;
+        if (Math.hypot(dx, dz) < CONFIG.PICKUP_RADIUS) {
+          actions.collectPowerUp(pu.id, pu.type, state.activeCharIdx);
+          actions.showQuip(`${POWERUP_CONFIG[pu.type].emoji} ${POWERUP_CONFIG[pu.type].label}!`);
+          audio.sfx('pickup');
+        }
+      });
+    }
 
     if (ablyChannel && clock.elapsedTime - lastSend.current > 0.05) {
-      ablyChannel.publish('move', { position: g.position, rotation: { y: g.rotation.y }, isMoving: movingRef.current, charId: charCfg.id });
+      ablyChannel.publish('move', { 
+        position: g.position, 
+        rotation: { y: g.rotation.y }, 
+        isMoving: movingRef.current, 
+        charId: CHARACTERS[state.activeCharIdx].id 
+      });
       lastSend.current = clock.elapsedTime;
     }
   });
@@ -1665,17 +1685,15 @@ function SimpsonsCharacters() {
   return (
     <>
       {CHARACTERS.map((charCfg, idx) => {
+        const isActive = idx === state.activeCharIdx;
+        if (!isActive) return null; 
+
         const charSt     = state.chars[idx];
-        const isActive   = idx === state.activeCharIdx;
         const isDone     = charSt?.done;
         const isShielded = charSt?.shieldActive;
 
         return (
-          <group
-            key={charCfg.id}
-            ref={charGroupRefs.current[idx]}
-            position={charCfg.startPos.toArray()}
-          >
+          <group key={charCfg.id} ref={charGroupRefs.current[idx]} position={charCfg.startPos.toArray()}>
             {isShielded && (
               <mesh>
                 <sphereGeometry args={[1.8, 16, 16]} />
@@ -1684,21 +1702,20 @@ function SimpsonsCharacters() {
             )}
             <SimpsonsRig
               charCfg={charCfg}
-              velRef={isActive ? playerVelRef : undefined}
-              isNPC={!isActive || state.phase !== 'play'}
+              velRef={playerVelRef}
+              isNPC={state.phase !== 'play'}
               npcMovingRef={{ current: false }}
+              isHidden={state.isHidden}
             />
             <Html position={[0, 2.9, 0]} center occlude>
               <div style={{
-                background: isActive ? charCfg.shirt : 'rgba(0,0,0,0.6)',
-                color: isActive ? '#111' : '#fff',
-                padding: '2px 10px', borderRadius: 12, fontSize: 12,
-                border: `3px solid ${isActive ? '#FFD90F' : '#555'}`,
+                background: state.isHidden ? '#777' : charCfg.shirt,
+                color: '#111', padding: '2px 10px', borderRadius: 12, fontSize: 12,
+                border: `3px solid ${state.isHidden ? '#999' : '#FFD90F'}`,
                 fontWeight: 'bold', pointerEvents: 'none', whiteSpace: 'nowrap',
-                fontFamily: 'Arial Black, Arial, sans-serif',
-                opacity: isDone ? 0.4 : 1,
+                fontFamily: 'Arial Black, Arial, sans-serif', opacity: state.isHidden ? 0.3 : 1
               }}>
-                {charCfg.emoji} {charCfg.name} {isDone ? '✅' : isActive ? '◀' : ''}
+                {state.isHidden ? '🙈 Hiding' : `${charCfg.emoji} ${charCfg.name} ◀`}
               </div>
             </Html>
             <ContactShadows opacity={isDone ? 0.1 : 0.45} scale={4} blur={2.5} position={[0,0.02,0]} />
@@ -1722,7 +1739,7 @@ function NetworkPlayer({ data }) {
   const charCfg = CHARACTERS.find(c => c.id === data.charId) || CHARACTERS[0];
   return (
     <group ref={ref}>
-      <SimpsonsRig charCfg={charCfg} isNPC npcMovingRef={movingRef} />
+      <SimpsonsRig charCfg={charCfg} isNPC npcMovingRef={movingRef} isHidden={false} />
       <Html position={[0,2.8,0]} center>
         <div style={{ background:'rgba(0,0,0,0.6)', color:'#FFD90F', padding:'2px 8px', borderRadius:10, fontSize:11, fontWeight:'bold', border:'2px solid #FFD90F', whiteSpace:'nowrap' }}>
           {data.name} ({charCfg.name})
@@ -1736,15 +1753,16 @@ function NetworkPlayer({ data }) {
 function GameUI() {
   const { state, actions } = useContext(GameContext);
   const [chatText, setChatText] = useState('');
+  const [clientId] = useState(() => "Player_" + Math.floor(Math.random()*1000));
 
-  const connectToServer = async (name) => {
+  useEffect(() => {
     if (ablyClient) return;
-    try {
-      ablyClient = new Ably.Realtime({ key: ABLY_API_KEY, clientId: name });
+    const connect = async () => {
+      ablyClient = new Ably.Realtime({ key: ABLY_API_KEY, clientId });
       ablyChannel = ablyClient.channels.get('springfield-siege');
 
       ablyChannel.subscribe('move', (msg) => {
-        if (msg.clientId === name) return;
+        if (msg.clientId === clientId) return;
         actions.setOnlinePlayers(prev => ({ ...prev, [msg.clientId]: { ...msg.data, name: msg.clientId } }));
       });
 
@@ -1752,42 +1770,63 @@ function GameUI() {
         actions.addChatMessage({ name: msg.clientId, text: msg.data });
       });
 
-      ablyChannel.presence.subscribe('leave', (m) => {
-        actions.setOnlinePlayers(prev => {
-          const n = {...prev};
-          delete n[m.clientId];
-          return n;
-        });
+      ablyChannel.presence.subscribe(['enter', 'leave', 'update'], async () => {
+        const members = await ablyChannel.presence.get();
+        const taken = members.filter(m => m.clientId !== clientId).map(m => m.data.charId);
+        actions.setTakenCharacters(taken);
       });
+      
+      const members = await ablyChannel.presence.get();
+      actions.setTakenCharacters(members.map(m => m.data.charId));
+    };
+    connect();
+  }, [actions, clientId]);
 
-      await ablyChannel.presence.enter({ charId: 'homer' });
-    } catch (e) {
-      console.warn('Multiplayer connection failed:', e);
-    }
-  };
-
-  const startGame = () => {
+  const selectCharacterAndStart = async (charId) => {
+    actions.setActiveChar(charId);
     audio.init();
     audio.playBGM();
-    connectToServer("Player_" + Math.floor(Math.random()*1000));
+    await ablyChannel.presence.enter({ charId });
     actions.setPhase('play');
   };
 
-  if (state.phase === 'start') return (
+  if (state.phase === 'lobby') return (
     <div style={ST.overlay}>
       <div style={ST.modal}>
         <div style={{ fontSize: 52, marginBottom: 6 }}>🛸</div>
         <h1 style={{ fontFamily:'Impact, Arial Black', fontSize: 38, margin: '0 0 4px', color: '#FFD90F', textShadow: '3px 3px 0 #ff0000, 5px 5px 0 #111', letterSpacing: 2 }}>
           SPRINGFIELD UNDER SIEGE
         </h1>
-        <p style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
-          Help the Simpsons reach their destinations before Kang &amp; Kodos blast them!
+        <p style={{ color: '#555', marginBottom: 15, fontSize: 16 }}>
+          Select your character to join the squad!
         </p>
-        <div style={{ fontSize:13, color:'#777', marginBottom:20, lineHeight:1.6 }}>
-          <b>WASD</b> move · <b>Space</b> jump · <b>Tab</b> switch character · <b>Q</b> use ability<br/>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 20 }}>
+          {CHARACTERS.map(c => {
+            const isTaken = state.takenCharacters.includes(c.id);
+            return (
+              <button
+                key={c.id}
+                disabled={isTaken}
+                onClick={() => selectCharacterAndStart(c.id)}
+                style={{
+                  ...ST.charBtn,
+                  background: isTaken ? '#ccc' : c.shirt,
+                  opacity: isTaken ? 0.5 : 1,
+                  cursor: isTaken ? 'not-allowed' : 'pointer',
+                  border: `4px solid ${isTaken ? '#999' : '#FFD90F'}`
+                }}
+              >
+                <div style={{ fontSize: 24 }}>{c.emoji}</div>
+                <div style={{ fontWeight: 'bold', color: isTaken ? '#666' : '#111' }}>{c.name}</div>
+                {isTaken && <div style={{ fontSize: 10, color: 'red' }}>Taken</div>}
+              </button>
+            )
+          })}
+        </div>
+        <div style={{ fontSize:12, color:'#777', lineHeight:1.6 }}>
+          <b>WASD</b> move · <b>Space</b> jump · <b>Q</b> Superpower · <b>E</b> Hide inside doors<br/>
           <b>Arrow keys</b> rotate camera
         </div>
-        <button style={ST.startBtn} onClick={startGame}>🛸 START — SAVE THE SIMPSONS!</button>
       </div>
     </div>
   );
@@ -1797,17 +1836,13 @@ function GameUI() {
       <div style={ST.modal}>
         <div style={{ fontSize:56, marginBottom:8 }}>{state.phase === 'win' ? '🎉' : "🛸"}</div>
         <h1 style={{ fontFamily:'Impact, Arial Black', fontSize:36, margin:'0 0 8px', color: state.phase === 'win' ? '#22aa22' : '#cc2200' }}>
-          {state.phase === 'win' ? 'EXCELLENT!' : "D'OH!"}
+          {state.phase === 'win' ? 'YOU SURVIVED!' : "D'OH!"}
         </h1>
         <p style={{ fontSize:18, marginBottom:20 }}>Score: <b>{state.score}</b></p>
-        <button style={ST.startBtn} onClick={() => { actions.reset(); setTimeout(()=>actions.setPhase('play'), 100); }}>
-          🔄 Try Again
-        </button>
       </div>
     </div>
   );
 
-  const completedCount = state.chars.filter(c => c.done).length;
   const activeChar = CHARACTERS[state.activeCharIdx];
 
   return (
@@ -1816,34 +1851,20 @@ function GameUI() {
       <div style={ST.topLeft}>
         <div style={{ fontSize:22, marginBottom:2 }}>{'❤️'.repeat(Math.max(0,state.lives))}</div>
         <div style={{ fontSize:13 }}>Score: <b>{state.score}</b></div>
-        <div style={{ fontSize:11, color:'#888', marginTop:2 }}>Active: {activeChar?.emoji} {activeChar?.name}</div>
+        <div style={{ fontSize:11, color:'#888', marginTop:2 }}>You are: {activeChar?.emoji} {activeChar?.name}</div>
+        <div style={{ fontSize:10, color:'#aa3333', marginTop:2, fontWeight:'bold' }}>{activeChar?.abilityLabel}</div>
       </div>
-      <div style={ST.topRight}>
-        <div style={{ fontSize:12, fontWeight:'bold', marginBottom:4 }}>SPRINGFIELD FAMILY</div>
-        {CHARACTERS.map((c, i) => (
-          <div key={c.id} style={{ display:'flex', gap:6, fontSize:13, opacity: state.chars[i]?.done ? 0.4 : 1 }}>
-            <span>{c.emoji}</span>
-            <span>{c.name}</span>
-            <span style={{ fontSize:10, color:'#888' }}>{c.goal}</span>
-            {state.chars[i]?.done && <span>✅</span>}
-          </div>
-        ))}
-      </div>
-      <div style={ST.goalBox}>🎯 {completedCount}/4 safe · Tab to switch</div>
+      <div style={ST.goalBox}>🎯 Reach {activeChar?.goalEmoji} {activeChar?.goal}!</div>
       <div style={ST.chatArea}>
         <div style={ST.chatLog}>
-          {state.chatMessages.length === 0 && (
-            <div style={{ color:'#888', fontSize:11 }}>No messages yet...</div>
-          )}
+          {state.chatMessages.length === 0 && <div style={{ color:'#888', fontSize:11 }}>Squad Chat...</div>}
           {state.chatMessages.map((m,i) => (
             <div key={i}><b style={{ color: '#FFD90F' }}>{m.name}:</b> {m.text}</div>
           ))}
         </div>
         <input
-          style={ST.chatInput}
-          placeholder="Chat (press Enter)..."
-          value={chatText}
-          onChange={e => setChatText(e.target.value)}
+          style={ST.chatInput} placeholder="Chat (press Enter)..."
+          value={chatText} onChange={e => setChatText(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && chatText.trim()) {
               actions.addChatMessage({ name: 'You', text: chatText });
@@ -1867,7 +1888,6 @@ export default function SpringfieldUnderSiege() {
       const k = e.key.toLowerCase();
       keyState[k] = true;
       if ([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
-      if (k === 'tab') e.preventDefault();
     };
     const onUp = e => { keyState[e.key.toLowerCase()] = false; };
     window.addEventListener('keydown', onDown, { passive: false });
@@ -1894,21 +1914,13 @@ export default function SpringfieldUnderSiege() {
             {PARKED_CARS.map((c,i) => <ParkCar key={i} {...c} />)}
             <SpringfieldBuildings />
 
-            {CHARACTERS.map((c, i) => (
-              <DestinationZone
-                key={c.id} charId={c.id} pos={c.dest}
-                done={store.state.chars[i]?.done}
-              />
-            ))}
-
+            <DestinationZone charId={CHARACTERS[store.state.activeCharIdx].id} pos={CHARACTERS[store.state.activeCharIdx].dest} done={store.state.chars[store.state.activeCharIdx]?.done} />
             {store.state.powerUps.map(pu => <PowerUp key={pu.id} data={pu} />)}
 
             <SimpsonsCharacters />
 
             {Object.entries(store.state.onlinePlayers).map(([id, p]) =>
-              ablyClient?.auth?.clientId !== id
-                ? <NetworkPlayer key={id} data={{...p, name: id}} />
-                : null
+              ablyClient?.auth?.clientId !== id ? <NetworkPlayer key={id} data={{...p, name: id}} /> : null
             )}
 
             {store.state.phase === 'play' && <PlayerController />}
@@ -1933,10 +1945,10 @@ export default function SpringfieldUnderSiege() {
 const ST = {
   overlay:   { position:'absolute', inset:0, zIndex:100, background:'linear-gradient(150deg,#0a0a0a,#1a1a1a 50%,#003300)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Arial,sans-serif' },
   modal:     { background:'#fff', padding:36, borderRadius:24, width:'min(92vw,500px)', textAlign:'center', boxShadow:'0 20px 60px rgba(0,0,0,0.6)' },
+  charBtn:   { padding: '15px 10px', borderRadius: 12, width: 80, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 },
   startBtn:  { width:'100%', background:'linear-gradient(135deg,#FFD90F,#ff8800)', color:'#111', border:'none', padding:'16px', borderRadius:16, fontSize:18, fontWeight:900, cursor:'pointer', fontFamily:'Impact, Arial Black', letterSpacing:2, boxShadow:'0 6px 0 #a05500', marginTop:4 },
   topLeft:   { position:'absolute', top:20, left:20, background:'rgba(255,255,255,0.9)', padding:'10px 16px', borderRadius:14, border:'3px solid #FFD90F', zIndex:50, boxShadow:'0 4px 10px rgba(0,0,0,0.2)', fontFamily:'Arial,sans-serif' },
-  topRight:  { position:'absolute', top:20, right:20, background:'rgba(255,255,255,0.93)', padding:'10px 14px', borderRadius:14, border:'3px solid #FFD90F', zIndex:50, minWidth:240, boxShadow:'0 4px 10px rgba(0,0,0,0.2)', fontFamily:'Arial,sans-serif' },
-  goalBox:   { position:'absolute', bottom:80, left:'50%', transform:'translateX(-50%)', background:'rgba(255,255,255,0.92)', padding:'8px 20px', borderRadius:20, border:'3px solid #FFD90F', zIndex:50, whiteSpace:'nowrap', boxShadow:'0 4px 10px rgba(0,0,0,0.2)', fontFamily:'Arial,sans-serif' },
+  goalBox:   { position:'absolute', bottom:80, left:'50%', transform:'translateX(-50%)', background:'rgba(255,255,255,0.92)', padding:'8px 20px', borderRadius:20, border:'3px solid #FFD90F', zIndex:50, whiteSpace:'nowrap', boxShadow:'0 4px 10px rgba(0,0,0,0.2)', fontFamily:'Arial,sans-serif', fontWeight: 'bold' },
   quip:      { position:'absolute', top:'42%', left:'50%', transform:'translate(-50%,-50%)', background:'rgba(255,220,0,0.95)', color:'#111', padding:'12px 28px', borderRadius:20, fontWeight:'bold', fontSize:18, fontFamily:'Arial Black,sans-serif', zIndex:70, pointerEvents:'none', boxShadow:'0 4px 20px rgba(0,0,0,0.3)', whiteSpace:'nowrap', border:'3px solid #ff8800' },
   chatArea:  { position:'absolute', bottom:20, left:20, zIndex:50, width:280, fontFamily:'Arial,sans-serif', pointerEvents:'auto' },
   chatLog:   { background:'rgba(0,0,0,0.65)', color:'#fff', padding:12, borderRadius:12, height:120, overflowY:'auto', marginBottom:8, fontSize:13, backdropFilter:'blur(8px)' },
