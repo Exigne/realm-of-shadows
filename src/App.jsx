@@ -1806,7 +1806,6 @@ const connectToServer = async (name) => {
 const startGame = () => {
   audio.init(); 
   audio.playBGM();
-  // Generate a random ID for now or use a prompt
   connectToServer("Player_" + Math.floor(Math.random()*1000)); 
   actions.setPhase('play');
 };
