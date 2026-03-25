@@ -14,15 +14,14 @@
     "@react-three/fiber": "^8.17.12",
     "@react-three/postprocessing": "^2.16.5",
     "@use-gesture/react": "^10.3.0",
+    "ably": "^1.2.49",
     "postprocessing": "^6.36.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "simplex-noise": "^4.0.1",
-    "socket.io-client": "^4.8.3",
     "three": "^0.171.0",
     "zustand": "^5.0.0"
-    "ably": "^1.2.49"
-   },
+  },
   "devDependencies": {
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
