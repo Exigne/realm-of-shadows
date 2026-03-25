@@ -1956,16 +1956,17 @@ const startGame = () => {
         <input style={ST.chatInput} placeholder="Chat..." value={chatText}
           onChange={e => setChatText(e.target.value)}
           onKeyDown={e => {
-            if (e.key === 'Enter' && chatText.trim()) {
-              actions.addChatMessage({ name: 'You', text: chatText });
-              if (socket) ablyChannel?.publish('chat',
-              setChatText('');
-            }
-          }} />
-      </div>
-    </>
-  );
-}
+          if (e.key === 'Enter' && chatText.trim()) {
+          // 1. Update local UI
+          actions.addChatMessage({ name: 'You', text: chatText });
+    
+            // 2. Publish to Ably (Fixes your syntax error here)
+          ablyChannel?.publish('chat', chatText);
+    
+             // 3. Clear input
+          setChatText('');
+  }
+}}
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
