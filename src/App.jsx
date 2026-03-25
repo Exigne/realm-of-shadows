@@ -288,6 +288,17 @@ function useSpringfieldStore() {
       onlinePlayers: typeof updateFn === 'function' ? updateFn(s.onlinePlayers) : updateFn
     })),
     addChatMessage: m => setState(s => ({ ...s, chatMessages: [...s.chatMessages.slice(-7), m] })),
+
+    restartGame: () => setState(s => ({
+      ...s,
+      phase: 'lobby',
+      lives: 3,
+      chars: initChars(),
+      powerUps: initPowerUps(),
+      score: 0,
+      alienSlowEnd: 0,
+      isHidden: false,
+    })),
   }), []);
 
   return { state, actions, charGroupRefs, playerPosRef, playerVelRef };
@@ -1409,7 +1420,9 @@ function UFOController({ ufoId, startX, startZ, activeCharGroupRef, isHiddenRef,
     0,
     (ufoId % 3 === 0 ? 1 : -1) * 0.30
   ));
-  const fireTimer = useRef(2.0 + ufoId * 2.8);
+  
+  // 🔥 Less frequent laser firing (waits roughly 4 to 7 seconds per UFO)
+  const fireTimer = useRef(4.0 + ufoId * 3.5);
 
   useFrame(({ clock }, delta) => {
     const g = groupRef.current; if (!g) return;
@@ -1426,7 +1439,7 @@ function UFOController({ ufoId, startX, startZ, activeCharGroupRef, isHiddenRef,
 
     fireTimer.current -= delta * speedMul;
     if (fireTimer.current <= 0) {
-      fireTimer.current = 3.0 * (0.7 + Math.random() * 0.6);
+      fireTimer.current = 4.5 * (0.8 + Math.random() * 0.6);
       const target = activeCharGroupRef?.current;
       
       if (target && !isHiddenRef.current) {
@@ -1755,6 +1768,19 @@ function GameUI() {
   const [chatText, setChatText] = useState('');
   const [clientId] = useState(() => "Player_" + Math.floor(Math.random()*1000));
 
+  // 🔥 Listen for the R key to trigger restart
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key.toLowerCase() === 'r' && (state.phase === 'gameover' || state.phase === 'win')) {
+        // Leave presence channel so the character unlocks for others if we go to lobby
+        ablyChannel?.presence.leave();
+        actions.restartGame();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.phase, actions]);
+
   useEffect(() => {
     if (ablyClient) return;
     const connect = async () => {
@@ -1839,6 +1865,7 @@ function GameUI() {
           {state.phase === 'win' ? 'YOU SURVIVED!' : "D'OH!"}
         </h1>
         <p style={{ fontSize:18, marginBottom:20 }}>Score: <b>{state.score}</b></p>
+        <div style={{ fontSize:15, color:'#333', marginTop: 15, fontWeight: 'bold', borderTop:'2px solid #eee', paddingTop: 15 }}>Press <b>R</b> to Restart</div>
       </div>
     </div>
   );
