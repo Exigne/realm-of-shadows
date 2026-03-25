@@ -1764,53 +1764,41 @@ function GameUI() {
   const { state, actions } = useContext(GameContext);
   const [chatText, setChatText] = useState('');
 
-  const startGame = () => {
-    if (socket) {
-      socket.emit('join', { name: 'Player', charId: 'homer' });
-    }
-    audio.init(); audio.playBGM();
-    actions.setPhase('play');
-    // Reposition character groups to start positions
-    // (done via default position in SimpsonsCharacters)
+  // 1. Correct Ably Connection Logic
+  const connectToServer = async (name) => {
+    if (ablyClient) return;
+    ablyClient = new Ably.Realtime({ key: ABLY_API_KEY, clientId: name });
+    ablyChannel = ablyClient.channels.get('springfield-siege');
+
+    ablyChannel.subscribe('move', (msg) => {
+      if (msg.clientId === name) return;
+      actions.setOnlinePlayers(prev => ({ ...prev, [msg.clientId]: msg.data }));
+    });
+
+    ablyChannel.subscribe('chat', (msg) => {
+      actions.addChatMessage({ name: msg.clientId, text: msg.data });
+    });
+
+    ablyChannel.presence.subscribe('leave', (m) => {
+      actions.setOnlinePlayers(prev => {
+        const n = {...prev};
+        delete n[m.clientId];
+        return n;
+      });
+    });
+
+    await ablyChannel.presence.enter({ charId: 'homer' });
   };
 
-const connectToServer = async (name) => {
-  if (ablyClient) return;
-  // Initialize Ably
-  ablyClient = new Ably.Realtime({ key: ABLY_API_KEY, clientId: name });
-  ablyChannel = ablyClient.channels.get('springfield-siege');
+  // 2. The ONLY startGame function (Old socket version removed)
+  const startGame = () => {
+    audio.init(); 
+    audio.playBGM();
+    connectToServer("Player_" + Math.floor(Math.random()*1000)); 
+    actions.setPhase('play');
+  };
 
-  // Subscribe to movement
-  ablyChannel.subscribe('move', (msg) => {
-    if (msg.clientId === name) return;
-    actions.setOnlinePlayers(prev => ({ ...prev, [msg.clientId]: msg.data }));
-  });
-
-  // Subscribe to chat
-  ablyChannel.subscribe('chat', (msg) => {
-    actions.addChatMessage({ name: msg.clientId, text: msg.data });
-  });
-
-  // Handle players leaving via Presence
-  ablyChannel.presence.subscribe('leave', (m) => {
-    actions.setOnlinePlayers(prev => {
-      const n = {...prev};
-      delete n[m.clientId];
-      return n;
-    });
-  });
-
-  await ablyChannel.presence.enter({ charId: 'homer' });
-};
-
-const startGame = () => {
-  audio.init(); 
-  audio.playBGM();
-  connectToServer("Player_" + Math.floor(Math.random()*1000)); 
-  actions.setPhase('play');
-};
-
-  // ── Start Screen ──
+  // ── Screens ──
   if (state.phase === 'start') return (
     <div style={ST.overlay}>
       <div style={ST.modal}>
@@ -1821,7 +1809,6 @@ const startGame = () => {
         <p style={{ color: '#555', marginBottom: 20, fontSize: 15, fontFamily: 'Arial, sans-serif' }}>
           Help the Simpsons reach their destinations — before Kang & Kodos blast them!
         </p>
-
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:20 }}>
           {CHARACTERS.map(c => (
             <div key={c.id} style={{ background:'#fffbe6', border:'2px solid #FFD90F', borderRadius:12, padding:'8px 12px', textAlign:'left', fontFamily:'Arial,sans-serif' }}>
@@ -1831,142 +1818,73 @@ const startGame = () => {
             </div>
           ))}
         </div>
-
-        <div style={{ background:'#f0f0ff', borderRadius:12, padding:'10px 16px', fontSize:13, color:'#556', marginBottom:18, fontFamily:'Arial, sans-serif', textAlign:'left' }}>
-          <b>Controls:</b> WASD move · Space jump · <b>Tab switch character</b> · Q use ability<br/>
-          Arrow keys rotate camera · Walk to destination ring to complete · Collect power-ups!
-        </div>
-
-        <button style={ST.startBtn} onClick={startGame}>
-          🛸 START — SAVE THE SIMPSONS!
-        </button>
+        <button style={ST.startBtn} onClick={startGame}>🛸 START — SAVE THE SIMPSONS!</button>
       </div>
     </div>
   );
 
-  // ── Win Screen ──
   if (state.phase === 'win') return (
     <div style={ST.overlay}>
       <div style={{ ...ST.modal, maxWidth: 440 }}>
         <div style={{ fontSize: 60 }}>🏆</div>
-        <h1 style={{ fontFamily:'Impact, Arial Black', fontSize:38, color:'#FFD90F', textShadow:'2px 2px 0 #ff8800', margin:'8px 0' }}>
-          EXCELLENT!
-        </h1>
-        <p style={{ fontFamily:'Arial,sans-serif', color:'#333', fontSize:18 }}>All Simpsons reached safety!</p>
-        <p style={{ fontFamily:'Arial,sans-serif', fontSize:22, fontWeight:'bold', color:'#e74c3c' }}>Score: {state.score}</p>
-        <button style={ST.startBtn} onClick={() => { actions.reset(); setTimeout(() => actions.setPhase('play'), 100); }}>
-          🔄 Play Again
-        </button>
+        <h1 style={{ fontFamily:'Impact, Arial Black', fontSize:38, color:'#FFD90F', textShadow:'2px 2px 0 #ff8800', margin:'8px 0' }}>EXCELLENT!</h1>
+        <p>All Simpsons reached safety!</p>
+        <button style={ST.startBtn} onClick={() => { actions.reset(); setTimeout(() => actions.setPhase('play'), 100); }}>🔄 Play Again</button>
       </div>
     </div>
   );
 
-  // ── Game Over Screen ──
   if (state.phase === 'gameover') return (
     <div style={{ ...ST.overlay, background:'linear-gradient(180deg,#1a0000,#330000)' }}>
       <div style={{ ...ST.modal, maxWidth: 420, border:'4px solid #ff0000' }}>
         <div style={{ fontSize:60 }}>💀</div>
-        <h1 style={{ fontFamily:'Impact, Arial Black', fontSize:40, color:'#ff2222', textShadow:'2px 2px 0 #000', margin:'8px 0' }}>
-          D'OH!
-        </h1>
-        <p style={{ fontFamily:'Arial,sans-serif', color:'#555', fontSize:16 }}>The aliens got the Simpsons!</p>
-        <p style={{ fontFamily:'Arial,sans-serif', fontSize:20, fontWeight:'bold', color:'#333' }}>Final Score: {state.score}</p>
-        <button style={{ ...ST.startBtn, background:'#cc0000' }} onClick={() => { actions.reset(); setTimeout(() => actions.setPhase('play'), 100); }}>
-          🔄 Try Again
-        </button>
+        <h1 style={{ fontFamily:'Impact, Arial Black', fontSize:40, color:'#ff2222', textShadow:'2px 2px 0 #000', margin:'8px 0' }}>D'OH!</h1>
+        <button style={{ ...ST.startBtn, background:'#cc0000' }} onClick={() => { actions.reset(); setTimeout(() => actions.setPhase('play'), 100); }}>🔄 Try Again</button>
       </div>
     </div>
   );
 
-  // ── In-Game HUD ──
+  // ── HUD ──
   const completedCount = state.chars.filter(c => c.done).length;
-
   return (
     <>
-      {/* Quip notification */}
-      {state.quip && (
-        <div style={ST.quip}>{state.quip}</div>
-      )}
-
-      {/* Top-left: lives + score */}
+      {state.quip && <div style={ST.quip}>{state.quip}</div>}
       <div style={ST.topLeft}>
-        <div style={{ fontSize:22, letterSpacing:3 }}>
-          {'❤️'.repeat(state.lives)}{'🖤'.repeat(Math.max(0, 3-state.lives))}
-        </div>
-        <div style={{ fontSize:13, color:'#666', marginTop:2, fontFamily:'Arial,sans-serif' }}>
-          Score: <b>{state.score}</b>
-        </div>
+        <div style={{ fontSize:22 }}>{'❤️'.repeat(state.lives)}{'🖤'.repeat(Math.max(0, 3-state.lives))}</div>
+        <div style={{ fontSize:13 }}>Score: <b>{state.score}</b></div>
       </div>
-
-      {/* Top-right: character status */}
       <div style={ST.topRight}>
-        <div style={{ fontSize:12, fontWeight:'bold', marginBottom:4, color:'#555', fontFamily:'Arial Black' }}>SPRINGFIELD FAMILY</div>
-        {CHARACTERS.map((c, i) => {
-          const cs   = state.chars[i];
-          const isAct = i === state.activeCharIdx;
-          const speedOn = Date.now() < (cs?.speedBoostEnd || 0);
-          const slowOn  = Date.now() < (cs?.slowTimeEnd   || 0);
-          return (
-            <div key={c.id} style={{
-              display:'flex', alignItems:'center', gap:6,
-              padding:'4px 8px', borderRadius:8, marginBottom:3,
-              background: isAct ? '#fffbe6' : 'rgba(255,255,255,0.4)',
-              border: isAct ? '2px solid #FFD90F' : '2px solid transparent',
-              opacity: cs?.done ? 0.4 : 1,
-              fontFamily: 'Arial, sans-serif', fontSize: 13,
-              cursor: 'pointer',
-            }} onClick={() => actions.switchChar(i)}>
-              <span>{c.emoji}</span>
-              <span style={{ fontWeight: isAct ? 'bold' : 'normal' }}>{c.name}</span>
-              {cs?.done && <span style={{ color:'#27ae60' }}>✅</span>}
-              {isAct && !cs?.done && <span>▶</span>}
-              {cs?.shieldActive && <span title="Shield active">🛡️</span>}
-              {speedOn && <span title="Speed boost">🏃</span>}
-              {slowOn  && <span title="Slow time active">🕐</span>}
-              <span style={{ marginLeft:'auto', color:'#999', fontSize:11 }}>
-                {c.goalEmoji} {c.goal.split(' ')[0]}...
-              </span>
-            </div>
-          );
-        })}
-        <div style={{ marginTop:4, fontSize:11, color:'#888', fontFamily:'Arial,sans-serif' }}>
-          <kbd style={ST.kbd}>Tab</kbd> switch · <kbd style={ST.kbd}>Q</kbd> ability
-        </div>
+        <div style={{ fontSize:12, fontWeight:'bold', marginBottom:4 }}>SPRINGFIELD FAMILY</div>
+        {CHARACTERS.map((c, i) => (
+          <div key={c.id} style={{ display:'flex', gap:6, padding:'4px 8px', borderRadius:8, background: i === state.activeCharIdx ? '#fffbe6' : 'transparent', border: i === state.activeCharIdx ? '2px solid #FFD90F' : '2px solid transparent' }} onClick={() => actions.switchChar(i)}>
+            <span>{c.emoji}</span><span>{c.name}</span>{state.chars[i].done && <span>✅</span>}
+          </div>
+        ))}
       </div>
-
-      {/* Bottom: mission status */}
-      <div style={ST.goalBox}>
-        <span style={{ fontWeight:'bold', fontFamily:'Arial Black' }}>
-          🎯 {completedCount}/4 safe
-        </span>
-        {state.activeCharIdx < CHARACTERS.length && (
-          <span style={{ marginLeft:12, color:'#555', fontFamily:'Arial,sans-serif', fontSize:13 }}>
-            {CHARACTERS[state.activeCharIdx].emoji} {CHARACTERS[state.activeCharIdx].name} → {CHARACTERS[state.activeCharIdx].goalEmoji} {CHARACTERS[state.activeCharIdx].goal}
-          </span>
-        )}
-      </div>
-
-      {/* Chat */}
+      <div style={ST.goalBox}>🎯 {completedCount}/4 safe</div>
       <div style={ST.chatArea}>
         <div style={ST.chatLog}>
           {state.chatMessages.map((m,i) => (
             <div key={i}><b style={{ color: '#FFD90F' }}>{m.name}:</b> {m.text}</div>
           ))}
         </div>
-        <input style={ST.chatInput} placeholder="Chat..." value={chatText}
+        <input 
+          style={ST.chatInput} 
+          placeholder="Chat..." 
+          value={chatText}
           onChange={e => setChatText(e.target.value)}
           onKeyDown={e => {
-          if (e.key === 'Enter' && chatText.trim()) {
-          // 1. Update local UI
-          actions.addChatMessage({ name: 'You', text: chatText });
-    
-            // 2. Publish to Ably (Fixes your syntax error here)
-          ablyChannel?.publish('chat', chatText);
-    
-             // 3. Clear input
-          setChatText('');
-  }
-}}
+            if (e.key === 'Enter' && chatText.trim()) {
+              actions.addChatMessage({ name: 'You', text: chatText });
+              ablyChannel?.publish('chat', chatText);
+              setChatText('');
+            }
+          }} 
+        />
+      </div>
+    </>
+  );
+}
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
