@@ -82,7 +82,7 @@ const BUILDINGS = [
   { x:-38, z:-28,  w:13,  d: 9,  h: 9,  color: '#cc3333', roof: '#aa2222', destFor: 'bart',  label: 'Springfield Elementary' },
   { x: 34, z:-30,  w:11,  d: 8,  h:10,  color: '#3366cc', roof: '#224499', destFor: 'lisa',  label: 'Public Library'         },
   { x:-34, z: 28,  w:10,  d: 7,  h: 5,  color: '#22aa44', roof: '#118833', destFor: 'marge', label: 'Kwik-E-Mart'            },
-  { x: 0,  z:-20,  w: 8,  d: 6,  h: 8,  color: '#aaaaaa', roof: '#888888', label: 'City Hall'           },
+  { x: 0,  z:-20,  w: 8,  d: 6,  h: 8,  color: '#aaaaaa', roof: '#888888', label: 'City Hall'            },
   { x: 16, z: 10,  w: 6,  d: 5,  h:12,  color: '#ff8800', roof: '#cc6600', label: 'Nuclear Plant'        },
   { x:-15, z: 5,   w: 7,  d: 6,  h: 7,  color: '#cc8855', roof: '#aa6633', label: 'Police Dept'          },
   { x: 6,  z: 18,  w: 5,  d: 5,  h: 5,  color: '#88ccaa', roof: '#66aaaa', label: 'Hospital'             },
@@ -109,7 +109,7 @@ const POWERUP_SPAWNS = [
 ];
 
 const POWERUP_CONFIG = {
-  donut:  { emoji: '🍩', color: '#ff88bb', label: '+1 Life'     },
+  donut:  { emoji: '🍩', color: '#ff88bb', label: '+1 Life'      },
   emp:    { emoji: '🛸', color: '#44ffff', label: 'EMP Bomb'    },
   speed:  { emoji: '🏃', color: '#ffff44', label: 'Speed Boost' },
   shield: { emoji: '🛡️', color: '#aaaaff', label: 'Shield'      },
@@ -134,6 +134,7 @@ const GameContext = createContext();
 function useSpringfieldStore() {
   const charGroupRefs = useRef(CHARACTERS.map(() => React.createRef()));
   const playerPosRef  = useRef(new THREE.Vector3());
+  const playerVelRef  = useRef(new THREE.Vector3());
 
   const initChars = () => CHARACTERS.map(c => ({
     id: c.id, hits: 0, done: false,
@@ -247,7 +248,7 @@ function useSpringfieldStore() {
     addChatMessage: m => setState(s => ({ ...s, chatMessages: [...s.chatMessages.slice(-7), m] })),
   }), []);
 
-  return { state, actions, charGroupRefs, playerPosRef };
+  return { state, actions, charGroupRefs, playerPosRef, playerVelRef };
 }
 
 // ─── Audio ────────────────────────────────────────────────────────────────────
@@ -357,8 +358,13 @@ function useHumanAnim({ velRef, isSwimmingRef, isNPC, npcMovingRef }) {
 
   useFrame((_,delta) => {
     let isMoving=false, isSwimming=false;
-    if(isNPC && npcMovingRef)    { isMoving=npcMovingRef.current; }
-    else if(velRef&&isSwimmingRef){ isMoving=Math.hypot(velRef.current.x,velRef.current.z)>0.5; isSwimming=isSwimmingRef.current; }
+    
+    if(isNPC && npcMovingRef) { 
+      isMoving=npcMovingRef.current; 
+    } else if(velRef) { 
+      isMoving=Math.hypot(velRef.current.x,velRef.current.z)>0.1; 
+      isSwimming = isSwimmingRef ? isSwimmingRef.current : false; 
+    }
 
     if(isMoving) walk.current+=delta*(isSwimming?5:14);
     if(body.current){
@@ -1478,11 +1484,45 @@ function CameraRig() {
   return null;
 }
 
+// ─── Custom Physics Helper ────────────────────────────────────────────────────
+// Generates boundaries and heights using 2.5D boxes without adding Rapier
+function checkCollision(x, y, z) {
+  let floorY = 0;
+  let hitWall = false;
+
+  for (let b of BUILDINGS) {
+    const hw = b.w / 2 + 0.8;
+    const hd = b.d / 2 + 0.8;
+    if (Math.abs(x - b.x) < hw && Math.abs(z - b.z) < hd) {
+      floorY = Math.max(floorY, b.h);
+    }
+  }
+
+  for (let c of PARKED_CARS) {
+    if (Math.hypot(x - c.x, z - c.z) < 2.5) {
+      floorY = Math.max(floorY, 1.8);
+    }
+  }
+
+  for (let t of STREET_TREES) {
+    if (Math.hypot(x - t.x, z - t.z) < 0.6 && y < 3) hitWall = true;
+  }
+
+  for (let l of LAMP_POSTS) {
+    if (Math.hypot(x - l[0], z - l[1]) < 0.5 && y < 5) hitWall = true;
+  }
+
+  if (y < floorY - 0.4) {
+    hitWall = true;
+  }
+
+  return { floorY, hitWall };
+}
+
 // ─── Player Controller ────────────────────────────────────────────────────────
 function PlayerController() {
-  const { state, actions, charGroupRefs, playerPosRef } = useContext(GameContext);
-  const vel          = useRef(new THREE.Vector3());
-  const isSwimmingRef = useRef(false);
+  const { state, actions, charGroupRefs, playerPosRef, playerVelRef } = useContext(GameContext);
+  const vel          = playerVelRef; // Pull actual velocity globally for the animation rig
   const movingRef    = useRef(false);
   const lastStep     = useRef(0);
   const lastSend     = useRef(0);
@@ -1525,16 +1565,54 @@ function PlayerController() {
       vel.current.z = THREE.MathUtils.lerp(vel.current.z, 0, dcF);
     }
 
+    // Capture states
+    const curX = g.position.x;
+    const curZ = g.position.z;
+    const curY = g.position.y;
+
+    let nextX = curX + vel.current.x * delta;
+    let nextZ = curZ + vel.current.z * delta;
+
+    // Fast 2.5D AABB checks & slide logic
+    let col = checkCollision(nextX, curY, nextZ);
+    if (col.hitWall) {
+      let colX = checkCollision(nextX, curY, curZ);
+      let colZ = checkCollision(curX, curY, nextZ);
+
+      if (!colX.hitWall) {
+        nextZ = curZ;
+        vel.current.z = 0;
+        col = colX;
+      } else if (!colZ.hitWall) {
+        nextX = curX;
+        vel.current.x = 0;
+        col = colZ;
+      } else {
+        nextX = curX;
+        nextZ = curZ;
+        vel.current.x = 0;
+        vel.current.z = 0;
+        col = checkCollision(curX, curY, curZ); 
+      }
+    }
+
+    // Apply gravity
     vel.current.y -= CONFIG.GRAVITY * delta;
+    let nextY = curY + vel.current.y * delta;
 
-    g.position.x = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.x + vel.current.x * delta));
-    g.position.z = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.z + vel.current.z * delta));
-    g.position.y += vel.current.y * delta;
+    // Floor evaluate 
+    const floorY = checkCollision(nextX, nextY, nextZ).floorY;
+    
+    if (nextY <= floorY) {
+      nextY = floorY;
+      vel.current.y = 0;
+    }
 
-    if (g.position.y <= 0) { g.position.y = 0; vel.current.y = 0; }
-    const isGrounded = g.position.y <= 0.01;
+    g.position.x = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, nextX));
+    g.position.z = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, nextZ));
+    g.position.y = nextY;
 
-    isSwimmingRef.current = false;
+    const isGrounded = Math.abs(g.position.y - floorY) <= 0.05;
 
     if (keyState[' '] && isGrounded) vel.current.y = CONFIG.JUMP_FORCE;
 
@@ -1582,7 +1660,7 @@ function PlayerController() {
 
 // ─── Simpsons Characters ──────────────────────────────────────────────────────
 function SimpsonsCharacters() {
-  const { state, charGroupRefs } = useContext(GameContext);
+  const { state, charGroupRefs, playerVelRef } = useContext(GameContext);
 
   return (
     <>
@@ -1606,6 +1684,7 @@ function SimpsonsCharacters() {
             )}
             <SimpsonsRig
               charCfg={charCfg}
+              velRef={isActive ? playerVelRef : undefined}
               isNPC={!isActive || state.phase !== 'play'}
               npcMovingRef={{ current: false }}
             />
