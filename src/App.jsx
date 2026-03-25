@@ -1760,11 +1760,12 @@ function NetworkPlayer({ data }) {
 
 // ─── UI ───────────────────────────────────────────────────────────────────────
 
+// ─── UI ───────────────────────────────────────────────────────────────────────
+
 function GameUI() {
   const { state, actions } = useContext(GameContext);
   const [chatText, setChatText] = useState('');
 
-  // 1. Correct Ably Connection Logic
   const connectToServer = async (name) => {
     if (ablyClient) return;
     ablyClient = new Ably.Realtime({ key: ABLY_API_KEY, clientId: name });
@@ -1790,7 +1791,6 @@ function GameUI() {
     await ablyChannel.presence.enter({ charId: 'homer' });
   };
 
-  // 2. The ONLY startGame function (Old socket version removed)
   const startGame = () => {
     audio.init(); 
     audio.playBGM();
@@ -1798,7 +1798,6 @@ function GameUI() {
     actions.setPhase('play');
   };
 
-  // ── Screens ──
   if (state.phase === 'start') return (
     <div style={ST.overlay}>
       <div style={ST.modal}>
@@ -1806,58 +1805,38 @@ function GameUI() {
         <h1 style={{ fontFamily:'Impact, Arial Black', fontSize: 38, margin: '0 0 4px', color: '#FFD90F', textShadow: '3px 3px 0 #ff0000, 5px 5px 0 #111', letterSpacing: 2 }}>
           SPRINGFIELD UNDER SIEGE
         </h1>
-        <p style={{ color: '#555', marginBottom: 20, fontSize: 15, fontFamily: 'Arial, sans-serif' }}>
-          Help the Simpsons reach their destinations — before Kang & Kodos blast them!
+        <p style={{ color: '#555', marginBottom: 20, fontSize: 15 }}>
+          Help the Simpsons reach their destinations before Kang & Kodos blast them!
         </p>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:20 }}>
-          {CHARACTERS.map(c => (
-            <div key={c.id} style={{ background:'#fffbe6', border:'2px solid #FFD90F', borderRadius:12, padding:'8px 12px', textAlign:'left', fontFamily:'Arial,sans-serif' }}>
-              <b style={{ fontSize:15 }}>{c.emoji} {c.name}</b>
-              <div style={{ fontSize:12, color:'#666', marginTop:2 }}>{c.goalEmoji} {c.goal}</div>
-              <div style={{ fontSize:11, color:'#999', marginTop:1 }}>⚡ {c.abilityLabel}</div>
-            </div>
-          ))}
-        </div>
         <button style={ST.startBtn} onClick={startGame}>🛸 START — SAVE THE SIMPSONS!</button>
       </div>
     </div>
   );
 
-  if (state.phase === 'win') return (
+  if (state.phase === 'win' || state.phase === 'gameover') return (
     <div style={ST.overlay}>
-      <div style={{ ...ST.modal, maxWidth: 440 }}>
-        <div style={{ fontSize: 60 }}>🏆</div>
-        <h1 style={{ fontFamily:'Impact, Arial Black', fontSize:38, color:'#FFD90F', textShadow:'2px 2px 0 #ff8800', margin:'8px 0' }}>EXCELLENT!</h1>
-        <p>All Simpsons reached safety!</p>
-        <button style={ST.startBtn} onClick={() => { actions.reset(); setTimeout(() => actions.setPhase('play'), 100); }}>🔄 Play Again</button>
+      <div style={ST.modal}>
+        <h1>{state.phase === 'win' ? 'EXCELLENT!' : "D'OH!"}</h1>
+        <p>Score: {state.score}</p>
+        <button style={ST.startBtn} onClick={() => { actions.reset(); setTimeout(()=>actions.setPhase('play'), 100); }}>🔄 Try Again</button>
       </div>
     </div>
   );
 
-  if (state.phase === 'gameover') return (
-    <div style={{ ...ST.overlay, background:'linear-gradient(180deg,#1a0000,#330000)' }}>
-      <div style={{ ...ST.modal, maxWidth: 420, border:'4px solid #ff0000' }}>
-        <div style={{ fontSize:60 }}>💀</div>
-        <h1 style={{ fontFamily:'Impact, Arial Black', fontSize:40, color:'#ff2222', textShadow:'2px 2px 0 #000', margin:'8px 0' }}>D'OH!</h1>
-        <button style={{ ...ST.startBtn, background:'#cc0000' }} onClick={() => { actions.reset(); setTimeout(() => actions.setPhase('play'), 100); }}>🔄 Try Again</button>
-      </div>
-    </div>
-  );
-
-  // ── HUD ──
   const completedCount = state.chars.filter(c => c.done).length;
+
   return (
     <>
       {state.quip && <div style={ST.quip}>{state.quip}</div>}
       <div style={ST.topLeft}>
-        <div style={{ fontSize:22 }}>{'❤️'.repeat(state.lives)}{'🖤'.repeat(Math.max(0, 3-state.lives))}</div>
+        <div style={{ fontSize:22 }}>{'❤️'.repeat(state.lives)}</div>
         <div style={{ fontSize:13 }}>Score: <b>{state.score}</b></div>
       </div>
       <div style={ST.topRight}>
-        <div style={{ fontSize:12, fontWeight:'bold', marginBottom:4 }}>SPRINGFIELD FAMILY</div>
+        <div style={{ fontSize:12, fontWeight:'bold' }}>SPRINGFIELD FAMILY</div>
         {CHARACTERS.map((c, i) => (
-          <div key={c.id} style={{ display:'flex', gap:6, padding:'4px 8px', borderRadius:8, background: i === state.activeCharIdx ? '#fffbe6' : 'transparent', border: i === state.activeCharIdx ? '2px solid #FFD90F' : '2px solid transparent' }} onClick={() => actions.switchChar(i)}>
-            <span>{c.emoji}</span><span>{c.name}</span>{state.chars[i].done && <span>✅</span>}
+          <div key={c.id} style={{ display:'flex', gap:6, opacity: state.chars[i].done ? 0.4 : 1 }}>
+            <span>{c.emoji}</span> <span>{c.name}</span>
           </div>
         ))}
       </div>
