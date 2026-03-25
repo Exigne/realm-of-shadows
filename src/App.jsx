@@ -834,25 +834,55 @@ function PlayerController() {
 
       vel.current.y -= CONFIG.GRAVITY * delta;
 
-      let nextX = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.x + vel.current.x * delta));
-      let nextZ = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.z + vel.current.z * delta));
-      
-      let hitX = false;
-      let hitZ = false;
-      const charRadius = 0.6; 
+let nextX = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.x + vel.current.x * delta));
+let nextZ = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.z + vel.current.z * delta));
 
-      BUILDINGS.forEach(b => {
-        const minX = b.x - b.w / 2 - charRadius;
-        const maxX = b.x + b.w / 2 + charRadius;
-        const minZ = b.z - b.d / 2 - charRadius;
-        const maxZ = b.z + b.d / 2 + charRadius;
+const charRadius = 0.6; 
+let hitX = false;
+let hitZ = false;
 
-        if (nextX > minX && nextX < maxX && g.position.z > minZ && g.position.z < maxZ) hitX = true;
-        if (g.position.x > minX && g.position.x < maxX && nextZ > minZ && nextZ < maxZ) hitZ = true;
-      });
+BUILDINGS.forEach(b => {
+  const minX = b.x - b.w / 2 - charRadius;
+  const maxX = b.x + b.w / 2 + charRadius;
+  const minZ = b.z - b.d / 2 - charRadius;
+  const maxZ = b.z + b.d / 2 + charRadius;
 
-      if (!hitX) g.position.x = nextX; else vel.current.x = 0;
-      if (!hitZ) g.position.z = nextZ; else vel.current.z = 0;
+  // Check X-axis collision (moving horizontally into building)
+  if (nextX > minX && nextX < maxX && g.position.z > minZ && g.position.z < maxZ) {
+    hitX = true;
+    // Push character slightly away from building center on X axis
+    const centerX = b.x;
+    if (g.position.x < centerX) {
+      g.position.x = minX - 0.05; // Slightly outside left edge
+    } else {
+      g.position.x = maxX + 0.05; // Slightly outside right edge
+    }
+  }
+
+  // Check Z-axis collision (moving vertically into building)
+  if (g.position.x > minX && g.position.x < maxX && nextZ > minZ && nextZ < maxZ) {
+    hitZ = true;
+    // Push character slightly away from building center on Z axis
+    const centerZ = b.z;
+    if (g.position.z < centerZ) {
+      g.position.z = minZ - 0.05;
+    } else {
+      g.position.z = maxZ + 0.05;
+    }
+  }
+});
+
+if (!hitX) {
+  g.position.x = nextX;
+} else {
+  vel.current.x = 0;
+}
+
+if (!hitZ) {
+  g.position.z = nextZ;
+} else {
+  vel.current.z = 0;
+}
 
       g.position.y += vel.current.y * delta;
       
