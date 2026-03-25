@@ -1,6 +1,6 @@
 /**
- * 🛸 SPRINGFIELD UNDER SIEGE (The Town & Traffic Update)
- * Features: Proper Town Layout, Road-bound Traffic, Fixed Walking Animations, Full Retro Theme
+ * 🛸 SPRINGFIELD UNDER SIEGE (True 4-Player Co-Op)
+ * Features: Solid Buildings, Laser Cover, Server-Assigned Characters, Network Sync
  */
 
 import React, {
@@ -11,12 +11,12 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   Sky, ContactShadows, Html,
 } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 
 // ─── Multiplayer Config ───────────────────────────────────────────────────────
-const SOCKET_URL = "http://192.168.1.129:3001";
+// ⚠️ REPLACE THIS WITH YOUR GITHUB CODESPACE PORT 3001 URL
+const SOCKET_URL = "https://YOUR-CODESPACE-NAME-3001.app.github.dev"; 
 let socket;
 
 const camState = { yaw: Math.PI, pitch: 0.45, yawVel: 0, pitchVel: 0 };
@@ -29,7 +29,7 @@ const CHARACTERS = [
     goal: "Moe's Tavern",           goalEmoji: '🍺',
     speed: 4.8,  maxHits: 4,        
     shirt: '#f5f5f5', pants: '#3355cc', hair: '#1a1a1a',
-    dest: new THREE.Vector3(45, 0, -28), // Outer block
+    dest: new THREE.Vector3(45, 0, -28), 
     startPos: new THREE.Vector3(3, 0, 3),
     ability: 'tanky', abilityLabel: 'Extra Tough (4 hits)',
     quip: "D'oh! Not the aliens again!",
@@ -39,7 +39,7 @@ const CHARACTERS = [
     goal: 'Springfield Elementary', goalEmoji: '🏫',
     speed: 9.5,  maxHits: 2,        
     shirt: '#ff3333', pants: '#4455dd', hair: '#FFD90F',
-    dest: new THREE.Vector3(-45, 0, 28), // Outer block
+    dest: new THREE.Vector3(-45, 0, 28), 
     startPos: new THREE.Vector3(-3, 0, 3),
     ability: 'fast', abilityLabel: 'Super Speed',
     quip: "Ay caramba! Eat my shorts, aliens!",
@@ -49,7 +49,7 @@ const CHARACTERS = [
     goal: 'Public Library',         goalEmoji: '📚',
     speed: 6.2,  maxHits: 2,        
     shirt: '#dd1111', pants: '#dd1111', hair: '#FFD90F',
-    dest: new THREE.Vector3(12, 0, -8), // Central block
+    dest: new THREE.Vector3(12, 0, -8), 
     startPos: new THREE.Vector3(3, 0, -3),
     ability: 'slowtime', abilityLabel: 'Q: Slow Aliens (5s)',
     quip: "Statistically, running is optimal!",
@@ -59,21 +59,19 @@ const CHARACTERS = [
     goal: 'Kwik-E-Mart',            goalEmoji: '🏪',
     speed: 5.5,  maxHits: 3,        
     shirt: '#22aa44', pants: '#22aa44', hair: '#1133cc',
-    dest: new THREE.Vector3(-12, 0, 8), // Central block
+    dest: new THREE.Vector3(-12, 0, 8), 
     startPos: new THREE.Vector3(-3, 0, -3),
     ability: 'shield', abilityLabel: 'Q: Activate Shield',
     quip: "Hmmmm… I don't like this one bit.",
   },
 ];
 
-// ─── Springfield Buildings (Redesigned to fit within City Blocks) ─────────────
+// ─── Springfield Buildings ────────────────────────────────────────────────────
 const BUILDINGS = [
-  // ── Destinations ──
   { x: 45, z:-28,  w: 9, d: 7, h: 5,  color: '#7B3F00', roof: '#5a2d00', destFor: 'homer', label: "Moe's Tavern" },
   { x:-45, z: 28,  w:13, d: 9, h: 9,  color: '#cc3333', roof: '#aa2222', destFor: 'bart',  label: 'Springfield Elementary' },
   { x: 12, z:-8,   w:11, d: 8, h:10,  color: '#3366cc', roof: '#224499', destFor: 'lisa',  label: 'Public Library' },
   { x:-12, z: 8,   w:10, d: 7, h: 5,  color: '#22aa44', roof: '#118833', destFor: 'marge', label: 'Kwik-E-Mart' },
-  // ── Generic Springfield ──
   { x: 0,  z: 10,  w: 8, d: 6, h: 8,  color: '#aaaaaa', roof: '#888888', label: 'City Hall' },
   { x: 40, z: 35,  w: 6, d: 5, h:12,  color: '#ff8800', roof: '#cc6600', label: 'Nuclear Plant' },
   { x:-15, z:-10,  w: 7, d: 6, h: 7,  color: '#cc8855', roof: '#aa6633', label: 'Police Dept' },
@@ -108,7 +106,9 @@ const GameContext = createContext();
 function useSpringfieldStore() {
   const charGroupRefs = useRef(CHARACTERS.map(() => React.createRef()));
   const playerPosRef  = useRef(new THREE.Vector3());
-  const activeMovingRef = useRef(false); // Global ref to sync animation
+  const activeMovingRef = useRef(false); 
+  // Store network movement states for animation syncing
+  const networkMovingRefs = useRef([false, false, false, false]); 
 
   const initChars = () => CHARACTERS.map(c => ({
     id: c.id, hits: 0, done: false,
@@ -119,13 +119,13 @@ function useSpringfieldStore() {
 
   const [state, setState] = useState({
     phase: 'start', 
+    isSpectator: false,
     lives: 3,
     activeCharIdx: 0,
     chars: initChars(),
     powerUps: initPowerUps(),
     score: 0,
     alienSlowEnd: 0,
-    onlinePlayers: {},
     chatMessages: [],
     quip: null,
     nearDoor: false,
@@ -133,6 +133,14 @@ function useSpringfieldStore() {
 
   const actions = useMemo(() => ({
     setPhase: p => setState(s => ({ ...s, phase: p })),
+    
+    // NEW: Network Character Assignment
+    setAssignedCharacter: charId => setState(s => {
+      if (charId === 'spectator') return { ...s, isSpectator: true };
+      const idx = CHARACTERS.findIndex(c => c.id === charId);
+      return { ...s, activeCharIdx: idx !== -1 ? idx : s.activeCharIdx, isSpectator: false };
+    }),
+
     setNearDoor: val => setState(s => s.nearDoor === val ? s : { ...s, nearDoor: val }),
     toggleHide: () => setState(s => {
       const chars = [...s.chars];
@@ -145,35 +153,10 @@ function useSpringfieldStore() {
       chars[s.activeCharIdx] = { ...chars[s.activeCharIdx], hidden: false };
       return { ...s, chars };
     }),
-    nextChar: () => setState(s => {
-      for (let i = 1; i <= CHARACTERS.length; i++) {
-        const idx = (s.activeCharIdx + i) % CHARACTERS.length;
-        if (!s.chars[idx].done) {
-          const chars = [...s.chars];
-          chars[s.activeCharIdx] = { ...chars[s.activeCharIdx], hidden: false }; 
-          return { ...s, activeCharIdx: idx, chars };
-        }
-      }
-      return s;
-    }),
-    switchChar: idx => setState(s => {
-      if (s.chars[idx]?.done) return s;
-      const chars = [...s.chars];
-      chars[s.activeCharIdx] = { ...chars[s.activeCharIdx], hidden: false };
-      return { ...s, activeCharIdx: idx, chars };
-    }),
     charArrived: charId => setState(s => {
       const chars = s.chars.map(c => c.id === charId ? { ...c, done: true, hidden: false } : c);
       const allDone = chars.every(c => c.done);
-      let nextIdx = s.activeCharIdx;
-      if (!allDone) {
-        const cur = CHARACTERS.findIndex(c => c.id === charId);
-        for (let i = 1; i <= CHARACTERS.length; i++) {
-          const idx = (cur + i) % CHARACTERS.length;
-          if (!chars[idx].done) { nextIdx = idx; break; }
-        }
-      }
-      return { ...s, chars, activeCharIdx: nextIdx, score: s.score + 500, phase: allDone ? 'win' : s.phase };
+      return { ...s, chars, score: s.score + 500, phase: allDone ? 'win' : s.phase };
     }),
     hitChar: charIdx => setState(s => {
       const char = s.chars[charIdx];
@@ -221,14 +204,13 @@ function useSpringfieldStore() {
     },
     addScore: n => setState(s => ({ ...s, score: s.score + n })),
     reset: () => setState(s => ({
-      ...s, phase: 'start', lives: 3, activeCharIdx: 0, score: 0,
+      ...s, phase: 'start', lives: 3, score: 0,
       chars: initChars(), powerUps: initPowerUps(), alienSlowEnd: 0, quip: null, nearDoor: false
     })),
-    setOnlinePlayers: p => setState(s => ({ ...s, onlinePlayers: p })),
     addChatMessage:   m => setState(s => ({ ...s, chatMessages: [...s.chatMessages.slice(-7), m] })),
   }), []);
 
-  return { state, actions, charGroupRefs, playerPosRef, activeMovingRef };
+  return { state, actions, charGroupRefs, playerPosRef, activeMovingRef, networkMovingRefs };
 }
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
@@ -245,28 +227,12 @@ class GameAudio {
     this.bgm = true;
     const BPM = 160; const B = 60 / BPM;
     
-    // Expanded Full Retro Theme Array [Frequency, Beat Offset, Duration]
     const mel = [
-      [523.25, 0, 1.5],   // C
-      [659.25, 1.5, 1],   // E
-      [739.99, 2.5, 1],   // F#
-      [880.00, 3.5, 0.5], // A
-      [783.99, 4, 1.5],   // G
-      [659.25, 5.5, 1],   // E
-      [523.25, 6.5, 1],   // C
-      [440.00, 7.5, 0.5], // A
-      [369.99, 8, 0.5],   // F#
-      [369.99, 8.5, 0.5], // F#
-      [369.99, 9, 0.5],   // F#
-      [392.00, 9.5, 1.5], // G
-      // Wait a beat...
-      [369.99, 11.5, 0.5], // F#
-      [369.99, 12, 0.5],   // F#
-      [369.99, 12.5, 0.5], // F#
-      [392.00, 13, 0.5],   // G
-      [466.16, 13.5, 0.5], // Bb
-      [493.88, 14, 0.5],   // B
-      [523.25, 14.5, 2]    // C (High)
+      [523.25, 0, 1.5], [659.25, 1.5, 1], [739.99, 2.5, 1], [880.00, 3.5, 0.5], 
+      [783.99, 4, 1.5], [659.25, 5.5, 1], [523.25, 6.5, 1], [440.00, 7.5, 0.5], 
+      [369.99, 8, 0.5], [369.99, 8.5, 0.5], [369.99, 9, 0.5], [392.00, 9.5, 1.5], 
+      [369.99, 11.5, 0.5], [369.99, 12, 0.5], [369.99, 12.5, 0.5], [392.00, 13, 0.5], 
+      [466.16, 13.5, 0.5], [493.88, 14, 0.5], [523.25, 14.5, 2] 
     ];
 
     const note = (f, bOff, dur, t0, vol=0.04, type='square') => {
@@ -279,7 +245,7 @@ class GameAudio {
     };
     const loop = t => {
       mel.forEach(([f,b,d]) => note(f,b,d,t,0.05,'square')); 
-      const next = t + 20*B; // Loop repeats every 20 beats
+      const next = t + 20*B; 
       setTimeout(() => { if(this.bgm) loop(next); }, Math.max(0,(next-this.ctx.currentTime-0.5)*1000));
     };
     loop(this.ctx.currentTime + 0.1);
@@ -339,7 +305,7 @@ class GameAudio {
 const audio = new GameAudio();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  IMPROVED BIPED ANIMATION ENGINE (Proper Pendulum Swing)
+//  IMPROVED BIPED ANIMATION ENGINE 
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const matBlack = new THREE.MeshBasicMaterial({ color: '#111' });
@@ -356,9 +322,7 @@ function useHumanAnim({ isNPC, npcMovingRef }) {
   const walk=useRef(0);
 
   useFrame((_,delta) => {
-    // We read movement state directly from the passed-in ref
     let isMoving = npcMovingRef && npcMovingRef.current;
-
     if(isMoving) walk.current += delta * 15;
 
     if(body.current) {
@@ -371,7 +335,6 @@ function useHumanAnim({ isNPC, npcMovingRef }) {
       head.current.rotation.x = isMoving ? Math.sin(walk.current * 2) * 0.02 : 0;
     }
 
-    // Pendulum swing for arms and legs
     const armSwing = Math.sin(walk.current) * 0.8;
     const legSwing = Math.sin(walk.current) * 0.7;
 
@@ -436,13 +399,10 @@ function SimpsonsRig({ charCfg, isNPC, npcMovingRef, isHidden }) {
 function CityMap() {
   return (
     <group>
-      {/* Base Grass */}
       <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, -0.05, 0]} receiveShadow>
         <planeGeometry args={[200, 200]} />
         <meshStandardMaterial color="#4a9e30" roughness={0.9} />
       </mesh>
-
-      {/* Sidewalks (Underneath roads) */}
       <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.005, -20]} receiveShadow>
         <planeGeometry args={[104, 14]} /><meshStandardMaterial color="#999" roughness={0.9} />
       </mesh>
@@ -455,8 +415,6 @@ function CityMap() {
       <mesh rotation={[-Math.PI/2, 0, 0]} position={[30, 0.005, 0]} receiveShadow>
         <planeGeometry args={[14, 54]} /><meshStandardMaterial color="#999" roughness={0.9} />
       </mesh>
-
-      {/* Roads (Dark Asphalt) */}
       <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.01, -20]} receiveShadow>
         <planeGeometry args={[100, 10]} /><meshStandardMaterial color="#333" roughness={0.8} />
       </mesh>
@@ -469,8 +427,6 @@ function CityMap() {
       <mesh rotation={[-Math.PI/2, 0, 0]} position={[30, 0.01, 0]} receiveShadow>
         <planeGeometry args={[10, 50]} /><meshStandardMaterial color="#333" roughness={0.8} />
       </mesh>
-
-      {/* Road Dashed Lines */}
       <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.015, -20]}>
         <planeGeometry args={[90, 0.3]} />
         <meshBasicMaterial color="#FFD90F" transparent opacity={0.6} />
@@ -526,7 +482,7 @@ function Building({ b }) {
   );
 }
 
-// ─── Traffic System (Road-bound NPC Cars) ─────────────────────────────────────
+// ─── Traffic System ───────────────────────────────────────────────────────────
 
 function CarMesh({ color }) {
   const bodyMat = useMemo(() => stdMat(color), [color]);
@@ -547,11 +503,10 @@ function CarMesh({ color }) {
 function TrafficSystem() {
   const { state, actions, playerPosRef } = useContext(GameContext);
   
-  // Cars stick strictly to the roads: Z=-20, X=30, Z=20, X=-30
   const carData = useMemo(() => [
-    { id: 1, color: '#e74c3c', speed: 18, dir: '+x', pos: [0, 0, -20], bounds: { xMin: -30, xMax: 30, zMin: -20, zMax: 20 } }, // Clockwise Outer
-    { id: 2, color: '#3498db', speed: 15, dir: '-x', pos: [0, 0, 20],  bounds: { xMin: -30, xMax: 30, zMin: -20, zMax: 20 } }, // Clockwise Inner
-    { id: 3, color: '#f1c40f', speed: 20, dir: '+z', pos: [30, 0, 0],  bounds: { xMin: -30, xMax: 30, zMin: -20, zMax: 20 } }, // Clockwise Outer 2
+    { id: 1, color: '#e74c3c', speed: 18, dir: '+x', pos: [0, 0, -20], bounds: { xMin: -30, xMax: 30, zMin: -20, zMax: 20 } }, 
+    { id: 2, color: '#3498db', speed: 15, dir: '-x', pos: [0, 0, 20],  bounds: { xMin: -30, xMax: 30, zMin: -20, zMax: 20 } }, 
+    { id: 3, color: '#f1c40f', speed: 20, dir: '+z', pos: [30, 0, 0],  bounds: { xMin: -30, xMax: 30, zMin: -20, zMax: 20 } }, 
   ], []);
 
   const carRefs = useRef(carData.map(() => React.createRef()));
@@ -577,7 +532,7 @@ function TrafficSystem() {
         if (g.position.z <= car.bounds.zMin) { g.position.z = car.bounds.zMin; car.dir = '+x'; }
       }
 
-      if (!state.chars[state.activeCharIdx].hidden && !state.chars[state.activeCharIdx].done) {
+      if (!state.isSpectator && !state.chars[state.activeCharIdx].hidden && !state.chars[state.activeCharIdx].done) {
         if (g.position.distanceTo(playerPosRef.current) < 2.5) {
           actions.hitChar(state.activeCharIdx);
           actions.showQuip("Watch out for the cars!");
@@ -638,7 +593,7 @@ function PowerUp({ data }) {
   );
 }
 
-// ─── Alien UFO & Lasers ───────────────────────────────────────────────────────
+// ─── Alien UFO & Lasers (Updated for Building Cover) ──────────────────────────
 
 function LaserBeam({ laser, onExpire, onHit }) {
   const ref = useRef();
@@ -647,8 +602,33 @@ function LaserBeam({ laser, onExpire, onHit }) {
 
   useFrame(() => {
     const age = (Date.now() - laser.startTime) / 500; 
+
+    if (ref.current) {
+      ref.current.position.lerpVectors(new THREE.Vector3(...laser.from), new THREE.Vector3(...laser.to), age);
+
+      let hitBuilding = false;
+      BUILDINGS.forEach(b => {
+        const minX = b.x - b.w / 2;
+        const maxX = b.x + b.w / 2;
+        const minZ = b.z - b.d / 2;
+        const maxZ = b.z + b.d / 2;
+        if (
+          ref.current.position.x > minX && ref.current.position.x < maxX &&
+          ref.current.position.z > minZ && ref.current.position.z < maxZ &&
+          ref.current.position.y < b.h + 0.5 
+        ) {
+          hitBuilding = true;
+        }
+      });
+
+      if (hitBuilding) {
+        onExpire(laser.id); 
+        return;
+      }
+    }
+
     if (age >= 1) {
-      if (!hasHit.current) {
+      if (!hasHit.current && !state.isSpectator) {
         hasHit.current = true;
         const targetChar = state.chars[state.activeCharIdx];
         const g = charGroupRefs.current[state.activeCharIdx]?.current;
@@ -658,8 +638,6 @@ function LaserBeam({ laser, onExpire, onHit }) {
         }
       }
       onExpire(laser.id);
-    } else if (ref.current) {
-      ref.current.position.lerpVectors(new THREE.Vector3(...laser.from), new THREE.Vector3(...laser.to), age);
     }
   });
 
@@ -724,14 +702,19 @@ function AlienSystem() {
   const LASER_COLS = ['#ff2200', '#00ffaa', '#ff00ff'];
 
   const handleFire = (fromPos, targetPos, ufoId) => {
-    const targetChar = state.chars[state.activeCharIdx];
+    // If spectator, target is random
     let finalTarget = targetPos.clone();
-    
-    if (targetChar.hidden) {
-      finalTarget.set(finalTarget.x + (Math.random()-0.5)*20, 0, finalTarget.z + (Math.random()-0.5)*20);
+    if (state.isSpectator) {
+       finalTarget.set((Math.random()-0.5)*40, 0, (Math.random()-0.5)*40);
     } else {
-      finalTarget.add(new THREE.Vector3((Math.random()-0.5)*5, 0, (Math.random()-0.5)*5));
+      const targetChar = state.chars[state.activeCharIdx];
+      if (targetChar && targetChar.hidden) {
+        finalTarget.set(finalTarget.x + (Math.random()-0.5)*20, 0, finalTarget.z + (Math.random()-0.5)*20);
+      } else {
+        finalTarget.add(new THREE.Vector3((Math.random()-0.5)*5, 0, (Math.random()-0.5)*5));
+      }
     }
+
     audio.sfx('laser');
     setLasers(l => [...l.slice(-12), {
       id: Date.now() + ufoId * 1000 + Math.random(),
@@ -768,6 +751,17 @@ function CameraRig() {
     camState.pitch   += camState.pitchVel * delta;
     camState.pitch    = Math.max(0.1, Math.min(1.4, camState.pitch));
     
+    // If spectator, detach camera from player and allow free look
+    if (state.isSpectator) {
+      camera.position.lerp(new THREE.Vector3(
+        Math.sin(camState.yaw)*30*Math.cos(camState.pitch),
+        30*Math.sin(camState.pitch) + 5,
+        Math.cos(camState.yaw)*30*Math.cos(camState.pitch),
+      ), 5 * delta);
+      camera.lookAt(0, 0, 0);
+      return;
+    }
+
     const p = charGroupRefs.current[state.activeCharIdx]?.current;
     if (!p) return;
     
@@ -785,7 +779,7 @@ function CameraRig() {
   return null;
 }
 
-// ─── Player Controller ───────────────────────────────────────────────────────
+// ─── Player Controller (Updated for Network & Solid Buildings) ────────────────
 
 function PlayerController() {
   const { state, actions, charGroupRefs, playerPosRef, activeMovingRef } = useContext(GameContext);
@@ -796,9 +790,9 @@ function PlayerController() {
 
   useFrame(({clock}, delta) => {
     if (state.phase !== 'play') return;
-
-    if (keyState['tab'] && !keyState.prevTab) { actions.nextChar(); vel.current.set(0, 0, 0); }
-    keyState.prevTab = keyState['tab'];
+    
+    // Spectators don't move characters
+    if (state.isSpectator) return;
 
     if (keyState['q'] && !keyState.prevQ) { actions.useAbility(state.activeCharIdx); audio.sfx('emp'); }
     keyState.prevQ = keyState['q'];
@@ -839,8 +833,27 @@ function PlayerController() {
       }
 
       vel.current.y -= CONFIG.GRAVITY * delta;
-      g.position.x = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.x + vel.current.x * delta));
-      g.position.z = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.z + vel.current.z * delta));
+
+      let nextX = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.x + vel.current.x * delta));
+      let nextZ = Math.max(-CONFIG.BOUNDS, Math.min(CONFIG.BOUNDS, g.position.z + vel.current.z * delta));
+      
+      let hitX = false;
+      let hitZ = false;
+      const charRadius = 0.6; 
+
+      BUILDINGS.forEach(b => {
+        const minX = b.x - b.w / 2 - charRadius;
+        const maxX = b.x + b.w / 2 + charRadius;
+        const minZ = b.z - b.d / 2 - charRadius;
+        const maxZ = b.z + b.d / 2 + charRadius;
+
+        if (nextX > minX && nextX < maxX && g.position.z > minZ && g.position.z < maxZ) hitX = true;
+        if (g.position.x > minX && g.position.x < maxX && nextZ > minZ && nextZ < maxZ) hitZ = true;
+      });
+
+      if (!hitX) g.position.x = nextX; else vel.current.x = 0;
+      if (!hitZ) g.position.z = nextZ; else vel.current.z = 0;
+
       g.position.y += vel.current.y * delta;
       
       if (g.position.y <= 0) { g.position.y = 0; vel.current.y = 0; }
@@ -857,7 +870,6 @@ function PlayerController() {
       movingRef.current = false;
     }
 
-    // Export the moving state so the animation engine can read it
     activeMovingRef.current = movingRef.current;
     playerPosRef.current.copy(g.position);
 
@@ -891,15 +903,17 @@ function PlayerController() {
 // ─── Render Simpsons Characters ───────────────────────────────────────────────
 
 function SimpsonsCharacters() {
-  const { state, charGroupRefs, activeMovingRef } = useContext(GameContext);
+  const { state, charGroupRefs, activeMovingRef, networkMovingRefs } = useContext(GameContext);
 
   return (
     <>
       {CHARACTERS.map((charCfg, idx) => {
         const charSt  = state.chars[idx];
-        const isActive = idx === state.activeCharIdx;
+        const isActive = idx === state.activeCharIdx && !state.isSpectator;
         
-        if (!isActive && !charSt?.done) return null;
+        // Setup a custom ref to read the correct moving state (local or network)
+        const moveRef = useRef(false);
+        useFrame(() => { moveRef.current = isActive ? activeMovingRef.current : networkMovingRefs.current[idx]; });
 
         return (
           <group key={charCfg.id} ref={charGroupRefs.current[idx]} position={charCfg.startPos.toArray()}>
@@ -910,7 +924,7 @@ function SimpsonsCharacters() {
             <SimpsonsRig 
               charCfg={charCfg} 
               isNPC={true} 
-              npcMovingRef={isActive ? activeMovingRef : { current: false }} 
+              npcMovingRef={moveRef} 
               isHidden={charSt?.hidden} 
             />
             
@@ -921,7 +935,7 @@ function SimpsonsCharacters() {
             {!charSt?.hidden && (
               <Html position={[0, 2.9, 0]} center occlude>
                 <div style={{ background: isActive ? charCfg.shirt : 'rgba(0,0,0,0.6)', color: isActive ? '#111' : '#fff', padding: '2px 10px', borderRadius: 12, fontSize: 12, border: `3px solid ${isActive ? '#FFD90F' : '#555'}`, fontWeight: 'bold', pointerEvents: 'none', whiteSpace: 'nowrap', opacity: charSt?.done ? 0.4 : 1 }}>
-                  {charCfg.emoji} {charCfg.name} {charSt?.done ? '✅' : isActive ? '◀' : ''}
+                  {charCfg.emoji} {charCfg.name} {charSt?.done ? '✅' : isActive ? '◀ (YOU)' : ''}
                 </div>
               </Html>
             )}
@@ -949,7 +963,7 @@ function GameUI() {
           SPRINGFIELD UNDER SIEGE
         </h1>
         <p style={{ color: '#555', marginBottom: 20, fontSize: 15, fontFamily: 'Arial, sans-serif' }}>
-          Help the Simpsons reach their destinations — before Kang & Kodos blast them!
+          Connect with 3 other players and save the family!
         </p>
 
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:20 }}>
@@ -963,35 +977,11 @@ function GameUI() {
         </div>
 
         <div style={{ background:'#f0f0ff', borderRadius:12, padding:'10px 16px', fontSize:13, color:'#556', marginBottom:18, fontFamily:'Arial, sans-serif', textAlign:'left' }}>
-          <b>Controls:</b> WASD move · Space jump · <b>Tab switch character</b> · Q use ability<br/>
-          Arrow keys rotate camera · <b>E</b> to hide in buildings · Collect power-ups!
+          <b>Controls:</b> WASD move · Space jump · Q use ability<br/>
+          Arrow keys rotate camera · <b>E</b> to hide in buildings.
         </div>
 
-        <button style={ST.startBtn} onClick={startGame}>🛸 START — SAVE THE SIMPSONS!</button>
-      </div>
-    </div>
-  );
-
-  if (state.phase === 'win') return (
-    <div style={ST.overlay}>
-      <div style={{ ...ST.modal, maxWidth: 440 }}>
-        <div style={{ fontSize: 60 }}>🏆</div>
-        <h1 style={{ fontFamily:'Impact, Arial Black', fontSize:38, color:'#FFD90F', textShadow:'2px 2px 0 #ff8800', margin:'8px 0' }}>EXCELLENT!</h1>
-        <p style={{ fontFamily:'Arial,sans-serif', color:'#333', fontSize:18 }}>All Simpsons reached safety!</p>
-        <p style={{ fontFamily:'Arial,sans-serif', fontSize:22, fontWeight:'bold', color:'#e74c3c' }}>Score: {state.score}</p>
-        <button style={ST.startBtn} onClick={() => { actions.reset(); setTimeout(() => actions.setPhase('play'), 100); }}>🔄 Play Again</button>
-      </div>
-    </div>
-  );
-
-  if (state.phase === 'gameover') return (
-    <div style={{ ...ST.overlay, background:'linear-gradient(180deg,#1a0000,#330000)' }}>
-      <div style={{ ...ST.modal, maxWidth: 420, border:'4px solid #ff0000' }}>
-        <div style={{ fontSize:60 }}>💀</div>
-        <h1 style={{ fontFamily:'Impact, Arial Black', fontSize:40, color:'#ff2222', textShadow:'2px 2px 0 #000', margin:'8px 0' }}>D'OH!</h1>
-        <p style={{ fontFamily:'Arial,sans-serif', color:'#555', fontSize:16 }}>The aliens got the Simpsons!</p>
-        <p style={{ fontFamily:'Arial,sans-serif', fontSize:20, fontWeight:'bold', color:'#333' }}>Final Score: {state.score}</p>
-        <button style={{ ...ST.startBtn, background:'#cc0000' }} onClick={() => { actions.reset(); setTimeout(() => actions.setPhase('play'), 100); }}>🔄 Try Again</button>
+        <button style={ST.startBtn} onClick={startGame}>🛸 START THE SIMULATION</button>
       </div>
     </div>
   );
@@ -1002,52 +992,58 @@ function GameUI() {
     <>
       {state.quip && <div style={ST.quip}>{state.quip}</div>}
       
-      {state.nearDoor && !state.chars[state.activeCharIdx].hidden && (
+      {state.nearDoor && !state.isSpectator && !state.chars[state.activeCharIdx].hidden && (
          <div style={{ position:'absolute', top:'60%', left:'50%', transform:'translateX(-50%)', background:'rgba(255,255,255,0.9)', padding:'10px 20px', borderRadius:10, border:'3px solid #7B3F00', fontWeight:'bold', fontSize:18, zIndex: 60 }}>
            Press <kbd style={ST.kbd}>E</kbd> to Hide in Building
          </div>
       )}
 
-      <div style={ST.topLeft}>
-        <div style={{ fontSize:22, letterSpacing:3 }}>{'❤️'.repeat(state.lives)}{'🖤'.repeat(Math.max(0, 3-state.lives))}</div>
-        <div style={{ fontSize:13, color:'#666', marginTop:2, fontFamily:'Arial,sans-serif' }}>Score: <b>{state.score}</b></div>
-      </div>
+      {state.isSpectator && (
+        <div style={{ position:'absolute', top:'10%', left:'50%', transform:'translateX(-50%)', background:'rgba(0,0,0,0.8)', color:'white', padding:'10px 20px', borderRadius:10, border:'2px solid red', fontWeight:'bold', fontSize:18, zIndex: 60 }}>
+          👀 SPECTATOR MODE (Lobby Full)
+        </div>
+      )}
+
+      {!state.isSpectator && (
+        <div style={ST.topLeft}>
+          <div style={{ fontSize:22, letterSpacing:3 }}>{'❤️'.repeat(state.lives)}{'🖤'.repeat(Math.max(0, 3-state.lives))}</div>
+          <div style={{ fontSize:13, color:'#666', marginTop:2, fontFamily:'Arial,sans-serif' }}>Score: <b>{state.score}</b></div>
+        </div>
+      )}
 
       <div style={ST.topRight}>
-        <div style={{ fontSize:12, fontWeight:'bold', marginBottom:4, color:'#555', fontFamily:'Arial Black' }}>SPRINGFIELD FAMILY</div>
+        <div style={{ fontSize:12, fontWeight:'bold', marginBottom:4, color:'#555', fontFamily:'Arial Black' }}>ROSTER STATUS</div>
         {CHARACTERS.map((c, i) => {
           const cs   = state.chars[i];
-          const isAct = i === state.activeCharIdx;
+          const isAct = i === state.activeCharIdx && !state.isSpectator;
           const speedOn = Date.now() < (cs?.speedBoostEnd || 0);
           const slowOn  = Date.now() < (cs?.slowTimeEnd   || 0);
           return (
-            <div key={c.id} style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 8px', borderRadius:8, marginBottom:3, background: isAct ? '#fffbe6' : 'rgba(255,255,255,0.4)', border: isAct ? '2px solid #FFD90F' : '2px solid transparent', opacity: cs?.done ? 0.4 : 1, fontFamily: 'Arial, sans-serif', fontSize: 13, cursor: 'pointer' }} onClick={() => actions.switchChar(i)}>
+            <div key={c.id} style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 8px', borderRadius:8, marginBottom:3, background: isAct ? '#fffbe6' : 'rgba(255,255,255,0.4)', border: isAct ? '2px solid #FFD90F' : '2px solid transparent', opacity: cs?.done ? 0.4 : 1, fontFamily: 'Arial, sans-serif', fontSize: 13 }}>
               <span>{c.emoji}</span>
               <span style={{ fontWeight: isAct ? 'bold' : 'normal' }}>{c.name}</span>
               {cs?.done && <span style={{ color:'#27ae60' }}>✅</span>}
-              {isAct && !cs?.done && <span>▶</span>}
+              {isAct && !cs?.done && <span>(You)</span>}
               {cs?.shieldActive && <span title="Shield active">🛡️</span>}
               {speedOn && <span title="Speed boost">🏃</span>}
               {slowOn  && <span title="Slow time active">🕐</span>}
-              <span style={{ marginLeft:'auto', color:'#999', fontSize:11 }}>{c.goalEmoji} {c.goal.split(' ')[0]}...</span>
             </div>
           );
         })}
-        <div style={{ marginTop:4, fontSize:11, color:'#888', fontFamily:'Arial,sans-serif' }}><kbd style={ST.kbd}>Tab</kbd> switch · <kbd style={ST.kbd}>Q</kbd> ability</div>
       </div>
 
       <div style={ST.goalBox}>
         <span style={{ fontWeight:'bold', fontFamily:'Arial Black' }}>🎯 {completedCount}/4 safe</span>
-        {state.activeCharIdx < CHARACTERS.length && (
+        {!state.isSpectator && state.activeCharIdx < CHARACTERS.length && (
           <span style={{ marginLeft:12, color:'#555', fontFamily:'Arial,sans-serif', fontSize:13 }}>
-            {CHARACTERS[state.activeCharIdx].emoji} {CHARACTERS[state.activeCharIdx].name} → {CHARACTERS[state.activeCharIdx].goalEmoji} {CHARACTERS[state.activeCharIdx].goal}
+            Your Goal: {CHARACTERS[state.activeCharIdx].goalEmoji} {CHARACTERS[state.activeCharIdx].goal}
           </span>
         )}
       </div>
 
       <div style={ST.chatArea}>
         <div style={ST.chatLog}>
-          {state.chatMessages.map((m,i) => (<div key={i}><b style={{ color: '#FFD90F' }}>{m.name}:</b> {m.text}</div>))}
+          {state.chatMessages.map((m,i) => (<div key={i}><b style={{ color: m.name === 'SYSTEM' ? '#ff4444' : '#FFD90F' }}>{m.name}:</b> {m.text}</div>))}
         </div>
         <input style={ST.chatInput} placeholder="Chat..." value={chatText} onChange={e => setChatText(e.target.value)} onKeyDown={e => {
           if (e.key === 'Enter' && chatText.trim()) {
@@ -1067,14 +1063,52 @@ export default function SpringfieldUnderSiege() {
   const store = useSpringfieldStore();
 
   useEffect(() => {
+    // 1. Establish the connection to the multiplayer server
+    socket = io(SOCKET_URL);
+
+    // 2. Listen for Character Assignment
+    socket.on('assign_character', (data) => {
+      store.actions.setAssignedCharacter(data.charId);
+    });
+
+    // 3. Listen for Full Server
+    socket.on('game_full', (data) => {
+      store.actions.setAssignedCharacter('spectator');
+      store.actions.addChatMessage({ name: 'SYSTEM', text: data.message });
+    });
+
+    // 4. Listen for other players moving
+    socket.on('player_moved', (data) => {
+      const idx = CHARACTERS.findIndex(c => c.id === data.charId);
+      if (idx !== -1 && store.charGroupRefs.current[idx].current) {
+         const g = store.charGroupRefs.current[idx].current;
+         g.position.copy(data.position);
+         g.rotation.y = data.rotation.y;
+         
+         // Update animation ref so they swing their arms
+         store.networkMovingRefs.current[idx] = data.isMoving;
+      }
+    });
+
+    // 5. Listen for chat
+    socket.on('chat', (data) => {
+      store.actions.addChatMessage(data);
+    });
+
+    // Standard Keyboard setup
     const onDown = e => {
       if (document.activeElement?.tagName === 'INPUT') return;
       const k = e.key.toLowerCase(); keyState[k] = true;
-      if ([' ','arrowup','arrowdown','arrowleft','arrowright','tab'].includes(k)) e.preventDefault();
+      if ([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
     };
     const onUp = e => { keyState[e.key.toLowerCase()] = false; };
     window.addEventListener('keydown', onDown, { passive: false }); window.addEventListener('keyup', onUp);
-    return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
+    
+    return () => { 
+      window.removeEventListener('keydown', onDown); 
+      window.removeEventListener('keyup', onUp); 
+      socket.disconnect();
+    };
   }, []);
 
   return (
